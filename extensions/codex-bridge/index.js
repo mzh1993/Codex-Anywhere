@@ -33,6 +33,7 @@ const DEFAULT_MAX_CHANGED_FILES = 8;
 const DEFAULT_ABORT_GRACE_MS = 5000;
 
 const activeTasks = new Map();
+export const __activeTasks = activeTasks;
 
 export default definePluginEntry({
   id: "codex-bridge",
@@ -51,7 +52,7 @@ export default definePluginEntry({
   },
 });
 
-class CodexBridge {
+export class CodexBridge {
   constructor(api) {
     this.api = api;
     this.settings = resolveSettings(api);
@@ -913,60 +914,68 @@ class CodexBridge {
   }
 
   async handleStdout(senderId, chunk) {
-    const runtime = activeTasks.get(senderId);
-    if (!runtime) return;
-    const text = String(chunk);
-    await appendFile(runtime.run.stdoutLogPath, text);
-    runtime.stdoutBuffer += text;
-    const lines = runtime.stdoutBuffer.split(/\r?\n/);
-    runtime.stdoutBuffer = lines.pop() ?? "";
-    for (const rawLine of lines) {
-      const line = rawLine.trim();
-      if (!line) continue;
-      const parsed = safeJsonParse(line);
-      const hint = parsed ? extractStatusHint(parsed) : undefined;
-      if (hint) {
-        runtime.task.lastStatusHint = hint;
-        runtime.run.lastStatusHint = hint;
-        runtime.task.updatedAt = new Date().toISOString();
-        runtime.run.updatedAt = runtime.task.updatedAt;
-        await this.saveTask(runtime.task);
-        await this.saveRun(runtime.run);
-        await this.maybeSendStatusHint(runtime.task, hint);
-      }
-      if (!runtime.task.sessionId) {
-        const sessionId = findSessionIdInText(line);
-        if (sessionId) {
-          runtime.task.sessionId = sessionId;
-          runtime.run.sessionId = sessionId;
-          await this.onTaskSessionResolved(runtime.task);
+    try {
+      const runtime = activeTasks.get(senderId);
+      if (!runtime) return;
+      const text = String(chunk);
+      await appendFile(runtime.run.stdoutLogPath, text);
+      runtime.stdoutBuffer += text;
+      const lines = runtime.stdoutBuffer.split(/\r?\n/);
+      runtime.stdoutBuffer = lines.pop() ?? "";
+      for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line) continue;
+        const parsed = safeJsonParse(line);
+        const hint = parsed ? extractStatusHint(parsed) : undefined;
+        if (hint) {
+          runtime.task.lastStatusHint = hint;
+          runtime.run.lastStatusHint = hint;
+          runtime.task.updatedAt = new Date().toISOString();
+          runtime.run.updatedAt = runtime.task.updatedAt;
+          await this.saveTask(runtime.task);
+          await this.saveRun(runtime.run);
+          await this.maybeSendStatusHint(runtime.task, hint);
+        }
+        if (!runtime.task.sessionId) {
+          const sessionId = findSessionIdInText(line);
+          if (sessionId) {
+            runtime.task.sessionId = sessionId;
+            runtime.run.sessionId = sessionId;
+            await this.onTaskSessionResolved(runtime.task);
+          }
         }
       }
+    } catch (error) {
+      await this.handleRuntimePersistenceFailure(senderId, error);
     }
   }
 
   async handleStderr(senderId, chunk) {
-    const runtime = activeTasks.get(senderId);
-    if (!runtime) return;
-    const text = String(chunk);
-    await appendFile(runtime.run.stderrLogPath, text);
-    runtime.stderrBuffer += text;
-    const lines = runtime.stderrBuffer.split(/\r?\n/);
-    runtime.stderrBuffer = lines.pop() ?? "";
-    let lastWarning = null;
-    for (const rawLine of lines) {
-      const line = rawLine.trim();
-      if (!line) continue;
-      if (looksLikeBenignCodexWarning(line)) continue;
-      lastWarning = line;
-    }
-    if (lastWarning) {
-      runtime.task.lastStatusHint = `stderr: ${truncate(lastWarning, 180)}`;
-      runtime.run.lastStatusHint = runtime.task.lastStatusHint;
-      runtime.task.updatedAt = new Date().toISOString();
-      runtime.run.updatedAt = runtime.task.updatedAt;
-      await this.saveTask(runtime.task);
-      await this.saveRun(runtime.run);
+    try {
+      const runtime = activeTasks.get(senderId);
+      if (!runtime) return;
+      const text = String(chunk);
+      await appendFile(runtime.run.stderrLogPath, text);
+      runtime.stderrBuffer += text;
+      const lines = runtime.stderrBuffer.split(/\r?\n/);
+      runtime.stderrBuffer = lines.pop() ?? "";
+      let lastWarning = null;
+      for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line) continue;
+        if (looksLikeBenignCodexWarning(line)) continue;
+        lastWarning = line;
+      }
+      if (lastWarning) {
+        runtime.task.lastStatusHint = `stderr: ${truncate(lastWarning, 180)}`;
+        runtime.run.lastStatusHint = runtime.task.lastStatusHint;
+        runtime.task.updatedAt = new Date().toISOString();
+        runtime.run.updatedAt = runtime.task.updatedAt;
+        await this.saveTask(runtime.task);
+        await this.saveRun(runtime.run);
+      }
+    } catch (error) {
+      await this.handleRuntimePersistenceFailure(senderId, error);
     }
   }
 
@@ -984,30 +993,38 @@ class CodexBridge {
   }
 
   async maybeSendHeartbeat(senderId) {
-    const runtime = activeTasks.get(senderId);
-    if (!runtime) return;
-    const now = Date.now();
-    if (now - runtime.task.lastHeartbeatAtMs < this.settings.heartbeatMs) return;
-    runtime.task.lastHeartbeatAtMs = now;
-    runtime.task.updatedAt = new Date().toISOString();
-    await this.saveTask(runtime.task);
-    const elapsed = formatElapsed(runtime.task.startedAt);
-    const suffix = runtime.task.lastStatusHint ? `\n${this.text.lastLabel}: ${localizeStatusHint(this.settings.locale, runtime.task.lastStatusHint)}` : "";
-    await this.safeReply({
-      accountId: runtime.task.accountId,
-      conversationId: runtime.task.conversationId,
-      text: this.text.taskStillRunning(runtime.task.taskId, elapsed, suffix),
-    });
+    try {
+      const runtime = activeTasks.get(senderId);
+      if (!runtime) return;
+      const now = Date.now();
+      if (now - runtime.task.lastHeartbeatAtMs < this.settings.heartbeatMs) return;
+      runtime.task.lastHeartbeatAtMs = now;
+      runtime.task.updatedAt = new Date().toISOString();
+      await this.saveTask(runtime.task);
+      const elapsed = formatElapsed(runtime.task.startedAt);
+      const suffix = runtime.task.lastStatusHint ? `\n${this.text.lastLabel}: ${localizeStatusHint(this.settings.locale, runtime.task.lastStatusHint)}` : "";
+      await this.safeReply({
+        accountId: runtime.task.accountId,
+        conversationId: runtime.task.conversationId,
+        text: this.text.taskStillRunning(runtime.task.taskId, elapsed, suffix),
+      });
+    } catch (error) {
+      await this.handleRuntimePersistenceFailure(senderId, error);
+    }
   }
 
   async maybeResolveSessionId(senderId) {
-    const runtime = activeTasks.get(senderId);
-    if (!runtime || runtime.task.sessionId) return;
-    const snapshot = await this.snapshotSessionFiles();
-    const candidate = findNewSessionId(runtime.run.beforeSessions, snapshot);
-    if (!candidate) return;
-    runtime.task.sessionId = candidate;
-    await this.onTaskSessionResolved(runtime.task);
+    try {
+      const runtime = activeTasks.get(senderId);
+      if (!runtime || runtime.task.sessionId) return;
+      const snapshot = await this.snapshotSessionFiles();
+      const candidate = findNewSessionId(runtime.run.beforeSessions, snapshot);
+      if (!candidate) return;
+      runtime.task.sessionId = candidate;
+      await this.onTaskSessionResolved(runtime.task);
+    } catch (error) {
+      await this.handleRuntimePersistenceFailure(senderId, error);
+    }
   }
 
   async onTaskSessionResolved(task) {
@@ -1029,75 +1046,85 @@ class CodexBridge {
 
   async finishTask(senderId, result) {
     const runtime = activeTasks.get(senderId);
-    if (!runtime) return;
-    if (runtime.heartbeatTimer) clearInterval(runtime.heartbeatTimer);
-    if (runtime.sessionPollTimer) clearInterval(runtime.sessionPollTimer);
-    activeTasks.delete(senderId);
+    if (!runtime || runtime.finishing) return;
+    runtime.finishing = true;
+    try {
+      if (runtime.heartbeatTimer) clearInterval(runtime.heartbeatTimer);
+      if (runtime.sessionPollTimer) clearInterval(runtime.sessionPollTimer);
 
-    const task = runtime.task;
-    const run = runtime.run;
-    if (runtime.stdoutBuffer) await appendFile(run.stdoutLogPath, runtime.stdoutBuffer);
-    if (runtime.stderrBuffer) await appendFile(run.stderrLogPath, runtime.stderrBuffer);
+      const task = runtime.task;
+      const run = runtime.run;
+      if (runtime.stdoutBuffer) await appendFile(run.stdoutLogPath, runtime.stdoutBuffer);
+      if (runtime.stderrBuffer) await appendFile(run.stderrLogPath, runtime.stderrBuffer);
 
-    if (!task.sessionId) {
-      const snapshot = await this.snapshotSessionFiles();
-      const candidate = findNewSessionId(run.beforeSessions, snapshot);
-      if (candidate) task.sessionId = candidate;
+      if (!task.sessionId) {
+        const snapshot = await this.snapshotSessionFiles();
+        const candidate = findNewSessionId(run.beforeSessions, snapshot);
+        if (candidate) task.sessionId = candidate;
+      }
+      if (task.sessionId) await this.onTaskSessionResolved(task);
+
+      const lastMessage = await readText(run.lastMessagePath);
+      const finalSummary = normalizeText(lastMessage);
+      const changedFiles = extractChangedFiles(finalSummary);
+      const nextSteps = extractNextSteps(finalSummary);
+      const persisted = applyRunResultToPersistence({
+        task,
+        run,
+        result: {
+          ...result,
+          stopping: runtime.stopping,
+        },
+        summary: finalSummary,
+        changedFiles,
+        nextSteps,
+        sessionId: task.sessionId ?? run.sessionId ?? null,
+      });
+      const nextTask = persisted.task;
+      const nextRun = persisted.run;
+      await this.saveTask(nextTask);
+      await this.saveRun(nextRun);
+
+      const profile = await this.loadProfile(senderId, null);
+      if (profile) {
+        if (isActiveTaskStatus(nextTask.status)) profile.activeTaskId = nextTask.taskId;
+        else if (profile.activeTaskId === nextTask.taskId) delete profile.activeTaskId;
+        if (nextTask.sessionId) profile.lastSessionId = nextTask.sessionId;
+        profile.lastTaskId = nextTask.taskId;
+        profile.updatedAt = new Date().toISOString();
+        await this.saveProfile(profile);
+      }
+
+      activeTasks.delete(senderId);
+      await this.safeReply({
+        accountId: nextTask.accountId,
+        conversationId: nextTask.conversationId,
+        text: this.text.taskFinished({ ...nextTask, runStatus: nextRun.status }),
+      });
+    } catch (error) {
+      runtime.finishing = false;
+      await this.handleRuntimePersistenceFailure(senderId, error);
     }
-    if (task.sessionId) await this.onTaskSessionResolved(task);
-
-    const lastMessage = await readText(run.lastMessagePath);
-    const finalSummary = normalizeText(lastMessage);
-    const changedFiles = extractChangedFiles(finalSummary);
-    const nextSteps = extractNextSteps(finalSummary);
-    const persisted = applyRunResultToPersistence({
-      task,
-      run,
-      result: {
-        ...result,
-        stopping: runtime.stopping,
-      },
-      summary: finalSummary,
-      changedFiles,
-      nextSteps,
-      sessionId: task.sessionId ?? run.sessionId ?? null,
-    });
-    const nextTask = persisted.task;
-    const nextRun = persisted.run;
-    await this.saveTask(nextTask);
-    await this.saveRun(nextRun);
-
-    const profile = await this.loadProfile(senderId, null);
-    if (profile) {
-      if (isActiveTaskStatus(nextTask.status)) profile.activeTaskId = nextTask.taskId;
-      else if (profile.activeTaskId === nextTask.taskId) delete profile.activeTaskId;
-      if (nextTask.sessionId) profile.lastSessionId = nextTask.sessionId;
-      profile.lastTaskId = nextTask.taskId;
-      profile.updatedAt = new Date().toISOString();
-      await this.saveProfile(profile);
-    }
-
-    await this.safeReply({
-      accountId: nextTask.accountId,
-      conversationId: nextTask.conversationId,
-      text: this.text.taskFinished({ ...nextTask, runStatus: nextRun.status }),
-    });
   }
 
   async stopTask(task, reason) {
-    const runtime = activeTasks.get(task.senderId);
-    if (!runtime || runtime.stopping) return;
-    runtime.stopping = true;
-    task.updatedAt = new Date().toISOString();
-    task.error = reason;
-    await this.saveTask(task);
-    runtime.run.error = reason;
-    runtime.run.updatedAt = task.updatedAt;
-    await this.saveRun(runtime.run);
-    runtime.child.kill("SIGTERM");
-    setTimeout(() => {
-      if (activeTasks.has(task.senderId)) runtime.child.kill("SIGKILL");
-    }, DEFAULT_ABORT_GRACE_MS).unref?.();
+    try {
+      const runtime = activeTasks.get(task.senderId);
+      if (!runtime || runtime.stopping) return;
+      runtime.stopping = true;
+      task.updatedAt = new Date().toISOString();
+      task.error = reason;
+      await this.saveTask(task);
+      runtime.run.error = reason;
+      runtime.run.updatedAt = task.updatedAt;
+      await this.saveRun(runtime.run);
+      runtime.child.kill("SIGTERM");
+      setTimeout(() => {
+        if (activeTasks.has(task.senderId)) runtime.child.kill("SIGKILL");
+      }, DEFAULT_ABORT_GRACE_MS).unref?.();
+    } catch (error) {
+      await this.handleRuntimePersistenceFailure(task.senderId, error);
+    }
   }
 
   async abortAll(reason) {
@@ -1314,6 +1341,84 @@ class CodexBridge {
     for (const file of await listFilesRecursive(root)) files.add(file);
     return files;
   }
+
+  async handleRuntimePersistenceFailure(senderId, error) {
+    const runtime = activeTasks.get(senderId);
+    this.api.logger.error?.(`codex-bridge runtime persistence failure: sender=${senderId} error=${toErrorText(error)}`);
+    if (!runtime || runtime.recoveringFromPersistenceFailure) return;
+    runtime.recoveringFromPersistenceFailure = true;
+
+    if (runtime.heartbeatTimer) clearInterval(runtime.heartbeatTimer);
+    if (runtime.sessionPollTimer) clearInterval(runtime.sessionPollTimer);
+    activeTasks.delete(senderId);
+
+    try {
+      runtime.child.kill?.("SIGTERM");
+    } catch (killError) {
+      this.api.logger.warn?.(`codex-bridge runtime kill failed: ${toErrorText(killError)}`);
+    }
+    setTimeout(() => {
+      try {
+        runtime.child.kill?.("SIGKILL");
+      } catch (killError) {
+        this.api.logger.warn?.(`codex-bridge runtime force-kill failed: ${toErrorText(killError)}`);
+      }
+    }, DEFAULT_ABORT_GRACE_MS).unref?.();
+
+    const recovered = recoverStaleRunningTask({
+      task: runtime.task,
+      run: runtime.run
+        ? {
+            ...runtime.run,
+            error: runtime.run.error ?? `runtime persistence failure: ${toErrorText(error)}`,
+          }
+        : null,
+    });
+
+    await this.persistRecoveredRuntimeState(runtime, recovered, error);
+
+    await this.safeReply({
+      accountId: runtime.task.accountId,
+      conversationId: runtime.task.conversationId,
+      messageId: runtime.task.messageId,
+      text: this.text.interruptedTaskRequiresContinue(runtime.task.taskId),
+    });
+  }
+
+  async persistRecoveredRuntimeState(runtime, recovered, error) {
+    try {
+      await this.saveTask(recovered.task);
+    } catch (taskError) {
+      this.api.logger.error?.(`codex-bridge recovered task persistence failed: ${toErrorText(taskError)}`);
+    }
+
+    if (recovered.run) {
+      try {
+        await this.saveRun(recovered.run);
+      } catch (runError) {
+        this.api.logger.error?.(`codex-bridge recovered run persistence failed: ${toErrorText(runError)}`);
+      }
+    }
+
+    const profile = await this.loadProfile(runtime.task.senderId, null).catch((profileError) => {
+      this.api.logger.error?.(`codex-bridge recovered profile load failed: ${toErrorText(profileError)}`);
+      return null;
+    });
+    if (!profile) return;
+
+    profile.activeTaskId = recovered.task.taskId;
+    profile.lastTaskId = recovered.task.taskId;
+    if (recovered.task.sessionId) profile.lastSessionId = recovered.task.sessionId;
+    if (profile.pendingApprovalToken === runtime.task.approvalToken) delete profile.pendingApprovalToken;
+    profile.updatedAt = new Date().toISOString();
+
+    try {
+      await this.saveProfile(profile);
+    } catch (profileSaveError) {
+      this.api.logger.error?.(`codex-bridge recovered profile persistence failed: ${toErrorText(profileSaveError)}`);
+      this.api.logger.error?.(`codex-bridge recovery degraded after sender=${runtime.task.senderId}: ${toErrorText(error)}`);
+    }
+  }
 }
 
 function parseCodexCommand(text) {
@@ -1379,9 +1484,13 @@ async function ensureDir(dirPath) {
   await fsp.mkdir(dirPath, { recursive: true });
 }
 
+export function makeAtomicJsonTempPath(filePath) {
+  return `${filePath}.${process.pid}.${Date.now()}.${crypto.randomUUID()}.tmp`;
+}
+
 async function writeJson(filePath, value) {
   await ensureDir(path.dirname(filePath));
-  const tmpPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  const tmpPath = makeAtomicJsonTempPath(filePath);
   await fsp.writeFile(tmpPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
   await fsp.rename(tmpPath, filePath);
 }
