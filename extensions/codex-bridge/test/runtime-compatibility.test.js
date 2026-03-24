@@ -302,6 +302,78 @@ test("approved start fails closed without consuming approval state when runtime 
   assert.doesNotMatch(replies[0], /任务已启动/);
 });
 
+test("approve command ignores trailing text after the token", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-approve-token-"));
+  const { bridge, replies } = await createBridgeHarness(tempRoot);
+
+  bridge.ensureExecutionRuntimeReady = async () => ({
+    ok: false,
+    reasonCode: "unsupported_bwrap",
+    message: "bubblewrap >= 0.9.0 required; current 0.4.0",
+  });
+
+  const task = createTaskRecord({
+    taskId: "task-approved",
+    locale: "zh-CN",
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-old",
+    cwd: tempRoot,
+    mode: "new",
+    status: "awaiting_approval",
+    currentRunId: null,
+    lastRunId: "run-blocked",
+    approvalToken: "TOKEN1",
+    prompt: "重启服务",
+    createdAt: "2026-03-24T08:00:00.000Z",
+    updatedAt: "2026-03-24T08:00:00.000Z",
+  });
+  const profile = {
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    defaultCwd: tempRoot,
+    activeTaskId: task.taskId,
+    lastTaskId: task.taskId,
+    pendingApprovalToken: "TOKEN1",
+    updatedAt: "2026-03-24T08:00:00.000Z",
+  };
+  const approval = {
+    token: "TOKEN1",
+    taskId: task.taskId,
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-old",
+    mode: "new",
+    prompt: "重启服务",
+    cwd: tempRoot,
+    sessionId: null,
+    policyDecision: "approval_required",
+    reasonCodes: ["service_control_requires_approval"],
+    createdAtMs: Date.now(),
+    expiresAtMs: Date.now() + 60_000,
+  };
+
+  await bridge.saveTask(task);
+  await bridge.saveProfile(profile);
+  await bridge.writeApproval(approval);
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-approve",
+    text: "/codex approve TOKEN1 批准执行",
+  });
+
+  assert.equal(replies.length, 1);
+  assert.doesNotMatch(replies[0], /未找到审批令牌/);
+  assert.match(replies[0], /执行环境|bubblewrap|基础设施/);
+});
+
 test("malformed codex command prefix is rejected without starting a task", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-malformed-command-"));
   const { bridge, replies } = await createBridgeHarness(tempRoot);

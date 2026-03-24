@@ -91,6 +91,19 @@ test("running-task guidance does not mislabel status as a continue command", () 
   assert.doesNotMatch(text, /`\/codex status` 提交明确的继续输入/);
 });
 
+test("running-task guidance does not repeat the same status command twice", () => {
+  const zh = getLocaleText("zh-CN");
+  const text = zh.taskAlreadyRunning({
+    taskId: "task-1",
+    status: "running",
+    code: "active_task_exists",
+    suggestedCommand: "/codex status",
+  });
+
+  assert.equal(text.match(/\/codex status/g)?.length ?? 0, 1);
+  assert.match(text, /`\/codex abort`/);
+});
+
 test("approval-required decision transitions task to awaiting_approval", () => {
   const next = finishApprovalTransition({ currentStatus: "running", decision: "approval_required" });
   assert.equal(next.status, "awaiting_approval");

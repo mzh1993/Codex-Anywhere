@@ -311,7 +311,8 @@ export class CodexBridge {
     }
 
     if (parsed.name === "approve") {
-      if (!parsed.args) {
+      const approvalToken = extractFirstArgToken(parsed.args);
+      if (!approvalToken) {
         await this.safeReply({
           accountId: request.accountId,
           conversationId: request.conversationId,
@@ -320,7 +321,7 @@ export class CodexBridge {
         });
         return;
       }
-      await this.approvePendingRequest(profile, request, parsed.args.trim());
+      await this.approvePendingRequest(profile, request, approvalToken);
       return;
     }
 
@@ -1473,6 +1474,13 @@ function parseCodexCommand(text) {
     name: rest.slice(0, firstSpace).toLowerCase(),
     args: rest.slice(firstSpace + 1).trim(),
   };
+}
+
+function extractFirstArgToken(text) {
+  const normalized = normalizeText(text);
+  if (!normalized) return "";
+  const [firstToken = ""] = normalized.split(/\s+/, 1);
+  return firstToken;
 }
 
 function isCodexCommand(text) {

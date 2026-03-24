@@ -113,6 +113,15 @@ function getActiveTaskActionLine(locale, suggestedCommand) {
   return `Use \`${command}\` to handle the current task first.`;
 }
 
+function getActiveTaskFallbackLine(locale, suggestedCommand) {
+  const normalized = normalizeLocale(locale);
+  const statusIncluded = suggestedCommand === "/codex status";
+  if (normalized === "zh-CN") {
+    return statusIncluded ? "也可以使用 `/codex abort`。" : "也可以使用 `/codex status` 或 `/codex abort`。";
+  }
+  return statusIncluded ? "Use `/codex abort` if needed." : "Use `/codex status` or `/codex abort` if needed.";
+}
+
 export function getLocaleText(locale) {
   const normalized = normalizeLocale(locale);
   if (normalized === "zh-CN") {
@@ -169,7 +178,7 @@ export function getLocaleText(locale) {
           ...(details.status ? [`状态：${localizeTaskStatus(normalized, details.status)}`] : []),
           ...(details.code ? [`代码：${details.code}`] : []),
           getActiveTaskActionLine(normalized, details.suggestedCommand),
-          "也可以使用 `/codex status` 或 `/codex abort`。",
+          getActiveTaskFallbackLine(normalized, details.suggestedCommand),
         ].join("\n");
       },
       requestRejected: (reasons) => [
@@ -295,7 +304,7 @@ export function getLocaleText(locale) {
         ...(details.status ? [`Status: ${localizeTaskStatus(normalized, details.status)}`] : []),
         ...(details.code ? [`Code: ${details.code}`] : []),
         getActiveTaskActionLine(normalized, details.suggestedCommand),
-        "Use `/codex status` or `/codex abort` if needed.",
+        getActiveTaskFallbackLine(normalized, details.suggestedCommand),
       ].join("\n");
     },
     requestRejected: (reasons) => [
