@@ -114,6 +114,31 @@ V1 不尝试复刻桌面 Codex 会话，只做任务型远程执行。
 - 当前 `~/.openclaw` 与 bridge 隔离状态目录直接拒绝，是因为它们会破坏运行边界本身。
 - 当前对 `move / rename / copy` 等词已做最小去歧义：讨论计划不等于执行动作。
 
+## 边界回归测试命名
+
+- 当前回归测试文件：`extensions/codex-bridge/test/policy.test.js`
+- 当前命名前缀格式：`<decision>/<action>/<zone>: <case>`
+- 当前 `decision` 取值：
+  - `allow`
+  - `approval`
+  - `deny`
+- 当前 `action` 取值示例：
+  - `read`
+  - `write`
+  - `control`
+  - `install`
+  - `destructive`
+  - `any`
+- 当前 `zone` 取值示例：
+  - `inside_cwd`
+  - `outside_cwd`
+  - `protected_root`
+  - `host_codex_root`
+  - `service`
+  - `global_env`
+  - `discussion`
+- 当前约定：每补一条策略矩阵，都应至少补一条同语义前缀的回归测试。
+
 ## Feishu 命令
 
 ```text

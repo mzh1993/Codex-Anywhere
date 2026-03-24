@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { assessPolicyDecision, POLICY_DECISIONS } from "../lib/policy.js";
 import { isPathInside, isPathInsideAny } from "../lib/fs-utils.js";
 
-test("policy decision protocol values stay stable", () => {
+test("protocol/decision: values stay stable", () => {
   assert.deepEqual(POLICY_DECISIONS, {
     ALLOWED: "allowed",
     APPROVAL_REQUIRED: "approval_required",
@@ -11,7 +11,7 @@ test("policy decision protocol values stay stable", () => {
   });
 });
 
-test("protected runner state returns denied with a stable code", () => {
+test("deny/any/protected_root: protected runner state returns denied with a stable code", () => {
   const decision = assessPolicyDecision({
     prompt: "inspect logs",
     cwd: "/repo/.isolated/codex-feishu/state/codex-bridge",
@@ -22,7 +22,7 @@ test("protected runner state returns denied with a stable code", () => {
   assert.deepEqual(decision.reasonCodes, ["isolation_boundary_denied"]);
 });
 
-test("service-control requests require approval", () => {
+test("approval/control/service: service-control requests require approval", () => {
   const decision = assessPolicyDecision({
     prompt: "restart systemctl user service",
     cwd: "/home/neousys/project",
@@ -33,7 +33,7 @@ test("service-control requests require approval", () => {
   assert.deepEqual(decision.reasonCodes, ["service_control_requires_approval"]);
 });
 
-test("isolated gateway service control still requires approval instead of direct denial", () => {
+test("approval/control/service: isolated gateway service control still requires approval instead of direct denial", () => {
   const decision = assessPolicyDecision({
     prompt: "请帮我重启 openclaw-codex-feishu.service",
     cwd: "/home/neousys/project",
@@ -44,7 +44,7 @@ test("isolated gateway service control still requires approval instead of direct
   assert.deepEqual(decision.reasonCodes, ["service_control_requires_approval"]);
 });
 
-test("host codex root access requires approval", () => {
+test("approval/any/host_codex_root: host codex root access requires approval", () => {
   const decision = assessPolicyDecision({
     prompt: "list files",
     cwd: "/home/neousys/.codex/sessions",
@@ -55,7 +55,7 @@ test("host codex root access requires approval", () => {
   assert.deepEqual(decision.reasonCodes, ["host_mutation_requires_approval"]);
 });
 
-test("write inside the controlled cwd stays allowed", () => {
+test("allow/write/inside_cwd: write inside the controlled cwd stays allowed", () => {
   const decision = assessPolicyDecision({
     prompt: "write summary to ./notes/today.md",
     cwd: "/home/neousys/project",
@@ -66,7 +66,7 @@ test("write inside the controlled cwd stays allowed", () => {
   assert.deepEqual(decision.reasonCodes, []);
 });
 
-test("write to a bare relative path inside the controlled cwd stays allowed", () => {
+test("allow/write/inside_cwd: bare relative path inside the controlled cwd stays allowed", () => {
   const decision = assessPolicyDecision({
     prompt: "write summary to notes/today.md",
     cwd: "/home/neousys/project",
@@ -77,7 +77,7 @@ test("write to a bare relative path inside the controlled cwd stays allowed", ()
   assert.deepEqual(decision.reasonCodes, []);
 });
 
-test("write to host path outside the controlled cwd requires approval", () => {
+test("approval/write/outside_cwd: host path outside the controlled cwd requires approval", () => {
   const decision = assessPolicyDecision({
     prompt: "write summary to /home/neousys/Desktop/today.md",
     cwd: "/home/neousys/project",
@@ -88,7 +88,7 @@ test("write to host path outside the controlled cwd requires approval", () => {
   assert.deepEqual(decision.reasonCodes, ["host_mutation_requires_approval"]);
 });
 
-test("write to parent path outside the controlled cwd requires approval", () => {
+test("approval/write/outside_cwd: parent path outside the controlled cwd requires approval", () => {
   const decision = assessPolicyDecision({
     prompt: "append result into ../shared/result.txt",
     cwd: "/home/neousys/project/worktree",
@@ -99,7 +99,7 @@ test("write to parent path outside the controlled cwd requires approval", () => 
   assert.deepEqual(decision.reasonCodes, ["host_mutation_requires_approval"]);
 });
 
-test("write to protected host state is denied", () => {
+test("deny/write/protected_root: write to protected host state is denied", () => {
   const decision = assessPolicyDecision({
     prompt: "请修改 ~/.openclaw/config.json",
     cwd: "/home/neousys/project",
@@ -110,7 +110,7 @@ test("write to protected host state is denied", () => {
   assert.deepEqual(decision.reasonCodes, ["isolation_boundary_denied"]);
 });
 
-test("read-only requests can inspect a host path outside the controlled cwd", () => {
+test("allow/read/outside_cwd: read-only requests can inspect a host path outside the controlled cwd", () => {
   const decision = assessPolicyDecision({
     prompt: "summarize /home/neousys/Desktop/today.md in three sentences",
     cwd: "/home/neousys/project",
@@ -121,7 +121,7 @@ test("read-only requests can inspect a host path outside the controlled cwd", ()
   assert.deepEqual(decision.reasonCodes, []);
 });
 
-test("read-style update phrasing does not trigger write approval", () => {
+test("allow/read/outside_cwd: read-style update phrasing does not trigger write approval", () => {
   const decision = assessPolicyDecision({
     prompt: "update me on ../shared/result.txt",
     cwd: "/home/neousys/project/worktree",
@@ -132,7 +132,7 @@ test("read-style update phrasing does not trigger write approval", () => {
   assert.deepEqual(decision.reasonCodes, []);
 });
 
-test("reviewing a move plan does not trigger write approval", () => {
+test("allow/read/discussion: reviewing a move plan does not trigger write approval", () => {
   const decision = assessPolicyDecision({
     prompt: "review the move from ../shared/result.txt to ./notes/result.txt",
     cwd: "/home/neousys/project/worktree",
@@ -143,7 +143,7 @@ test("reviewing a move plan does not trigger write approval", () => {
   assert.deepEqual(decision.reasonCodes, []);
 });
 
-test("summarizing a rename plan does not trigger write approval", () => {
+test("allow/read/discussion: summarizing a rename plan does not trigger write approval", () => {
   const decision = assessPolicyDecision({
     prompt: "summarize the rename from ../shared/result.txt to ./notes/archive.txt",
     cwd: "/home/neousys/project/worktree",
@@ -154,7 +154,7 @@ test("summarizing a rename plan does not trigger write approval", () => {
   assert.deepEqual(decision.reasonCodes, []);
 });
 
-test("global environment changes require approval", () => {
+test("approval/install/global_env: global environment changes require approval", () => {
   const decision = assessPolicyDecision({
     prompt: "npm install -g pnpm",
     cwd: "/home/neousys/project",
@@ -165,7 +165,7 @@ test("global environment changes require approval", () => {
   assert.deepEqual(decision.reasonCodes, ["global_env_change_requires_approval"]);
 });
 
-test("destructive commands require approval", () => {
+test("approval/destructive/fs: destructive commands require approval", () => {
   const decision = assessPolicyDecision({
     prompt: "rm -rf /tmp/demo",
     cwd: "/home/neousys/project",
@@ -176,7 +176,7 @@ test("destructive commands require approval", () => {
   assert.deepEqual(decision.reasonCodes, ["destructive_change_requires_approval"]);
 });
 
-test("benign prompts are allowed", () => {
+test("allow/read/inside_cwd: benign prompts are allowed", () => {
   const decision = assessPolicyDecision({
     prompt: "show README",
     cwd: "/home/neousys/project",
@@ -187,19 +187,19 @@ test("benign prompts are allowed", () => {
   assert.deepEqual(decision.reasonCodes, []);
 });
 
-test("empty or whitespace-only candidate paths are rejected", () => {
+test("fs-utils/path: empty or whitespace-only candidate paths are rejected", () => {
   assert.equal(isPathInside("", process.cwd()), false);
   assert.equal(isPathInside("   ", process.cwd()), false);
   assert.equal(isPathInsideAny("", [process.cwd()]), false);
   assert.equal(isPathInsideAny("   ", [process.cwd()]), false);
 });
 
-test("empty or whitespace-only root paths are rejected", () => {
+test("fs-utils/path: empty or whitespace-only root paths are rejected", () => {
   assert.equal(isPathInside(process.cwd(), ""), false);
   assert.equal(isPathInside(process.cwd(), "   "), false);
 });
 
-test("root path matching treats slash as ancestor of all absolute paths", () => {
+test("fs-utils/path: root path matching treats slash as ancestor of all absolute paths", () => {
   assert.equal(isPathInside("/", "/"), true);
   assert.equal(isPathInside("/tmp", "/"), true);
 });
