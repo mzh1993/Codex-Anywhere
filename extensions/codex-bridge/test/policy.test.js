@@ -110,6 +110,28 @@ test("write to protected host state is denied", () => {
   assert.deepEqual(decision.reasonCodes, ["isolation_boundary_denied"]);
 });
 
+test("read-only requests can inspect a host path outside the controlled cwd", () => {
+  const decision = assessPolicyDecision({
+    prompt: "summarize /home/neousys/Desktop/today.md in three sentences",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "allowed");
+  assert.deepEqual(decision.reasonCodes, []);
+});
+
+test("read-style update phrasing does not trigger write approval", () => {
+  const decision = assessPolicyDecision({
+    prompt: "update me on ../shared/result.txt",
+    cwd: "/home/neousys/project/worktree",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "allowed");
+  assert.deepEqual(decision.reasonCodes, []);
+});
+
 test("global environment changes require approval", () => {
   const decision = assessPolicyDecision({
     prompt: "npm install -g pnpm",

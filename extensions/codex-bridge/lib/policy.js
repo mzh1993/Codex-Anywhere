@@ -18,6 +18,8 @@ const ISOLATION_BOUNDARY_PATTERNS = [
 const SERVICE_CONTROL_PATTERN = /\b(systemctl|systemd)\b|(?:\b(?:start|stop|restart|reload)\b|重启|启动|停止|重载)[^\n]*\.service\b/i;
 const GLOBAL_ENV_PATTERN = /\b(npm\s+install\s+-g|pnpm\s+add\s+-g|pip\s+install\s+--user|apt\s+install)\b/i;
 const DESTRUCTIVE_PATTERN = /\brm\s+-rf\b|\bdelete\b|\btruncate\b/i;
+const READ_ONLY_PHRASE_PATTERN = /\b(update me on|keep me updated on)\b/i;
+const READ_INTENT_PATTERN = /\b(read|show|list|summari[sz]e|inspect|check|review|view)\b|读取|查看|列出|总结|检查/i;
 const WRITE_INTENT_PATTERN =
   /\b(write|append|create|modify|edit|update|save|rewrite|replace|move|rename|copy|touch|mkdir)\b|写入|追加|创建|修改|编辑|更新|保存|覆盖|移动|重命名|复制/i;
 
@@ -29,7 +31,7 @@ export function assessPolicyDecision(input) {
   const hostCodexRoot = normalizeText(input?.hostCodexRoot);
   const controlledRoots = cwd ? [cwd] : [];
   const referencedPaths = extractReferencedPaths(prompt, cwd);
-  const writeIntent = hasWriteIntent(prompt);
+  const action = classifyAction(prompt);
 
   if (
     touchesIsolationBoundary(lowerPrompt) ||
@@ -52,7 +54,7 @@ export function assessPolicyDecision(input) {
   ) {
     reasonCodes.push("host_mutation_requires_approval");
   }
-  if (writeIntent && referencedPaths.some((candidatePath) => !isPathInsideAny(candidatePath, controlledRoots))) {
+  if (action === "write" && referencedPaths.some((candidatePath) => !isPathInsideAny(candidatePath, controlledRoots))) {
     reasonCodes.push("host_mutation_requires_approval");
   }
   if (GLOBAL_ENV_PATTERN.test(prompt)) {
@@ -77,8 +79,11 @@ function touchesIsolationBoundary(lowerPrompt) {
   return ISOLATION_BOUNDARY_PATTERNS.some((pattern) => lowerPrompt.includes(pattern));
 }
 
-function hasWriteIntent(prompt) {
-  return WRITE_INTENT_PATTERN.test(prompt);
+function classifyAction(prompt) {
+  if (READ_ONLY_PHRASE_PATTERN.test(prompt)) return "read";
+  if (WRITE_INTENT_PATTERN.test(prompt)) return "write";
+  if (READ_INTENT_PATTERN.test(prompt)) return "read";
+  return "none";
 }
 
 function extractReferencedPaths(prompt, cwd) {
