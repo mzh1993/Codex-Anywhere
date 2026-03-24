@@ -55,6 +55,61 @@ test("host codex root access requires approval", () => {
   assert.deepEqual(decision.reasonCodes, ["host_mutation_requires_approval"]);
 });
 
+test("write inside the controlled cwd stays allowed", () => {
+  const decision = assessPolicyDecision({
+    prompt: "write summary to ./notes/today.md",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "allowed");
+  assert.deepEqual(decision.reasonCodes, []);
+});
+
+test("write to a bare relative path inside the controlled cwd stays allowed", () => {
+  const decision = assessPolicyDecision({
+    prompt: "write summary to notes/today.md",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "allowed");
+  assert.deepEqual(decision.reasonCodes, []);
+});
+
+test("write to host path outside the controlled cwd requires approval", () => {
+  const decision = assessPolicyDecision({
+    prompt: "write summary to /home/neousys/Desktop/today.md",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "approval_required");
+  assert.deepEqual(decision.reasonCodes, ["host_mutation_requires_approval"]);
+});
+
+test("write to parent path outside the controlled cwd requires approval", () => {
+  const decision = assessPolicyDecision({
+    prompt: "append result into ../shared/result.txt",
+    cwd: "/home/neousys/project/worktree",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "approval_required");
+  assert.deepEqual(decision.reasonCodes, ["host_mutation_requires_approval"]);
+});
+
+test("write to protected host state is denied", () => {
+  const decision = assessPolicyDecision({
+    prompt: "请修改 ~/.openclaw/config.json",
+    cwd: "/home/neousys/project",
+    protectedRoots: ["/home/neousys/.openclaw", "/repo/.isolated/codex-feishu/state/codex-bridge"],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "denied");
+  assert.deepEqual(decision.reasonCodes, ["isolation_boundary_denied"]);
+});
+
 test("global environment changes require approval", () => {
   const decision = assessPolicyDecision({
     prompt: "npm install -g pnpm",
