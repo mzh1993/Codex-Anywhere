@@ -1,42 +1,12 @@
 # Codex Anywhere
 
-> Alpha / developer preview. Safe execution core for borderless Codex collaboration.
+> A remote bridge for working with Codex from anywhere.
 
-Work with Codex from anywhere, without letting the channel define execution semantics.
+- Start a task remotely
+- Receive status updates
+- Approve sensitive actions
 
-这个仓库当前提供一套**不触碰现有 `~/.openclaw`** 的 Codex 远程执行接入方案。当前仓库目录名仍是 `codex_feishu`，但公开产品名使用 `Codex Anywhere`。
-
-当前的产品定义是：
-
-- 核心产品是安全执行核心
-- Feishu 是第一控制平面
-- OpenClaw 是当前 transport shell
-- 最小稳定输出是文本、状态、审批
-
-当前最直接的用户价值是：
-
-- 可以远程发起任务
-- 可以看到任务状态变化
-- 可以对敏感动作做审批
-- 可以在稍后继续同一个 task
-
-这个仓库当前不试图成为：
-
-- 通用多 IM 桥接框架
-- 生产级多租户远程执行平台
-- 桌面 Codex 会话体验的等价替代
-- 已经完成系统边界强约束的成熟安全产品
-
-- `scripts/bootstrap-codex-feishu.sh`：安装隔离版 `openclaw@2026.3.22`、渲染配置、执行预检、生成 systemd user unit
-- `scripts/openclaw-isolated.sh`：强制连接隔离 gateway（自动映射 `OPENCLAW_GATEWAY_URL` / `OPENCLAW_GATEWAY_TOKEN`）
-- `scripts/send-feishu-identify.sh`：向指定 Feishu 目标发一次“这是新 bot”的识别消息，并在失败时给出明确原因
-- `scripts/feishu-app-audit.sh`：审计飞书应用的线上发布事件、回调方式与可见范围
-- `extensions/codex-bridge/`：Feishu 远程 Codex Runner 插件，负责 claim 私聊消息并调用本机 `codex exec`
-- `config/openclaw.codex-feishu.json5`：隔离实例配置模板
-- `docs/feishu-official-research.md`：官方插件能力与本机现状调研
-- `docs/feishu-second-app-runbook.md`：二号 Feishu 应用的正式落地步骤
-- `docs/feishu-codex-runner-v1.md`：Codex Runner V1 的消息协议、状态目录与风控边界
-- `docs/feishu-permissions.import.json`：官方权限批量导入 JSON
+Feishu is the first channel. OpenClaw is the current transport shell.
 
 ## 快速开始
 
@@ -49,6 +19,26 @@ export CODEX_FEISHU_APP_SECRET='xxx'
 ./scripts/bootstrap-codex-feishu.sh persist-secrets
 ./scripts/bootstrap-codex-feishu.sh gateway-run
 ```
+
+## 项目定位
+
+这是一个面向 `Codex` 的远程通信桥梁。
+
+- 当前入口：Feishu
+- 当前传输壳：OpenClaw
+- 当前稳定交互：文本、状态、审批
+
+它的职责是把远程输入、状态回传和审批动作接到本机 `codex exec`，而不是扩展成一个通用 IM 平台。
+
+## 仓库内容
+
+- `scripts/bootstrap-codex-feishu.sh`：安装隔离版 `openclaw@2026.3.22`、渲染配置、执行预检、生成 systemd user unit
+- `scripts/openclaw-isolated.sh`：强制连接隔离 gateway（自动映射 `OPENCLAW_GATEWAY_URL` / `OPENCLAW_GATEWAY_TOKEN`）
+- `scripts/send-feishu-identify.sh`：向指定 Feishu 目标发一次“这是新 bot”的识别消息，并在失败时给出明确原因
+- `scripts/feishu-app-audit.sh`：审计飞书应用的线上发布事件、回调方式与可见范围
+- `extensions/codex-bridge/`：Feishu 远程 Codex Runner 插件，负责 claim 已配对私聊消息并调用本机 `codex exec`
+- `config/openclaw.codex-feishu.json5`：隔离实例配置模板
+- `docs/feishu-codex-runner-v1.md`：Codex Runner V1 的消息协议、状态目录与风控边界
 
 ## 常用命令
 
@@ -107,7 +97,6 @@ export CODEX_FEISHU_APP_SECRET='xxx'
 - 不要把它接入运行时，不要让它进入 Feishu / OpenClaw / bridge 执行链路
 - 默认推荐技能：`brainstorming`、`writing-plans`、`requesting-code-review`、`verification-before-completion`
 - 默认不推荐：`subagent-driven-development`、`dispatching-parallel-agents`、`using-git-worktrees`
-- 具体工作流见 `docs/superpowers-workflow.md:1`
 
 ## 社区协作
 
@@ -155,9 +144,8 @@ export CODEX_FEISHU_APP_SECRET='xxx'
 
 ## Feishu 应用配置
 
-- 权限导入：`docs/feishu-permissions.import.json:1`
 - 事件订阅：`im.message.receive_v1` 和 `card.action.trigger`
-- 详细步骤：`docs/feishu-second-app-runbook.md:1`
+- 其它发布与权限细节请直接在 Feishu 开发者后台配置
 
 ## systemd 说明
 
