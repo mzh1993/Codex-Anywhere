@@ -88,6 +88,17 @@ test("allow/write/inside_cwd: bare relative path inside the controlled cwd stays
   assert.deepEqual(decision.reasonCodes, []);
 });
 
+test("allow/write/inside_cwd: shell copy within the controlled cwd stays allowed", () => {
+  const decision = assessPolicyDecision({
+    prompt: "cp ./notes/today.md ./notes/today.bak.md",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "allowed");
+  assert.deepEqual(decision.reasonCodes, []);
+});
+
 test("approval/write/outside_cwd: host path outside the controlled cwd requires approval", () => {
   const decision = assessPolicyDecision({
     prompt: "write summary to /home/neousys/Desktop/today.md",
@@ -102,6 +113,28 @@ test("approval/write/outside_cwd: host path outside the controlled cwd requires 
 test("approval/write/outside_cwd: parent path outside the controlled cwd requires approval", () => {
   const decision = assessPolicyDecision({
     prompt: "append result into ../shared/result.txt",
+    cwd: "/home/neousys/project/worktree",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "approval_required");
+  assert.deepEqual(decision.reasonCodes, ["host_mutation_requires_approval"]);
+});
+
+test("approval/write/outside_cwd: shell redirection to a host path outside the controlled cwd requires approval", () => {
+  const decision = assessPolicyDecision({
+    prompt: "echo done > /home/neousys/Desktop/out.txt",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "approval_required");
+  assert.deepEqual(decision.reasonCodes, ["host_mutation_requires_approval"]);
+});
+
+test("approval/write/outside_cwd: shell copy to parent path outside the controlled cwd requires approval", () => {
+  const decision = assessPolicyDecision({
+    prompt: "cp ./notes/today.md ../shared/today.md",
     cwd: "/home/neousys/project/worktree",
     protectedRoots: [],
     hostCodexRoot: "/home/neousys/.codex",
