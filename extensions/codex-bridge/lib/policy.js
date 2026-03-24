@@ -26,43 +26,26 @@ const WRITE_INTENT_PATTERN =
   /\b(write|append|create|modify|edit|update|save|rewrite|replace|move|rename|copy|touch|mkdir)\b|写入|追加|创建|修改|编辑|更新|保存|覆盖|移动|重命名|复制/i;
 
 export function assessPolicyDecision(input) {
-  const prompt = normalizeText(input?.prompt);
-  const lowerPrompt = prompt.toLowerCase();
-  const cwd = normalizeText(input?.cwd);
-  const protectedRoots = Array.isArray(input?.protectedRoots) ? input.protectedRoots.filter(Boolean) : [];
-  const hostCodexRoot = normalizeText(input?.hostCodexRoot);
-  const controlledRoots = cwd ? [cwd] : [];
-  const referencedPaths = extractReferencedPaths(prompt, cwd);
-  const action = classifyAction(prompt);
+  const assessment = createPolicyAssessment(input);
 
-  if (
-    touchesIsolationBoundary(lowerPrompt) ||
-    isPathInsideAny(cwd, protectedRoots) ||
-    referencedPaths.some((candidatePath) => isPathInsideAny(candidatePath, protectedRoots))
-  ) {
+  if (assessment.touchesIsolationBoundary || assessment.touchesProtectedRoots) {
     return deny("isolation_boundary_denied");
   }
 
   const reasonCodes = [];
-  if (SERVICE_CONTROL_PATTERN.test(prompt)) {
+  if (assessment.requiresServiceApproval) {
     reasonCodes.push("service_control_requires_approval");
   }
-  if (
-    hostCodexRoot &&
-    (isPathInsideAny(cwd, [hostCodexRoot]) ||
-      referencedPaths.some((candidatePath) => isPathInsideAny(candidatePath, [hostCodexRoot])) ||
-      lowerPrompt.includes(hostCodexRoot.toLowerCase()) ||
-      lowerPrompt.includes("~/.codex"))
-  ) {
+  if (assessment.touchesHostCodexRoot) {
     reasonCodes.push("host_mutation_requires_approval");
   }
-  if (action === "write" && referencedPaths.some((candidatePath) => !isPathInsideAny(candidatePath, controlledRoots))) {
+  if (assessment.writesOutsideControlledRoots) {
     reasonCodes.push("host_mutation_requires_approval");
   }
-  if (GLOBAL_ENV_PATTERN.test(prompt)) {
+  if (assessment.requiresGlobalEnvApproval) {
     reasonCodes.push("global_env_change_requires_approval");
   }
-  if (DESTRUCTIVE_PATTERN.test(prompt)) {
+  if (assessment.requiresDestructiveApproval) {
     reasonCodes.push("destructive_change_requires_approval");
   }
 
@@ -81,12 +64,56 @@ function touchesIsolationBoundary(lowerPrompt) {
   return ISOLATION_BOUNDARY_PATTERNS.some((pattern) => lowerPrompt.includes(pattern));
 }
 
+function createPolicyAssessment(input) {
+  const prompt = normalizeText(input?.prompt);
+  const lowerPrompt = prompt.toLowerCase();
+  const cwd = normalizeText(input?.cwd);
+  const protectedRoots = normalizeRoots(input?.protectedRoots);
+  const hostCodexRoot = normalizeText(input?.hostCodexRoot);
+  const controlledRoots = cwd ? [cwd] : [];
+  const referencedPaths = extractReferencedPaths(prompt, cwd);
+  const action = classifyAction(prompt);
+
+  return {
+    prompt,
+    lowerPrompt,
+    cwd,
+    protectedRoots,
+    hostCodexRoot,
+    controlledRoots,
+    referencedPaths,
+    action,
+    touchesIsolationBoundary: touchesIsolationBoundary(lowerPrompt),
+    touchesProtectedRoots:
+      isPathInsideAny(cwd, protectedRoots) || referencesPathInsideAny(referencedPaths, protectedRoots),
+    touchesHostCodexRoot: hostCodexRoot
+      ? isPathInsideAny(cwd, [hostCodexRoot]) ||
+        referencesPathInsideAny(referencedPaths, [hostCodexRoot]) ||
+        lowerPrompt.includes(hostCodexRoot.toLowerCase()) ||
+        lowerPrompt.includes("~/.codex")
+      : false,
+    writesOutsideControlledRoots:
+      action === "write" && referencedPaths.some((candidatePath) => !isPathInsideAny(candidatePath, controlledRoots)),
+    requiresServiceApproval: SERVICE_CONTROL_PATTERN.test(prompt),
+    requiresGlobalEnvApproval: GLOBAL_ENV_PATTERN.test(prompt),
+    requiresDestructiveApproval: DESTRUCTIVE_PATTERN.test(prompt),
+  };
+}
+
 function classifyAction(prompt) {
   if (READ_ONLY_PHRASE_PATTERN.test(prompt)) return "read";
   if (READ_DISCUSSION_PATTERN.test(prompt)) return "read";
   if (WRITE_INTENT_PATTERN.test(prompt)) return "write";
   if (READ_INTENT_PATTERN.test(prompt)) return "read";
   return "none";
+}
+
+function normalizeRoots(value) {
+  return Array.isArray(value) ? value.filter(Boolean) : [];
+}
+
+function referencesPathInsideAny(candidatePaths, roots) {
+  return candidatePaths.some((candidatePath) => isPathInsideAny(candidatePath, roots));
 }
 
 function extractReferencedPaths(prompt, cwd) {
