@@ -19,6 +19,8 @@ const SERVICE_CONTROL_PATTERN = /\b(systemctl|systemd)\b|(?:\b(?:start|stop|rest
 const PROCESS_CONTROL_PATTERN =
   /\b(nohup|pm2|supervisorctl|forever|daemonize|uvicorn|gunicorn)\b|\b(?:python|python3)\b[^\n]*\s-m\s+http\.server\b|\bnpx\s+http-server\b|\bflask\b[^\n]*\brun\b|\b(?:python|python3)\b[^\n]*\bmanage\.py\b[^\n]*\brunserver\b/i;
 const BACKGROUND_PROCESS_PATTERN = /(?:^|[;\n])[^&\n]*\s&\s*$/;
+const REMOTE_BOUNDARY_PATTERN =
+  /(?:^|[;&\n]\s*)(?:ssh|scp|sftp)\s+\S+|(?:^|[;&\n]\s*)rsync\b[^\n]*\b(?:[A-Za-z0-9._-]+@)?[A-Za-z0-9._-]+:[^\s]+|(?:^|[;&\n]\s*)curl\b[^\n]*(?:\s-T\s+\S+|\s-F\s+\S*=@\S+)/i;
 const GLOBAL_ENV_PATTERN = /\b(npm\s+install\s+-g|pnpm\s+add\s+-g|pip\s+install\s+--user|apt\s+install)\b/i;
 const DESTRUCTIVE_PATTERN = /\brm\s+-rf\b|\bdelete\b|\btruncate\b/i;
 const READ_ONLY_PHRASE_PATTERN = /\b(update me on|keep me updated on)\b/i;
@@ -43,6 +45,9 @@ export function assessPolicyDecision(input) {
   }
   if (assessment.requiresProcessControlApproval) {
     reasonCodes.push("process_control_requires_approval");
+  }
+  if (assessment.requiresRemoteBoundaryApproval) {
+    reasonCodes.push("remote_boundary_requires_approval");
   }
   if (assessment.touchesHostCodexRoot) {
     reasonCodes.push("host_mutation_requires_approval");
@@ -105,6 +110,7 @@ function createPolicyAssessment(input) {
     requiresServiceApproval: SERVICE_CONTROL_PATTERN.test(prompt),
     requiresProcessControlApproval:
       PROCESS_CONTROL_PATTERN.test(prompt) || BACKGROUND_PROCESS_PATTERN.test(prompt),
+    requiresRemoteBoundaryApproval: REMOTE_BOUNDARY_PATTERN.test(prompt),
     requiresGlobalEnvApproval: GLOBAL_ENV_PATTERN.test(prompt),
     requiresDestructiveApproval: DESTRUCTIVE_PATTERN.test(prompt),
   };

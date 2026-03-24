@@ -80,6 +80,7 @@ V1 不尝试复刻桌面 Codex 会话，只做任务型远程执行。
 - `cwd` 外普通宿主路径写入
 - systemd / `systemctl`
 - 长期运行进程控制或托管启动（如 `nohup`、`pm2`、`uvicorn`、`npx http-server`、显式后台化 `&`）
+- 远端执行或外发传输（如 `ssh`、`scp`、远端 `rsync`、`curl -T`）
 - 全局包环境变更
 - 明显 destructive 请求
 
@@ -105,6 +106,7 @@ V1 不尝试复刻桌面 Codex 会话，只做任务型远程执行。
 | 任意动作 | bridge 隔离状态目录 | 拒绝 | 不允许任务回写自身运行状态。 |
 | 服务控制 | `systemctl` / `.service` | 审批 | 视为系统级控制动作。 |
 | 进程控制 | `nohup` / `pm2` / `supervisorctl` / `uvicorn` / `npx http-server` / 显式后台化 `&` 等 | 审批 | 视为长期运行进程控制动作。 |
+| 远端执行 / 外发传输 | 远端主机或外部端点 | 审批 | 如 `ssh`、`scp`、远端 `rsync`、`curl -T`。 |
 | 全局环境变更 | 全局安装 / 用户级安装 | 审批 | 如 `npm -g`、`pnpm add -g`、`pip --user`、`apt install`。 |
 | 明显破坏性动作 | 如 `rm -rf` | 审批 | 当前不直接放行。 |
 

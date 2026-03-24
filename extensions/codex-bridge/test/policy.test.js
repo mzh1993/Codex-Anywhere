@@ -110,6 +110,50 @@ test("approval/control/process: shell background operator requires approval", ()
   assert.deepEqual(decision.reasonCodes, ["process_control_requires_approval"]);
 });
 
+test("approval/control/remote: ssh remote shell requires approval", () => {
+  const decision = assessPolicyDecision({
+    prompt: "ssh deploy@prod 'pwd'",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "approval_required");
+  assert.deepEqual(decision.reasonCodes, ["remote_boundary_requires_approval"]);
+});
+
+test("approval/write/remote: scp transfer requires approval", () => {
+  const decision = assessPolicyDecision({
+    prompt: "scp ./dist/app.tar.gz deploy@prod:/srv/releases/",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "approval_required");
+  assert.deepEqual(decision.reasonCodes, ["remote_boundary_requires_approval"]);
+});
+
+test("approval/write/remote: rsync to a remote host requires approval", () => {
+  const decision = assessPolicyDecision({
+    prompt: "rsync -a ./dist/ deploy@prod:/srv/app/",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "approval_required");
+  assert.deepEqual(decision.reasonCodes, ["remote_boundary_requires_approval"]);
+});
+
+test("approval/write/remote: curl upload requires approval", () => {
+  const decision = assessPolicyDecision({
+    prompt: "curl -T ./dist/app.tar.gz https://uploads.example.com/releases/app.tar.gz",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "approval_required");
+  assert.deepEqual(decision.reasonCodes, ["remote_boundary_requires_approval"]);
+});
+
 test("approval/any/host_codex_root: host codex root access requires approval", () => {
   const decision = assessPolicyDecision({
     prompt: "list files",
@@ -322,6 +366,17 @@ test("allow/read/discussion: summarizing a rename plan does not trigger write ap
 test("allow/read/discussion: ampersand in a read request does not imply background execution", () => {
   const decision = assessPolicyDecision({
     prompt: "summarize README.md & docs/feishu-codex-runner-v1.md",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "allowed");
+  assert.deepEqual(decision.reasonCodes, []);
+});
+
+test("allow/read/discussion: discussing ssh docs does not imply remote execution", () => {
+  const decision = assessPolicyDecision({
+    prompt: "summarize the SSH deployment notes in README.md",
     cwd: "/home/neousys/project",
     protectedRoots: [],
     hostCodexRoot: "/home/neousys/.codex",
