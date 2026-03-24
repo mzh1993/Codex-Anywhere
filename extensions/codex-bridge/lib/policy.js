@@ -16,6 +16,7 @@ const ISOLATION_BOUNDARY_PATTERNS = [
 ];
 
 const SERVICE_CONTROL_PATTERN = /\b(systemctl|systemd)\b|(?:\b(?:start|stop|restart|reload)\b|重启|启动|停止|重载)[^\n]*\.service\b/i;
+const PROCESS_CONTROL_PATTERN = /\b(nohup|pm2|supervisorctl|forever|daemonize)\b|\b(?:python|python3)\b[^\n]*\b-m\s+http\.server\b/i;
 const GLOBAL_ENV_PATTERN = /\b(npm\s+install\s+-g|pnpm\s+add\s+-g|pip\s+install\s+--user|apt\s+install)\b/i;
 const DESTRUCTIVE_PATTERN = /\brm\s+-rf\b|\bdelete\b|\btruncate\b/i;
 const READ_ONLY_PHRASE_PATTERN = /\b(update me on|keep me updated on)\b/i;
@@ -37,6 +38,9 @@ export function assessPolicyDecision(input) {
   const reasonCodes = [];
   if (assessment.requiresServiceApproval) {
     reasonCodes.push("service_control_requires_approval");
+  }
+  if (assessment.requiresProcessControlApproval) {
+    reasonCodes.push("process_control_requires_approval");
   }
   if (assessment.touchesHostCodexRoot) {
     reasonCodes.push("host_mutation_requires_approval");
@@ -97,6 +101,7 @@ function createPolicyAssessment(input) {
     writesOutsideControlledRoots:
       action === "write" && referencedPaths.some((candidatePath) => !isPathInsideAny(candidatePath, controlledRoots)),
     requiresServiceApproval: SERVICE_CONTROL_PATTERN.test(prompt),
+    requiresProcessControlApproval: PROCESS_CONTROL_PATTERN.test(prompt),
     requiresGlobalEnvApproval: GLOBAL_ENV_PATTERN.test(prompt),
     requiresDestructiveApproval: DESTRUCTIVE_PATTERN.test(prompt),
   };

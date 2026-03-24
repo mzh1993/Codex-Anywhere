@@ -44,6 +44,28 @@ test("approval/control/service: isolated gateway service control still requires 
   assert.deepEqual(decision.reasonCodes, ["service_control_requires_approval"]);
 });
 
+test("approval/control/process: nohup process launch requires approval", () => {
+  const decision = assessPolicyDecision({
+    prompt: "nohup python -m http.server 8000 >/tmp/http.log 2>&1 &",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "approval_required");
+  assert.deepEqual(decision.reasonCodes, ["process_control_requires_approval"]);
+});
+
+test("approval/control/process: pm2 restart requires approval", () => {
+  const decision = assessPolicyDecision({
+    prompt: "pm2 restart app",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "approval_required");
+  assert.deepEqual(decision.reasonCodes, ["process_control_requires_approval"]);
+});
+
 test("approval/any/host_codex_root: host codex root access requires approval", () => {
   const decision = assessPolicyDecision({
     prompt: "list files",

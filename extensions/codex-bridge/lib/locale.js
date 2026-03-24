@@ -16,6 +16,7 @@ const REASON_LABELS = {
   "zh-CN": {
     host_mutation_requires_approval: "会修改宿主机上的 Codex 状态。",
     service_control_requires_approval: "会控制系统服务。",
+    process_control_requires_approval: "会启动或控制长期运行进程。",
     global_env_change_requires_approval: "会变更全局环境。",
     destructive_change_requires_approval: "包含破坏性修改。",
     isolation_boundary_denied: "会突破隔离运行边界。",
@@ -26,6 +27,7 @@ const REASON_LABELS = {
   "en-US": {
     host_mutation_requires_approval: "Touches host Codex state.",
     service_control_requires_approval: "Controls system services.",
+    process_control_requires_approval: "Starts or controls long-running processes.",
     global_env_change_requires_approval: "Changes the global environment.",
     destructive_change_requires_approval: "Includes destructive changes.",
     isolation_boundary_denied: "Crosses the isolated runner boundary.",
