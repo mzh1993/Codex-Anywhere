@@ -82,6 +82,7 @@ V1 不尝试复刻桌面 Codex 会话，只做任务型远程执行。
 - 长期运行进程控制或托管启动（如 `nohup`、`pm2`、`uvicorn`、`npx http-server`、显式后台化 `&`）
 - 远端执行或外发传输（如 `ssh`、`scp`、远端 `rsync`、`curl -T`）
 - 容器或编排执行平面控制（如 `docker`、`podman`、`kubectl`、`helm`）
+- 对外发布到仓库/注册表/Release 通道（如 `git push`、`npm publish`、`twine upload`、`gh release create`）
 - 全局包环境变更
 - 明显 destructive 请求
 
@@ -113,6 +114,7 @@ V1 不尝试复刻桌面 Codex 会话，只做任务型远程执行。
 | 进程控制 | `nohup` / `pm2` / `supervisorctl` / `uvicorn` / `npx http-server` / 显式后台化 `&` 等 | 审批 | 视为长期运行进程控制动作。 |
 | 远端执行 / 外发传输 | 远端主机或外部端点 | 审批 | 如 `ssh`、`scp`、远端 `rsync`、`curl -T`。 |
 | 容器 / 编排控制 | 容器引擎或编排平面 | 审批 | 如 `docker`、`podman`、`kubectl`、`helm`。 |
+| 对外发布 / 发布通道变更 | 仓库、包仓库或 Release 通道 | 审批 | 如 `git push`、`npm publish`、`twine upload`、`gh release create`。 |
 | 全局环境变更 | 全局安装 / 用户级安装 | 审批 | 如 `npm -g`、`pnpm add -g`、`pip --user`、`apt install`。 |
 | 明显破坏性动作 | 如 `rm -rf` | 审批 | 当前不直接放行。 |
 

@@ -231,6 +231,50 @@ test("approval/control/container: podman run requires approval", () => {
   assert.deepEqual(decision.reasonCodes, ["container_control_requires_approval"]);
 });
 
+test("approval/publish/repo: git push requires approval", () => {
+  const decision = assessPolicyDecision({
+    prompt: "git push origin main",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "approval_required");
+  assert.deepEqual(decision.reasonCodes, ["publication_boundary_requires_approval"]);
+});
+
+test("approval/publish/package: npm publish requires approval", () => {
+  const decision = assessPolicyDecision({
+    prompt: "npm publish --access public",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "approval_required");
+  assert.deepEqual(decision.reasonCodes, ["publication_boundary_requires_approval"]);
+});
+
+test("approval/publish/package: twine upload requires approval", () => {
+  const decision = assessPolicyDecision({
+    prompt: "twine upload dist/*",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "approval_required");
+  assert.deepEqual(decision.reasonCodes, ["publication_boundary_requires_approval"]);
+});
+
+test("approval/publish/release: gh release create requires approval", () => {
+  const decision = assessPolicyDecision({
+    prompt: "gh release create v1.2.3 ./dist/app.tar.gz",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "approval_required");
+  assert.deepEqual(decision.reasonCodes, ["publication_boundary_requires_approval"]);
+});
+
 test("approval/any/host_codex_root: host codex root access requires approval", () => {
   const decision = assessPolicyDecision({
     prompt: "list files",
@@ -487,6 +531,17 @@ test("allow/read/discussion: discussing policy boundaries does not imply bypass 
 test("allow/read/discussion: discussing docker docs does not imply container control", () => {
   const decision = assessPolicyDecision({
     prompt: "summarize the Docker usage notes in README.md",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "allowed");
+  assert.deepEqual(decision.reasonCodes, []);
+});
+
+test("allow/read/discussion: discussing git push flow does not imply publication", () => {
+  const decision = assessPolicyDecision({
+    prompt: "summarize the git push workflow in CONTRIBUTING.md",
     cwd: "/home/neousys/project",
     protectedRoots: [],
     hostCodexRoot: "/home/neousys/.codex",
