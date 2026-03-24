@@ -92,6 +92,19 @@ export function routeApproveCommand({ activeTaskStatus }) {
   };
 }
 
+export function routeAbortCommand({ activeTaskStatus }) {
+  if (!activeTaskStatus) {
+    return {
+      accepted: false,
+      code: "no_active_task",
+    };
+  }
+  return {
+    accepted: true,
+    action: "abort_task",
+  };
+}
+
 export function routeIncomingPlainText({ activeTaskStatus, requiresExplicitContinue = false }) {
   if (!activeTaskStatus) {
     return {

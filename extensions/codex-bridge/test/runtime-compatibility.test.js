@@ -630,6 +630,74 @@ test("status remains available while awaiting approval", async () => {
   assert.match(replies[0], /待审批令牌：TOKEN1/);
 });
 
+test("status without an active task reports default cwd", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-status-idle-"));
+  const { bridge, replies } = await createBridgeHarness(tempRoot);
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-status",
+    text: "/codex status",
+  });
+
+  assert.match(replies[0], /当前没有活动任务|这个私聊还没有记录/);
+  assert.match(replies[0], /工作目录：/);
+});
+
+test("pwd reports the future default cwd even when the active task uses a different cwd", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-pwd-default-"));
+  const activeCwd = path.join(tempRoot, "active");
+  const defaultCwd = path.join(tempRoot, "default");
+  await fs.mkdir(activeCwd, { recursive: true });
+  await fs.mkdir(defaultCwd, { recursive: true });
+
+  const { bridge, replies } = await createBridgeHarness(tempRoot);
+  const task = createTaskRecord({
+    taskId: "task-running",
+    locale: "zh-CN",
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-old",
+    cwd: activeCwd,
+    mode: "new",
+    status: "running",
+    currentRunId: "run-1",
+    lastRunId: "run-1",
+    prompt: "旧任务",
+    createdAt: "2026-03-24T08:00:00.000Z",
+    startedAt: "2026-03-24T08:00:00.000Z",
+    updatedAt: "2026-03-24T08:00:00.000Z",
+  });
+  const profile = {
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    defaultCwd: defaultCwd,
+    activeTaskId: task.taskId,
+    lastTaskId: task.taskId,
+    updatedAt: "2026-03-24T08:00:00.000Z",
+  };
+
+  await bridge.saveTask(task);
+  await bridge.saveProfile(profile);
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-pwd",
+    text: "/codex pwd",
+  });
+
+  assert.match(replies[0], new RegExp(defaultCwd.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.doesNotMatch(replies[0], new RegExp(activeCwd.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+});
+
 test("malformed codex command prefix is rejected without starting a task", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-malformed-command-"));
   const { bridge, replies } = await createBridgeHarness(tempRoot);

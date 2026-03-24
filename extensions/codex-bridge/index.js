@@ -13,6 +13,7 @@ import { assessPolicyDecision, POLICY_DECISIONS } from "./lib/policy.js";
 import { detectExecutionRuntimeCompatibility } from "./lib/runtime-compatibility.js";
 import { resolveSettings } from "./lib/settings.js";
 import {
+  routeAbortCommand,
   routeApproveCommand,
   isActiveTaskStatus,
   routeContinueCommand,
@@ -273,7 +274,7 @@ export class CodexBridge {
     }
 
     if (parsed.name === "status") {
-      const statusText = await this.formatStatus(profile.senderId);
+      const statusText = await this.formatStatus(profile.senderId, profile);
       await this.safeReply({
         accountId: request.accountId,
         conversationId: request.conversationId,
@@ -285,7 +286,8 @@ export class CodexBridge {
 
     if (parsed.name === "abort") {
       const activeTask = await this.loadActiveTask(profile.senderId, profile);
-      if (!activeTask) {
+      const abortRoute = routeAbortCommand({ activeTaskStatus: activeTask?.status ?? null });
+      if (!abortRoute.accepted) {
         await this.safeReply({
           accountId: request.accountId,
           conversationId: request.conversationId,
@@ -1204,7 +1206,7 @@ export class CodexBridge {
     return task.sessionId ? "resume" : "new";
   }
 
-  async formatStatus(senderId) {
+  async formatStatus(senderId, profileFallback = null) {
     const activeTask = await this.loadActiveTask(senderId);
     if (activeTask) {
       const lines = [
@@ -1221,7 +1223,7 @@ export class CodexBridge {
       return lines.join("\n");
     }
 
-    const profile = await this.loadProfile(senderId, null);
+    const profile = (await this.loadProfile(senderId, null)) ?? profileFallback;
     if (!profile) return this.text.noBridgeState;
     const lines = [
       this.text.noActiveTask,

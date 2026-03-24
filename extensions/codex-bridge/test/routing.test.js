@@ -4,6 +4,7 @@ import { getLocaleText } from "../lib/locale.js";
 import {
   finishApprovalTransition,
   routeApproveCommand,
+  routeAbortCommand,
   routeContinueCommand,
   routeIncomingPlainText,
   routePlainTextWithActiveTask,
@@ -135,5 +136,24 @@ test("approve requires the task to be waiting for approval", () => {
     accepted: false,
     code: "task_not_waiting_approval",
     suggestedCommand: "/codex status",
+  });
+});
+
+test("abort is allowed for any active task and rejected without one", () => {
+  assert.deepEqual(routeAbortCommand({ activeTaskStatus: null }), {
+    accepted: false,
+    code: "no_active_task",
+  });
+  assert.deepEqual(routeAbortCommand({ activeTaskStatus: "awaiting_input" }), {
+    accepted: true,
+    action: "abort_task",
+  });
+  assert.deepEqual(routeAbortCommand({ activeTaskStatus: "running" }), {
+    accepted: true,
+    action: "abort_task",
+  });
+  assert.deepEqual(routeAbortCommand({ activeTaskStatus: "awaiting_approval" }), {
+    accepted: true,
+    action: "abort_task",
   });
 });
