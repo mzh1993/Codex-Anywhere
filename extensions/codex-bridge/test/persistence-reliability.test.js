@@ -42,7 +42,7 @@ function createFakeApi(stateDir) {
   };
 }
 
-test("atomic JSON temp paths stay unique for same target", async () => {
+test("runtime/persistence/atomicity: atomic JSON temp paths stay unique for same target", async () => {
   const { makeAtomicJsonTempPath } = await import("../index.js");
   const filePath = "/tmp/codex-bridge-task.json";
   const seen = new Set();
@@ -58,7 +58,7 @@ test("atomic JSON temp paths stay unique for same target", async () => {
   }
 });
 
-test("runtime persistence failure becomes recoverable interruption instead of silent rejection", async () => {
+test("runtime/persistence/recovery: runtime persistence failure becomes recoverable interruption instead of silent rejection", async () => {
   const { CodexBridge, __activeTasks } = await import("../index.js");
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-persistence-"));
   const replies = [];

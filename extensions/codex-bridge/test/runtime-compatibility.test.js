@@ -55,7 +55,7 @@ function createBridgeHarness(tempRoot) {
   });
 }
 
-test("runtime compatibility version parsing accepts 0.9.0 and rejects older versions", async () => {
+test("runtime/compat/version: runtime compatibility version parsing accepts 0.9.0 and rejects older versions", async () => {
   const { parseVersionString, isVersionAtLeast } = await import("../lib/runtime-compatibility.js");
 
   assert.deepEqual(parseVersionString("bubblewrap 0.4.0"), { major: 0, minor: 4, patch: 0 });
@@ -65,7 +65,7 @@ test("runtime compatibility version parsing accepts 0.9.0 and rejects older vers
   assert.equal(isVersionAtLeast("0.10.1", "0.9.0"), true);
 });
 
-test("runtime compatibility detection reports missing commands and unsupported bubblewrap", async () => {
+test("runtime/compat/detect: runtime compatibility detection reports missing commands and unsupported bubblewrap", async () => {
   const { detectExecutionRuntimeCompatibility } = await import("../lib/runtime-compatibility.js");
 
   const missingCodex = await detectExecutionRuntimeCompatibility({
@@ -100,7 +100,7 @@ test("runtime compatibility detection reports missing commands and unsupported b
   assert.match(unsupportedBwrap.message, />= 0.9.0/);
 });
 
-test("runtime compatibility detection fails when codex sandbox probe fails", async () => {
+test("runtime/compat/probe: runtime compatibility detection fails when codex sandbox probe fails", async () => {
   const { detectExecutionRuntimeCompatibility } = await import("../lib/runtime-compatibility.js");
 
   const sandboxProbeFailure = await detectExecutionRuntimeCompatibility({
@@ -122,7 +122,7 @@ test("runtime compatibility detection fails when codex sandbox probe fails", asy
   assert.match(sandboxProbeFailure.message, /Unknown option --argv0/);
 });
 
-test("new task start fails closed before creating task state when runtime is incompatible", async () => {
+test("runtime/compat/fail_closed: new task start fails closed before creating task state when runtime is incompatible", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-runtime-check-"));
   const { bridge, replies } = await createBridgeHarness(tempRoot);
 
@@ -163,7 +163,7 @@ test("new task start fails closed before creating task state when runtime is inc
   assert.match(replies[0], /bubblewrap|基础设施|执行环境/);
 });
 
-test("explicit continue start fails closed without mutating the awaiting_input task", async () => {
+test("runtime/compat/fail_closed: explicit continue start fails closed without mutating the awaiting_input task", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-runtime-continue-"));
   const { bridge, replies } = await createBridgeHarness(tempRoot);
 
@@ -223,7 +223,7 @@ test("explicit continue start fails closed without mutating the awaiting_input t
   assert.doesNotMatch(replies[0], /任务已启动/);
 });
 
-test("approved start fails closed without consuming approval state when runtime is incompatible", async () => {
+test("runtime/compat/fail_closed: approved start fails closed without consuming approval state when runtime is incompatible", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-runtime-approval-"));
   const { bridge, replies } = await createBridgeHarness(tempRoot);
 
@@ -302,7 +302,7 @@ test("approved start fails closed without consuming approval state when runtime 
   assert.doesNotMatch(replies[0], /任务已启动/);
 });
 
-test("approve command ignores trailing text after the token", async () => {
+test("runtime/protocol/approve: approve command ignores trailing text after the token", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-approve-token-"));
   const { bridge, replies } = await createBridgeHarness(tempRoot);
 
@@ -374,7 +374,7 @@ test("approve command ignores trailing text after the token", async () => {
   assert.match(replies[0], /执行环境|bubblewrap|基础设施/);
 });
 
-test("approve command is rejected when the active task is not awaiting approval", async () => {
+test("runtime/protocol/approve: approve command is rejected when the active task is not awaiting approval", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-approve-state-"));
   const { bridge, replies } = await createBridgeHarness(tempRoot);
 
@@ -422,7 +422,7 @@ test("approve command is rejected when the active task is not awaiting approval"
   assert.doesNotMatch(replies[0], /未找到审批令牌/);
 });
 
-test("cwd changes future default only and does not hot-switch the active task cwd", async () => {
+test("runtime/protocol/cwd: cwd changes future default only and does not hot-switch the active task cwd", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-cwd-default-"));
   const activeCwd = path.join(tempRoot, "active");
   const nextDefaultCwd = path.join(tempRoot, "next-default");
@@ -491,7 +491,7 @@ test("cwd changes future default only and does not hot-switch the active task cw
   assert.equal(queued[0].prompt, "继续");
 });
 
-test("abort terminates the whole task while awaiting approval", async () => {
+test("runtime/protocol/abort: abort terminates the whole task while awaiting approval", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-abort-approval-"));
   const { bridge, replies } = await createBridgeHarness(tempRoot);
 
@@ -562,7 +562,7 @@ test("abort terminates the whole task while awaiting approval", async () => {
   assert.match(replies[0], /已请求终止任务/);
 });
 
-test("status remains available while awaiting approval", async () => {
+test("runtime/protocol/status: status remains available while awaiting approval", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-status-approval-"));
   const { bridge, replies } = await createBridgeHarness(tempRoot);
 
@@ -630,7 +630,7 @@ test("status remains available while awaiting approval", async () => {
   assert.match(replies[0], /待审批令牌：TOKEN1/);
 });
 
-test("status without an active task reports default cwd", async () => {
+test("runtime/protocol/status: status without an active task reports default cwd", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-status-idle-"));
   const { bridge, replies } = await createBridgeHarness(tempRoot);
 
@@ -647,7 +647,7 @@ test("status without an active task reports default cwd", async () => {
   assert.match(replies[0], /工作目录：/);
 });
 
-test("pwd reports the future default cwd even when the active task uses a different cwd", async () => {
+test("runtime/protocol/pwd: pwd reports the future default cwd even when the active task uses a different cwd", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-pwd-default-"));
   const activeCwd = path.join(tempRoot, "active");
   const defaultCwd = path.join(tempRoot, "default");
@@ -698,7 +698,7 @@ test("pwd reports the future default cwd even when the active task uses a differ
   assert.doesNotMatch(replies[0], new RegExp(activeCwd.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 });
 
-test("malformed codex command prefix is rejected without starting a task", async () => {
+test("runtime/protocol/command_parse: malformed codex command prefix is rejected without starting a task", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-malformed-command-"));
   const { bridge, replies } = await createBridgeHarness(tempRoot);
 

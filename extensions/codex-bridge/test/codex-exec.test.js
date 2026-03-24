@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildCodexArgs, buildCodexEnv } from "../lib/codex-exec.js";
 
-test("buildCodexEnv only forwards allowlisted variables", () => {
+test("runtime/env/allowlist: buildCodexEnv only forwards allowlisted variables", () => {
   const env = buildCodexEnv({
     codexHome: "/tmp/codex-home",
     inheritedEnv: {
@@ -20,7 +20,7 @@ test("buildCodexEnv only forwards allowlisted variables", () => {
   assert.equal("OPENAI_API_KEY" in env, false);
 });
 
-test("buildCodexEnv keeps HOME isolated even with an explicit allowlist", () => {
+test("runtime/env/isolation: buildCodexEnv keeps HOME isolated even with an explicit allowlist", () => {
   const env = buildCodexEnv({
     codexHome: "/tmp/codex-home",
     inheritedEnv: {
@@ -40,7 +40,7 @@ test("buildCodexEnv keeps HOME isolated even with an explicit allowlist", () => 
   });
 });
 
-test("resume mode still carries explicit cwd semantics in prompt metadata", () => {
+test("runtime/exec/resume: resume mode still carries explicit cwd semantics in prompt metadata", () => {
   const args = buildCodexArgs({
     task: { mode: "resume", cwd: "/repo/worktree", prompt: "continue", sessionId: "1234" },
     settings: { locale: "en-US" },

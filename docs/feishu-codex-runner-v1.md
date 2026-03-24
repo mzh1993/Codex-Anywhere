@@ -222,6 +222,19 @@ V1 不尝试复刻桌面 Codex 会话，只做任务型远程执行。
   - `recovery`
 - 当前约定：新增输入协议、状态流转、恢复语义时，优先补同前缀的回归测试。
 
+## 运行时回归测试命名
+
+- 当前运行时回归测试文件：
+  - `extensions/codex-bridge/test/runtime-compatibility.test.js`
+  - `extensions/codex-bridge/test/runtime-contract.test.js`
+  - `extensions/codex-bridge/test/codex-exec.test.js`
+  - `extensions/codex-bridge/test/persistence-reliability.test.js`
+  - `extensions/codex-bridge/test/task-store.test.js`
+- 当前命名前缀格式：
+  - `runtime/<topic>/<scope>: <case>`
+  - `protocol/<topic>/<scope>: <case>`（当测试落点仍属于 task protocol / persistence protocol 时）
+- 当前约定：兼容性、运行约束、持久化可靠性测试，应优先采用 `runtime/...`；task 协议语义保持 `protocol/...`。
+
 ## 当前已知限制
 
 - `codex exec --json` 的事件聚合做的是宽松兼容解析，V1 以开始/心跳/结束回传为主

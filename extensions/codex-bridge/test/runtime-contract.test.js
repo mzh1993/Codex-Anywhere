@@ -5,7 +5,7 @@ import path from "node:path";
 
 const repoRoot = path.resolve(import.meta.dirname, "..", "..", "..");
 
-test("plugin schema accepts envAllowlist", () => {
+test("runtime/contract/schema: plugin schema accepts envAllowlist", () => {
   const pluginManifest = JSON.parse(
     fs.readFileSync(path.join(repoRoot, "extensions", "codex-bridge", "openclaw.plugin.json"), "utf8"),
   );
@@ -19,13 +19,13 @@ test("plugin schema accepts envAllowlist", () => {
   });
 });
 
-test("generated systemd unit uses an always-restart policy", () => {
+test("runtime/contract/systemd: generated systemd unit uses an always-restart policy", () => {
   const bootstrapScript = fs.readFileSync(path.join(repoRoot, "scripts", "bootstrap-codex-feishu.sh"), "utf8");
 
   assert.match(bootstrapScript, /Restart=always/);
 });
 
-test("bootstrap preflight probes the real codex sandbox runtime", () => {
+test("runtime/contract/preflight: bootstrap preflight probes the real codex sandbox runtime", () => {
   const bootstrapScript = fs.readFileSync(path.join(repoRoot, "scripts", "bootstrap-codex-feishu.sh"), "utf8");
 
   assert.match(bootstrapScript, /require_command codex/);
@@ -35,7 +35,7 @@ test("bootstrap preflight probes the real codex sandbox runtime", () => {
   assert.match(bootstrapScript, /must be >= \$\{MIN_BWRAP_VERSION\}/);
 });
 
-test("README documents the minimum execution infrastructure", () => {
+test("runtime/contract/docs: README documents the minimum execution infrastructure", () => {
   const readme = fs.readFileSync(path.join(repoRoot, "README.md"), "utf8");
 
   assert.match(readme, /\/usr\/bin\/bwrap >= 0\.9\.0/);

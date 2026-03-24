@@ -72,7 +72,7 @@ function buildRun(overrides = {}) {
   });
 }
 
-test("task records exclude run-scoped execution fields", () => {
+test("protocol/persistence/task: task records exclude run-scoped execution fields", () => {
   const task = createTaskRecord({
     taskId: "task_123",
     locale: "en-US",
@@ -104,7 +104,7 @@ test("task records exclude run-scoped execution fields", () => {
   assert.equal("signal" in task, false);
 });
 
-test("completed runs keep the task active and unfinished", () => {
+test("protocol/persistence/task: completed runs keep the task active and unfinished", () => {
   const timestamp = "2026-03-24T00:10:00.000Z";
   const { task, run } = applyRunResultToPersistence({
     task: buildTask(),
@@ -127,7 +127,7 @@ test("completed runs keep the task active and unfinished", () => {
   assert.equal(run.finishedAt, timestamp);
 });
 
-test("aborted runs still terminalize the task", () => {
+test("protocol/persistence/task: aborted runs still terminalize the task", () => {
   const timestamp = "2026-03-24T00:10:00.000Z";
   const { task, run } = applyRunResultToPersistence({
     task: buildTask(),
@@ -145,7 +145,7 @@ test("aborted runs still terminalize the task", () => {
   assert.equal(run.finishedAt, timestamp);
 });
 
-test("approval-blocked tasks keep only lastRunId and no currentRunId", () => {
+test("protocol/persistence/approval: approval-blocked tasks keep only lastRunId and no currentRunId", () => {
   const task = createAwaitingApprovalTaskRecord({
     taskId: "task_approval",
     locale: "en-US",
@@ -167,7 +167,7 @@ test("approval-blocked tasks keep only lastRunId and no currentRunId", () => {
   assert.equal(task.lastRunId, "run_approval");
 });
 
-test("stale running tasks recover to awaiting_input and require explicit continue", () => {
+test("protocol/recovery/stale_task: stale running tasks recover to awaiting_input and require explicit continue", () => {
   const timestamp = "2026-03-24T00:15:00.000Z";
   const { task, run } = recoverStaleRunningTask({
     task: buildTask({
