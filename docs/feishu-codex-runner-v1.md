@@ -205,6 +205,23 @@ V1 不尝试复刻桌面 Codex 会话，只做任务型远程执行。
 - `/codex cwd <path>` 只修改未来默认工作目录，不热切换当前活动 task
 - 默认采用严格状态机：宁可多拒绝一次，也不让渠道猜测执行语义
 
+## 状态机回归测试命名
+
+- 当前状态机回归测试文件：
+  - `extensions/codex-bridge/test/routing.test.js`
+  - `extensions/codex-bridge/test/task-model.test.js`
+- 当前命名前缀格式：`protocol/<topic>/<scope>: <case>`
+- 当前 `topic` 取值示例：
+  - `input`
+  - `command`
+  - `transition`
+  - `status`
+  - `execution`
+  - `persistence`
+  - `locale`
+  - `recovery`
+- 当前约定：新增输入协议、状态流转、恢复语义时，优先补同前缀的回归测试。
+
 ## 当前已知限制
 
 - `codex exec --json` 的事件聚合做的是宽松兼容解析，V1 以开始/心跳/结束回传为主

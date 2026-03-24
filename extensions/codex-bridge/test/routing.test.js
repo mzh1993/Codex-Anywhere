@@ -11,13 +11,13 @@ import {
   startNextRunFromApproval,
 } from "../lib/task-model.js";
 
-test("plain text starts a new task when there is no active task", () => {
+test("protocol/input/no_task: plain text starts a new task when there is no active task", () => {
   assert.deepEqual(routeIncomingPlainText({ activeTaskStatus: null }), {
     action: "create_task",
   });
 });
 
-test("plain text auto-continues only when task is awaiting_input", () => {
+test("protocol/input/awaiting_input: plain text auto-continues only when task is awaiting_input", () => {
   assert.deepEqual(routeIncomingPlainText({ activeTaskStatus: "awaiting_input" }), {
     action: "continue_task",
   });
@@ -36,7 +36,7 @@ test("plain text auto-continues only when task is awaiting_input", () => {
   });
 });
 
-test("continue is rejected when no active task exists", () => {
+test("protocol/command/continue: continue is rejected when no active task exists", () => {
   const result = routeContinueCommand({ activeTaskStatus: null });
   assert.deepEqual(result, {
     accepted: false,
@@ -44,7 +44,7 @@ test("continue is rejected when no active task exists", () => {
   });
 });
 
-test("continue requires the task to be waiting for input", () => {
+test("protocol/command/continue: continue requires the task to be waiting for input", () => {
   assert.deepEqual(routeContinueCommand({ activeTaskStatus: "awaiting_input" }), {
     accepted: true,
     action: "create_next_run",
@@ -61,7 +61,7 @@ test("continue requires the task to be waiting for input", () => {
   });
 });
 
-test("plain text with an active task does not implicitly continue", () => {
+test("protocol/input/running: plain text with an active task does not implicitly continue", () => {
   const result = routePlainTextWithActiveTask({ activeTaskStatus: "running" });
   assert.deepEqual(result, {
     accepted: false,
@@ -70,7 +70,7 @@ test("plain text with an active task does not implicitly continue", () => {
   });
 });
 
-test("continue guidance text targets the current active task", () => {
+test("protocol/locale/continue: continue guidance text targets the current active task", () => {
   const en = getLocaleText("en-US");
   const zh = getLocaleText("zh-CN");
 
@@ -80,7 +80,7 @@ test("continue guidance text targets the current active task", () => {
   assert.equal(zh.noActiveTaskToContinue, "当前没有可继续的活动任务。");
 });
 
-test("running-task guidance does not mislabel status as a continue command", () => {
+test("protocol/locale/status: running-task guidance does not mislabel status as a continue command", () => {
   const zh = getLocaleText("zh-CN");
   const text = zh.taskAlreadyRunning({
     taskId: "task-1",
@@ -93,7 +93,7 @@ test("running-task guidance does not mislabel status as a continue command", () 
   assert.doesNotMatch(text, /`\/codex status` 提交明确的继续输入/);
 });
 
-test("running-task guidance does not repeat the same status command twice", () => {
+test("protocol/locale/status: running-task guidance does not repeat the same status command twice", () => {
   const zh = getLocaleText("zh-CN");
   const text = zh.taskAlreadyRunning({
     taskId: "task-1",
@@ -106,19 +106,19 @@ test("running-task guidance does not repeat the same status command twice", () =
   assert.match(text, /`\/codex abort`/);
 });
 
-test("approval-required decision transitions task to awaiting_approval", () => {
+test("protocol/transition/approval: approval-required decision transitions task to awaiting_approval", () => {
   const next = finishApprovalTransition({ currentStatus: "running", decision: "approval_required" });
   assert.equal(next.status, "awaiting_approval");
 });
 
-test("approval starts the next run instead of resuming the blocked run", () => {
+test("protocol/transition/approval: approval starts the next run instead of resuming the blocked run", () => {
   assert.deepEqual(startNextRunFromApproval(), {
     taskStatus: "running",
     action: "create_next_run",
   });
 });
 
-test("approve requires the task to be waiting for approval", () => {
+test("protocol/command/approve: approve requires the task to be waiting for approval", () => {
   assert.deepEqual(routeApproveCommand({ activeTaskStatus: "awaiting_approval" }), {
     accepted: true,
     action: "approve_pending_request",
@@ -139,7 +139,7 @@ test("approve requires the task to be waiting for approval", () => {
   });
 });
 
-test("abort is allowed for any active task and rejected without one", () => {
+test("protocol/command/abort: abort is allowed for any active task and rejected without one", () => {
   assert.deepEqual(routeAbortCommand({ activeTaskStatus: null }), {
     accepted: false,
     code: "no_active_task",

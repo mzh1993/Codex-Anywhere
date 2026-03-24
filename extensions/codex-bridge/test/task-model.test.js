@@ -15,7 +15,7 @@ import {
 import { getLocaleText, localizeTaskStatus } from "../lib/locale.js";
 import { createDeniedTaskPersistenceRecords } from "../lib/task-store.js";
 
-test("task statuses and run statuses match the revised protocol", () => {
+test("protocol/status/schema: task statuses and run statuses match the revised protocol", () => {
   assert.deepEqual(ACTIVE_TASK_STATUSES, ["created", "running", "awaiting_input", "awaiting_approval"]);
   assert.deepEqual(TERMINAL_TASK_STATUSES, ["completed", "aborted"]);
   assert.deepEqual(RUN_STATUSES, ["running", "completed", "failed", "aborted", "blocked"]);
@@ -29,28 +29,28 @@ test("task statuses and run statuses match the revised protocol", () => {
   assert.equal(canContinueTask("awaiting_approval"), false);
 });
 
-test("localized task status labels only cover protocol task statuses", () => {
+test("protocol/status/locale: localized task status labels only cover protocol task statuses", () => {
   assert.equal(localizeTaskStatus("zh-CN", "completed"), "已完成");
   assert.equal(localizeTaskStatus("zh-CN", "failed"), "failed");
   assert.equal(localizeTaskStatus("zh-CN", "denied"), "denied");
   assert.equal(localizeTaskStatus("zh-CN", "aborting"), "aborting");
 });
 
-test("approval-required transition blocks the run and moves the task to awaiting_approval", () => {
+test("protocol/transition/approval: approval-required transition blocks the run and moves the task to awaiting_approval", () => {
   assert.deepEqual(finishRunWithApprovalRequired(), {
     taskStatus: "awaiting_approval",
     runStatus: "blocked",
   });
 });
 
-test("denied actions block the run and return the task to awaiting_input", () => {
+test("protocol/transition/deny: denied actions block the run and return the task to awaiting_input", () => {
   assert.deepEqual(finishRunWithDeniedAction(), {
     taskStatus: "awaiting_input",
     runStatus: "blocked",
   });
 });
 
-test("denied persistence stores awaiting_input for the task and blocked for the run", () => {
+test("protocol/persistence/deny: denied persistence stores awaiting_input for the task and blocked for the run", () => {
   const timestamp = "2026-03-24T00:00:00.000Z";
   const { task, run } = createDeniedTaskPersistenceRecords({
     taskId: "task_123",
@@ -77,7 +77,7 @@ test("denied persistence stores awaiting_input for the task and blocked for the 
   assert.equal(run.finishedAt, timestamp);
 });
 
-test("completed and failed runs default the task back to awaiting_input", () => {
+test("protocol/transition/result: completed and failed runs default the task back to awaiting_input", () => {
   assert.deepEqual(finishRunWithResult("completed"), {
     taskStatus: "awaiting_input",
     runStatus: "completed",
@@ -88,14 +88,14 @@ test("completed and failed runs default the task back to awaiting_input", () => 
   });
 });
 
-test("aborted runs mark both task and run as aborted", () => {
+test("protocol/transition/abort: aborted runs mark both task and run as aborted", () => {
   assert.deepEqual(finishRunWithResult("aborted"), {
     taskStatus: "aborted",
     runStatus: "aborted",
   });
 });
 
-test("execution results keep successful and failed runs on awaiting_input", () => {
+test("protocol/execution/result: execution results keep successful and failed runs on awaiting_input", () => {
   assert.deepEqual(finishRunFromExecution({}), {
     taskStatus: "awaiting_input",
     runStatus: "completed",
@@ -110,7 +110,7 @@ test("execution results keep successful and failed runs on awaiting_input", () =
   });
 });
 
-test("execution results mark aborted runs without persisting an aborting task state", () => {
+test("protocol/execution/abort: execution results mark aborted runs without persisting an aborting task state", () => {
   assert.deepEqual(finishRunFromExecution({ stopping: true }), {
     taskStatus: "aborted",
     runStatus: "aborted",
@@ -125,7 +125,7 @@ test("execution results mark aborted runs without persisting an aborting task st
   });
 });
 
-test("finish messages describe run completion when the task returns to awaiting_input", () => {
+test("protocol/locale/finish: finish messages describe run completion when the task returns to awaiting_input", () => {
   const text = getLocaleText("en-US");
 
   assert.match(
@@ -194,20 +194,20 @@ test("finish messages describe run completion when the task returns to awaiting_
   );
 });
 
-test("canContinueTask returns false for every terminal status", () => {
+test("protocol/status/continue: canContinueTask returns false for every terminal status", () => {
   for (const status of TERMINAL_TASK_STATUSES) {
     assert.equal(canContinueTask(status), false);
   }
 });
 
-test("canContinueTask returns false for invalid status inputs", () => {
+test("protocol/status/continue: canContinueTask returns false for invalid status inputs", () => {
   const invalidStatuses = ["", "queued", "aborting", null, undefined, 0, {}, []];
   for (const status of invalidStatuses) {
     assert.equal(canContinueTask(status), false);
   }
 });
 
-test("interruption hint is localized for recovery guidance", () => {
+test("protocol/locale/recovery: interruption hint is localized for recovery guidance", () => {
   const zh = getLocaleText("zh-CN");
   const en = getLocaleText("en-US");
 
