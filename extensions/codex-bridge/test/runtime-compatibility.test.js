@@ -491,6 +491,145 @@ test("cwd changes future default only and does not hot-switch the active task cw
   assert.equal(queued[0].prompt, "继续");
 });
 
+test("abort terminates the whole task while awaiting approval", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-abort-approval-"));
+  const { bridge, replies } = await createBridgeHarness(tempRoot);
+
+  const task = createTaskRecord({
+    taskId: "task-awaiting-approval",
+    locale: "zh-CN",
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-old",
+    cwd: tempRoot,
+    mode: "new",
+    status: "awaiting_approval",
+    currentRunId: null,
+    lastRunId: "run-blocked",
+    approvalToken: "TOKEN1",
+    prompt: "重启服务",
+    createdAt: "2026-03-24T08:00:00.000Z",
+    updatedAt: "2026-03-24T08:00:00.000Z",
+  });
+  const profile = {
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    defaultCwd: tempRoot,
+    activeTaskId: task.taskId,
+    lastTaskId: task.taskId,
+    pendingApprovalToken: "TOKEN1",
+    updatedAt: "2026-03-24T08:00:00.000Z",
+  };
+  const approval = {
+    token: "TOKEN1",
+    taskId: task.taskId,
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-old",
+    mode: "new",
+    prompt: "重启服务",
+    cwd: tempRoot,
+    sessionId: null,
+    policyDecision: "approval_required",
+    reasonCodes: ["service_control_requires_approval"],
+    createdAtMs: Date.now(),
+    expiresAtMs: Date.now() + 60_000,
+  };
+
+  await bridge.saveTask(task);
+  await bridge.saveProfile(profile);
+  await bridge.writeApproval(approval);
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-abort",
+    text: "/codex abort",
+  });
+
+  const persistedTask = await bridge.readTask(task.taskId);
+  const persistedProfile = await bridge.loadProfile("user-1", null);
+  const persistedApproval = await bridge.readApproval("TOKEN1");
+  assert.equal(persistedTask.status, "aborted");
+  assert.equal(persistedProfile.activeTaskId, undefined);
+  assert.equal(persistedProfile.pendingApprovalToken, undefined);
+  assert.equal(persistedApproval, null);
+  assert.match(replies[0], /已请求终止任务/);
+});
+
+test("status remains available while awaiting approval", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-status-approval-"));
+  const { bridge, replies } = await createBridgeHarness(tempRoot);
+
+  const task = createTaskRecord({
+    taskId: "task-awaiting-approval",
+    locale: "zh-CN",
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-old",
+    cwd: tempRoot,
+    mode: "new",
+    status: "awaiting_approval",
+    currentRunId: null,
+    lastRunId: "run-blocked",
+    approvalToken: "TOKEN1",
+    prompt: "重启服务",
+    riskLevel: "high",
+    createdAt: "2026-03-24T08:00:00.000Z",
+    startedAt: "2026-03-24T08:00:00.000Z",
+    updatedAt: "2026-03-24T08:00:00.000Z",
+  });
+  const profile = {
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    defaultCwd: tempRoot,
+    activeTaskId: task.taskId,
+    lastTaskId: task.taskId,
+    pendingApprovalToken: "TOKEN1",
+    updatedAt: "2026-03-24T08:00:00.000Z",
+  };
+  const approval = {
+    token: "TOKEN1",
+    taskId: task.taskId,
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-old",
+    mode: "new",
+    prompt: "重启服务",
+    cwd: tempRoot,
+    sessionId: null,
+    policyDecision: "approval_required",
+    reasonCodes: ["service_control_requires_approval"],
+    createdAtMs: Date.now(),
+    expiresAtMs: Date.now() + 60_000,
+  };
+
+  await bridge.saveTask(task);
+  await bridge.saveProfile(profile);
+  await bridge.writeApproval(approval);
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-status",
+    text: "/codex status",
+  });
+
+  assert.match(replies[0], /活动任务：task-awaiting-approval/);
+  assert.match(replies[0], /状态：等待审批/);
+  assert.match(replies[0], /待审批令牌：TOKEN1/);
+});
+
 test("malformed codex command prefix is rejected without starting a task", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-malformed-command-"));
   const { bridge, replies } = await createBridgeHarness(tempRoot);
