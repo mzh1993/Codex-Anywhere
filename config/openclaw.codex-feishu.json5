@@ -1,0 +1,120 @@
+{
+  // Rendered by scripts/bootstrap-codex-feishu.sh
+  // This template is intentionally isolated from the existing ~/.openclaw tree.
+
+  gateway: {
+    mode: "local",
+    bind: "loopback",
+    port: __BASE_PORT__,
+    auth: {
+      mode: "token",
+      token: {
+        source: "env",
+        provider: "default",
+        id: "__GATEWAY_TOKEN_ENV_VAR__",
+      },
+    },
+  },
+
+  agents: {
+    defaults: {
+      workspace: "__WORKSPACE_DIR__",
+      model: {
+        primary: "__MODEL_PROVIDER_ID__/__MODEL_ID__",
+      },
+      models: {
+        "__MODEL_PROVIDER_ID__/__MODEL_ID__": {
+          params: {
+            fastMode: true,
+          },
+        },
+      },
+    },
+  },
+
+  models: {
+    mode: "merge",
+    providers: {
+      "__MODEL_PROVIDER_ID__": {
+        baseUrl: "__MODEL_BASE_URL__",
+        apiKey: {
+          source: "env",
+          provider: "default",
+          id: "__MODEL_API_ENV_VAR__",
+        },
+        api: "openai-responses",
+        models: [
+          {
+            id: "__MODEL_ID__",
+            name: "__MODEL_ID__",
+            reasoning: true,
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 1050000,
+            maxTokens: 128000,
+          },
+        ],
+      },
+    },
+  },
+
+  channels: {
+    feishu: {
+      enabled: true,
+      domain: "__FEISHU_DOMAIN__",
+      connectionMode: "websocket",
+      dmPolicy: "pairing",
+      groupPolicy: "disabled",
+      requireMention: true,
+      streaming: true,
+
+      // Feishu appId is not part of OpenClaw's supported SecretRef surface.
+      // Keep it isolated but render it as a literal string in this config.
+      appId: "__APP_ID_VALUE__",
+      appSecret: {
+        source: "env",
+        provider: "default",
+        id: "__APP_SECRET_ENV_VAR__",
+      },
+
+      tools: {
+        doc: true,
+        wiki: true,
+        drive: true,
+        perm: false,
+        scopes: true,
+      },
+    },
+  },
+
+  plugins: {
+    load: {
+      paths: [
+        "__REPO_ROOT__/extensions/codex-bridge",
+      ],
+    },
+    entries: {
+      feishu: {
+        enabled: true,
+      },
+      "memory-core": {
+        enabled: true,
+      },
+      "codex-bridge": {
+        enabled: true,
+        config: {
+          locale: "zh-CN",
+          defaultCwd: "/home/neousys",
+          codexHome: "__STATE_DIR__/codex-bridge/codex-home",
+          codexBin: "codex",
+          authJsonPath: "/home/neousys/.codex/auth.json",
+          configTomlPath: "/home/neousys/.codex/config.toml",
+          envAllowlist: ["HOME", "PATH", "LANG", "LC_ALL", "TERM", "USER", "LOGNAME"],
+          statusThrottleMs: 15000,
+          heartbeatMs: 30000,
+          approvalTtlMs: 600000,
+        },
+      },
+    },
+  },
+}

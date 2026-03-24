@@ -1,0 +1,80 @@
+{
+  "id": "codex-bridge",
+  "name": "Codex Bridge",
+  "description": "Claims paired Feishu DMs and runs Codex as a remote task executor",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "locale": {
+        "type": "string",
+        "enum": ["zh-CN", "en-US"]
+      },
+      "defaultCwd": {
+        "type": "string"
+      },
+      "codexHome": {
+        "type": "string"
+      },
+      "codexBin": {
+        "type": "string"
+      },
+      "authJsonPath": {
+        "type": "string"
+      },
+      "configTomlPath": {
+        "type": "string"
+      },
+      "statusThrottleMs": {
+        "type": "integer",
+        "minimum": 1000
+      },
+      "heartbeatMs": {
+        "type": "integer",
+        "minimum": 5000
+      },
+      "approvalTtlMs": {
+        "type": "integer",
+        "minimum": 1000
+      }
+    }
+  },
+  "uiHints": {
+    "locale": {
+      "label": "Locale",
+      "help": "Controls bridge copy and the target language for Codex task summaries."
+    },
+    "defaultCwd": {
+      "label": "Default CWD",
+      "help": "Default working directory used for new Feishu Codex tasks."
+    },
+    "codexHome": {
+      "label": "Codex Home",
+      "help": "Isolated CODEX_HOME used by the remote runner."
+    },
+    "codexBin": {
+      "label": "Codex Binary",
+      "help": "Codex CLI executable name or path."
+    },
+    "authJsonPath": {
+      "label": "Auth JSON",
+      "help": "Source auth.json copied into the isolated CODEX_HOME when needed."
+    },
+    "configTomlPath": {
+      "label": "Config TOML",
+      "help": "Source config.toml copied into the isolated CODEX_HOME when needed."
+    },
+    "statusThrottleMs": {
+      "label": "Status Throttle",
+      "help": "Minimum interval between progress pushes."
+    },
+    "heartbeatMs": {
+      "label": "Heartbeat",
+      "help": "Heartbeat interval while a Codex task is still running."
+    },
+    "approvalTtlMs": {
+      "label": "Approval TTL",
+      "help": "How long an approval token stays valid."
+    }
+  }
+}
