@@ -10,6 +10,7 @@ import { buildCodexArgs, buildCodexEnv } from "./lib/codex-exec.js";
 import { isPathInsideAny } from "./lib/fs-utils.js";
 import { getLocaleText, localizeStatusHint } from "./lib/locale.js";
 import { assessPolicyDecision, POLICY_DECISIONS } from "./lib/policy.js";
+import { detectExecutionRuntimeCompatibility } from "./lib/runtime-compatibility.js";
 import { resolveSettings } from "./lib/settings.js";
 import {
   isActiveTaskStatus,
@@ -415,6 +416,17 @@ export class CodexBridge {
       return;
     }
 
+    const runtimeCheck = await this.ensureExecutionRuntimeReady();
+    if (!runtimeCheck.ok) {
+      await this.safeReply({
+        accountId: request.accountId,
+        conversationId: request.conversationId,
+        messageId: request.messageId,
+        text: this.text.executionRuntimeUnavailable(runtimeCheck.message),
+      });
+      return;
+    }
+
     await this.deleteApproval(token);
     if (profile.pendingApprovalToken === token) delete profile.pendingApprovalToken;
     await this.saveProfile(profile);
@@ -437,6 +449,7 @@ export class CodexBridge {
       approvalToken: null,
       status: nextRun.taskStatus,
       existingTask,
+      runtimeCheck,
     });
   }
 
@@ -746,6 +759,17 @@ export class CodexBridge {
           status: activeTask.status,
           code: "active_task_exists",
         }),
+      });
+      return;
+    }
+
+    const runtimeCheck = params.runtimeCheck ?? (await this.ensureExecutionRuntimeReady());
+    if (!runtimeCheck.ok) {
+      await this.safeReply({
+        accountId: params.accountId,
+        conversationId: params.conversationId,
+        messageId: params.messageId,
+        text: this.text.executionRuntimeUnavailable(runtimeCheck.message),
       });
       return;
     }
@@ -1340,6 +1364,12 @@ export class CodexBridge {
     if (!fs.existsSync(root)) return files;
     for (const file of await listFilesRecursive(root)) files.add(file);
     return files;
+  }
+
+  async ensureExecutionRuntimeReady() {
+    return detectExecutionRuntimeCompatibility({
+      codexBin: this.settings.codexBin,
+    });
   }
 
   async handleRuntimePersistenceFailure(senderId, error) {

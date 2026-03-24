@@ -20,6 +20,8 @@ LOCAL_CODEX_AUTH_JSON_DEFAULT="${HOME}/.codex/auth.json"
 SYSTEMD_UNIT_NAME_DEFAULT="openclaw-codex-feishu.service"
 SYSTEMD_MARKER="# Managed by codex_feishu bootstrap"
 CONFLICT_PORT_SPACING=20
+MIN_BWRAP_VERSION="0.9.0"
+HOST_BWRAP_BIN="/usr/bin/bwrap"
 
 OPENCLAW_VERSION="${OPENCLAW_VERSION_DEFAULT}"
 PROFILE_NAME="${PROFILE_NAME_DEFAULT}"
@@ -122,6 +124,24 @@ die() {
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || die "missing required command: $1"
+}
+
+version_ge() {
+  local current="$1"
+  local minimum="$2"
+  [[ "$(printf '%s\n%s\n' "${minimum}" "${current}" | sort -V | head -n1)" == "${minimum}" ]]
+}
+
+detect_bwrap_version() {
+  "${HOST_BWRAP_BIN}" --version 2>&1 | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true
+}
+
+probe_codex_linux_sandbox() {
+  local output
+  if ! output="$(codex sandbox linux -- /bin/true 2>&1)"; then
+    output="$(printf '%s' "${output}" | tr '\n' ' ' | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//')"
+    die "codex sandbox linux probe failed: ${output}"
+  fi
 }
 
 resolve_path() {
@@ -351,6 +371,14 @@ assert_path_not_shared() {
 
 run_preflight() {
   require_command node
+  require_command codex
+  [[ -x "${HOST_BWRAP_BIN}" ]] || die "missing required command: ${HOST_BWRAP_BIN}"
+
+  local bwrap_version
+  bwrap_version="$(detect_bwrap_version)"
+  [[ -n "${bwrap_version}" ]] || die "failed to detect bubblewrap version from 'bwrap --version'"
+  version_ge "${bwrap_version}" "${MIN_BWRAP_VERSION}" || die "${HOST_BWRAP_BIN} must be >= ${MIN_BWRAP_VERSION}; current ${bwrap_version}"
+  probe_codex_linux_sandbox
 
   [[ -f "${CONFIG_TEMPLATE}" ]] || die "missing config template: ${CONFIG_TEMPLATE}"
 

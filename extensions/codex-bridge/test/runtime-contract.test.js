@@ -24,3 +24,22 @@ test("generated systemd unit uses an always-restart policy", () => {
 
   assert.match(bootstrapScript, /Restart=always/);
 });
+
+test("bootstrap preflight probes the real codex sandbox runtime", () => {
+  const bootstrapScript = fs.readFileSync(path.join(repoRoot, "scripts", "bootstrap-codex-feishu.sh"), "utf8");
+
+  assert.match(bootstrapScript, /require_command codex/);
+  assert.match(bootstrapScript, /HOST_BWRAP_BIN="\/usr\/bin\/bwrap"/);
+  assert.match(bootstrapScript, /MIN_BWRAP_VERSION="0\.9\.0"/);
+  assert.match(bootstrapScript, /codex sandbox linux -- \/bin\/true/);
+  assert.match(bootstrapScript, /must be >= \$\{MIN_BWRAP_VERSION\}/);
+});
+
+test("README documents the minimum execution infrastructure", () => {
+  const readme = fs.readFileSync(path.join(repoRoot, "README.md"), "utf8");
+
+  assert.match(readme, /\/usr\/bin\/bwrap >= 0\.9\.0/);
+  assert.match(readme, /codex-cli 0\.116\.0/);
+  assert.match(readme, /\/usr\/bin\/bwrap/);
+  assert.match(readme, /任务启动前直接拒绝/);
+});

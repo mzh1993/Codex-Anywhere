@@ -120,6 +120,10 @@ export function getLocaleText(locale) {
       lastLabel: "最近状态",
       runnerLanguageInstruction: "Respond in Simplified Chinese. If you use sections, use Chinese headings such as: 总结、改动文件、下一步。",
       bridgeError: (errorText) => `Codex bridge 错误：${errorText}`,
+      executionRuntimeUnavailable: (errorText) => [
+        "执行环境不兼容，任务未启动。",
+        `原因：${errorText}`,
+      ].join("\n"),
       currentCwd: (cwd) => `当前工作目录：\`${cwd}\``,
       directoryNotFound: (cwd) => `目录不存在：\`${cwd}\``,
       defaultCwdUpdated: (cwd) => `默认工作目录已更新为 \`${cwd}\``,
@@ -238,6 +242,10 @@ export function getLocaleText(locale) {
     lastLabel: "last",
     runnerLanguageInstruction: "Respond in English. If you use sections, use English headings such as: Summary, Changed Files, Next Steps.",
     bridgeError: (errorText) => `Codex bridge error: ${errorText}`,
+    executionRuntimeUnavailable: (errorText) => [
+      "Execution runtime incompatible; task not started.",
+      `Reason: ${errorText}`,
+    ].join("\n"),
     currentCwd: (cwd) => `Current cwd: \`${cwd}\``,
     directoryNotFound: (cwd) => `Directory not found: \`${cwd}\``,
     defaultCwdUpdated: (cwd) => `Default cwd updated to \`${cwd}\``,
