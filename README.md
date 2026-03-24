@@ -13,8 +13,6 @@ Feishu is the first channel. OpenClaw is the current transport shell.
 ```bash
 export CODEX_FEISHU_APP_ID='cli_xxx'
 export CODEX_FEISHU_APP_SECRET='xxx'
-# 可选：如果不想复用 ~/.codex/auth.json 里的 OPENAI_API_KEY
-# export CODEXZH_API_KEY='sk-...'
 ./scripts/bootstrap-codex-feishu.sh bootstrap
 ./scripts/bootstrap-codex-feishu.sh persist-secrets
 ./scripts/bootstrap-codex-feishu.sh gateway-run
@@ -89,7 +87,6 @@ export CODEX_FEISHU_APP_SECRET='xxx'
 - 只使用隔离运行时自带的 stock `feishu` 插件
 - 新建独立 Feishu 应用与 bot，禁止复用现有 `~/.openclaw` 的 App ID / App Secret
 - 默认只开私聊，群聊策略固定为禁用
-- 默认模型固定为 `codexzh/gpt-5.4`
 
 ## 用 `superpowers` 协作开发
 
@@ -134,13 +131,6 @@ export CODEX_FEISHU_APP_SECRET='xxx'
 - `/codex continue <prompt>` 只在当前 task 处于 `awaiting_input` 时创建下一次 run
 - `/acp ...` 等 OpenClaw 管理命令保持原路径，不走 Codex bridge
 - 高风险任务会先阻塞当前 run 并返回一次性 token，必须 `/codex approve <token>` 才会创建获批后的下一次 run
-
-## 模型认证
-
-- 当前默认模型提供商：`codexzh`
-- 默认端点：`https://api.codexzh.com/v1`
-- 默认 API key 环境变量：`CODEXZH_API_KEY`
-- 若未显式导出 `CODEXZH_API_KEY`，脚本会尝试复用 `$HOME/.codex/auth.json` 中的 `OPENAI_API_KEY`
 
 ## Feishu 应用配置
 
