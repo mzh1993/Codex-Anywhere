@@ -25,6 +25,12 @@
       "configTomlPath": {
         "type": "string"
       },
+      "envAllowlist": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
       "statusThrottleMs": {
         "type": "integer",
         "minimum": 1000
@@ -63,6 +69,10 @@
     "configTomlPath": {
       "label": "Config TOML",
       "help": "Source config.toml copied into the isolated CODEX_HOME when needed."
+    },
+    "envAllowlist": {
+      "label": "Env Allowlist",
+      "help": "Environment variables forwarded from the host into the isolated Codex process."
     },
     "statusThrottleMs": {
       "label": "Status Throttle",
