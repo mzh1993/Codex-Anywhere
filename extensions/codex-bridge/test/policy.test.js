@@ -66,6 +66,17 @@ test("approval/control/process: pm2 restart requires approval", () => {
   assert.deepEqual(decision.reasonCodes, ["process_control_requires_approval"]);
 });
 
+test("approval/control/process: background python http server requires approval", () => {
+  const decision = assessPolicyDecision({
+    prompt: "python -m http.server 8000 &",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "approval_required");
+  assert.deepEqual(decision.reasonCodes, ["process_control_requires_approval"]);
+});
+
 test("approval/any/host_codex_root: host codex root access requires approval", () => {
   const decision = assessPolicyDecision({
     prompt: "list files",
