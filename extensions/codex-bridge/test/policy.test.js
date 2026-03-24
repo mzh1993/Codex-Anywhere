@@ -99,6 +99,17 @@ test("approval/control/process: npx http-server requires approval", () => {
   assert.deepEqual(decision.reasonCodes, ["process_control_requires_approval"]);
 });
 
+test("approval/control/process: shell background operator requires approval", () => {
+  const decision = assessPolicyDecision({
+    prompt: "npm run dev &",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "approval_required");
+  assert.deepEqual(decision.reasonCodes, ["process_control_requires_approval"]);
+});
+
 test("approval/any/host_codex_root: host codex root access requires approval", () => {
   const decision = assessPolicyDecision({
     prompt: "list files",
@@ -257,6 +268,17 @@ test("allow/read/discussion: summarizing a rename plan does not trigger write ap
   const decision = assessPolicyDecision({
     prompt: "summarize the rename from ../shared/result.txt to ./notes/archive.txt",
     cwd: "/home/neousys/project/worktree",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "allowed");
+  assert.deepEqual(decision.reasonCodes, []);
+});
+
+test("allow/read/discussion: ampersand in a read request does not imply background execution", () => {
+  const decision = assessPolicyDecision({
+    prompt: "summarize README.md & docs/feishu-codex-runner-v1.md",
+    cwd: "/home/neousys/project",
     protectedRoots: [],
     hostCodexRoot: "/home/neousys/.codex",
   });

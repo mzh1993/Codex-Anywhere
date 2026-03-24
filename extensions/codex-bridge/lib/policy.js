@@ -18,6 +18,7 @@ const ISOLATION_BOUNDARY_PATTERNS = [
 const SERVICE_CONTROL_PATTERN = /\b(systemctl|systemd)\b|(?:\b(?:start|stop|restart|reload)\b|重启|启动|停止|重载)[^\n]*\.service\b/i;
 const PROCESS_CONTROL_PATTERN =
   /\b(nohup|pm2|supervisorctl|forever|daemonize|uvicorn|gunicorn)\b|\b(?:python|python3)\b[^\n]*\s-m\s+http\.server\b|\bnpx\s+http-server\b|\bflask\b[^\n]*\brun\b|\b(?:python|python3)\b[^\n]*\bmanage\.py\b[^\n]*\brunserver\b/i;
+const BACKGROUND_PROCESS_PATTERN = /(?:^|[;\n])[^&\n]*\s&\s*$/;
 const GLOBAL_ENV_PATTERN = /\b(npm\s+install\s+-g|pnpm\s+add\s+-g|pip\s+install\s+--user|apt\s+install)\b/i;
 const DESTRUCTIVE_PATTERN = /\brm\s+-rf\b|\bdelete\b|\btruncate\b/i;
 const READ_ONLY_PHRASE_PATTERN = /\b(update me on|keep me updated on)\b/i;
@@ -102,7 +103,8 @@ function createPolicyAssessment(input) {
     writesOutsideControlledRoots:
       action === "write" && referencedPaths.some((candidatePath) => !isPathInsideAny(candidatePath, controlledRoots)),
     requiresServiceApproval: SERVICE_CONTROL_PATTERN.test(prompt),
-    requiresProcessControlApproval: PROCESS_CONTROL_PATTERN.test(prompt),
+    requiresProcessControlApproval:
+      PROCESS_CONTROL_PATTERN.test(prompt) || BACKGROUND_PROCESS_PATTERN.test(prompt),
     requiresGlobalEnvApproval: GLOBAL_ENV_PATTERN.test(prompt),
     requiresDestructiveApproval: DESTRUCTIVE_PATTERN.test(prompt),
   };
