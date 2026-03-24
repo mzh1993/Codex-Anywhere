@@ -104,6 +104,56 @@ V1 不尝试复刻桌面 Codex 会话，只做任务型远程执行。
 - `running` / `awaiting_approval` 时，继续输入必须走显式协议，避免渠道猜测执行语义
 - `/codex approve <token>` 对应的是当前 task 的审批点，而不是恢复旧 run
 
+## 输入协议矩阵
+
+### `no_task`
+
+- 普通文本：允许，创建新 task
+- `/codex continue <prompt>`：拒绝，当前没有可继续任务
+- `/codex approve <token>`：拒绝，当前没有待审批任务
+- `/codex abort`：拒绝，当前没有活动任务
+- `/codex status`：允许，只查询当前状态
+- `/codex cwd <path>`、`/codex pwd`：允许
+
+### `awaiting_input`
+
+- 普通文本：允许，续到同一 task 的下一次 run
+- 若该 task 带“上一轮执行中断，请明确继续”语义：普通文本拒绝，必须使用 `/codex continue <prompt>`
+- `/codex continue <prompt>`：允许，显式续到同一 task
+- `/codex approve <token>`：拒绝，当前不在审批态
+- `/codex abort`：允许，终止整个 task
+- `/codex status`：允许，只查询当前状态
+- `/codex cwd <path>`、`/codex pwd`：允许
+
+### `running`
+
+- 普通文本：拒绝，不能插队，不得隐式继续
+- `/codex continue <prompt>`：拒绝，当前不在等待输入
+- `/codex approve <token>`：拒绝，当前不在审批态
+- `/codex abort`：允许，终止整个 task
+- `/codex status`：允许，只查询当前状态
+- `/codex pwd`：允许
+- `/codex cwd <path>`：允许修改未来默认值，但不影响当前 running task
+
+### `awaiting_approval`
+
+- 普通文本：拒绝，不能当普通任务执行
+- `/codex continue <prompt>`：拒绝，当前不在等待输入
+- `/codex approve <token>`：允许，为同一 task 创建新的获批 run
+- `/codex abort`：允许，终止整个 task
+- `/codex status`：允许，只查询当前状态
+- `/codex pwd`：允许
+- `/codex cwd <path>`：允许修改未来默认值，但不影响当前待审批 task
+
+## 关键规则
+
+- `/codex status` 在所有状态下都合法，但只负责查询，不推进状态
+- `/codex continue <prompt>` 只在 `awaiting_input` 合法
+- `/codex approve <token>` 只在 `awaiting_approval` 合法
+- `/codex abort` 在 `awaiting_input`、`running`、`awaiting_approval` 下都表示终止整个 task
+- `/codex cwd <path>` 只修改未来默认工作目录，不热切换当前活动 task
+- 默认采用严格状态机：宁可多拒绝一次，也不让渠道猜测执行语义
+
 ## 当前已知限制
 
 - `codex exec --json` 的事件聚合做的是宽松兼容解析，V1 以开始/心跳/结束回传为主
