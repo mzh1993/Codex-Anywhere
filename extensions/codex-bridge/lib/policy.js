@@ -10,11 +10,10 @@ const ISOLATION_BOUNDARY_PATTERNS = [
   "/home/neousys/.openclaw",
   "~/.openclaw",
   "openclaw gateway install",
-  "openclaw-codex-feishu.service",
   "codex_feishu_gateway_token",
 ];
 
-const SERVICE_CONTROL_PATTERN = /\b(systemctl|systemd)\b/i;
+const SERVICE_CONTROL_PATTERN = /\b(systemctl|systemd)\b|(?:\b(?:start|stop|restart|reload)\b|重启|启动|停止|重载)[^\n]*\.service\b/i;
 const GLOBAL_ENV_PATTERN = /\b(npm\s+install\s+-g|pnpm\s+add\s+-g|pip\s+install\s+--user|apt\s+install)\b/i;
 const DESTRUCTIVE_PATTERN = /\brm\s+-rf\b|\bdelete\b|\btruncate\b/i;
 

@@ -33,6 +33,17 @@ test("service-control requests require approval", () => {
   assert.deepEqual(decision.reasonCodes, ["service_control_requires_approval"]);
 });
 
+test("isolated gateway service control still requires approval instead of direct denial", () => {
+  const decision = assessPolicyDecision({
+    prompt: "请帮我重启 openclaw-codex-feishu.service",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "approval_required");
+  assert.deepEqual(decision.reasonCodes, ["service_control_requires_approval"]);
+});
+
 test("host codex root access requires approval", () => {
   const decision = assessPolicyDecision({
     prompt: "list files",

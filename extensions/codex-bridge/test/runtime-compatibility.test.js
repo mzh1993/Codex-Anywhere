@@ -301,3 +301,24 @@ test("approved start fails closed without consuming approval state when runtime 
   assert.equal(replies.length, 1);
   assert.doesNotMatch(replies[0], /任务已启动/);
 });
+
+test("malformed codex command prefix is rejected without starting a task", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-malformed-command-"));
+  const { bridge, replies } = await createBridgeHarness(tempRoot);
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-1",
+    text: "：/codex status",
+  });
+
+  assert.equal(replies.length, 1);
+  assert.match(replies[0], /\/codex status/);
+  assert.match(replies[0], /命令前不要加|多余前缀/);
+  assert.equal(bridge.getActiveTask("user-1"), null);
+  assert.equal((await fs.readdir(bridge.settings.tasksRoot).catch(() => [])).length, 0);
+  assert.equal((await fs.readdir(bridge.settings.runsRoot).catch(() => [])).length, 0);
+});

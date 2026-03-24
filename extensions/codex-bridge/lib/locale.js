@@ -98,6 +98,21 @@ function getActiveTaskDetails(input, status) {
   return { taskId: input, status };
 }
 
+function getActiveTaskActionLine(locale, suggestedCommand) {
+  const normalized = normalizeLocale(locale);
+  const command = suggestedCommand ?? "/codex continue <prompt>";
+  if (normalized === "zh-CN") {
+    if (command === "/codex continue <prompt>") {
+      return `请使用 \`${command}\` 提交明确的继续输入。`;
+    }
+    return `请先使用 \`${command}\` 处理当前任务。`;
+  }
+  if (command === "/codex continue <prompt>") {
+    return `Use \`${command}\` to add input explicitly.`;
+  }
+  return `Use \`${command}\` to handle the current task first.`;
+}
+
 export function getLocaleText(locale) {
   const normalized = normalizeLocale(locale);
   if (normalized === "zh-CN") {
@@ -131,6 +146,10 @@ export function getLocaleText(locale) {
       approvalTokenNotFound: (token) => `未找到审批令牌：${token}`,
       approvalTokenExpired: (token) => `审批令牌已过期：${token}`,
       cwdBlocked: (cwd) => `工作目录被 bridge 策略阻止：${cwd}`,
+      malformedCodexCommand: (command) => [
+        "命令前不要加多余前缀。",
+        `请直接使用 \`${command}\`。`,
+      ].join("\n"),
       help: (cwd) => [
         "Codex Runner 命令：",
         "`/codex cwd <path>` 设置默认工作目录",
@@ -149,7 +168,7 @@ export function getLocaleText(locale) {
           `已有活动任务：${details.taskId}`,
           ...(details.status ? [`状态：${localizeTaskStatus(normalized, details.status)}`] : []),
           ...(details.code ? [`代码：${details.code}`] : []),
-          `请使用 \`${details.suggestedCommand ?? "/codex continue <prompt>"}\` 提交明确的继续输入。`,
+          getActiveTaskActionLine(normalized, details.suggestedCommand),
           "也可以使用 `/codex status` 或 `/codex abort`。",
         ].join("\n");
       },
@@ -253,6 +272,10 @@ export function getLocaleText(locale) {
     approvalTokenNotFound: (token) => `Approval token not found: ${token}`,
     approvalTokenExpired: (token) => `Approval token expired: ${token}`,
     cwdBlocked: (cwd) => `cwd is blocked by bridge policy: ${cwd}`,
+    malformedCodexCommand: (command) => [
+      "Do not prefix Codex commands with extra punctuation.",
+      `Use \`${command}\` directly.`,
+    ].join("\n"),
     help: (cwd) => [
       "Codex Runner commands:",
       "`/codex cwd <path>` set default cwd",
@@ -271,7 +294,7 @@ export function getLocaleText(locale) {
         `Task already active: ${details.taskId}`,
         ...(details.status ? [`Status: ${localizeTaskStatus(normalized, details.status)}`] : []),
         ...(details.code ? [`Code: ${details.code}`] : []),
-        `Use \`${details.suggestedCommand ?? "/codex continue <prompt>"}\` to add input explicitly.`,
+        getActiveTaskActionLine(normalized, details.suggestedCommand),
         "Use `/codex status` or `/codex abort` if needed.",
       ].join("\n");
     },

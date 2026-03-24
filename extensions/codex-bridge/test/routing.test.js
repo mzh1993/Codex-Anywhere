@@ -78,6 +78,19 @@ test("continue guidance text targets the current active task", () => {
   assert.equal(zh.noActiveTaskToContinue, "当前没有可继续的活动任务。");
 });
 
+test("running-task guidance does not mislabel status as a continue command", () => {
+  const zh = getLocaleText("zh-CN");
+  const text = zh.taskAlreadyRunning({
+    taskId: "task-1",
+    status: "running",
+    code: "active_task_exists",
+    suggestedCommand: "/codex status",
+  });
+
+  assert.match(text, /请先使用 `\/codex status`/);
+  assert.doesNotMatch(text, /`\/codex status` 提交明确的继续输入/);
+});
+
 test("approval-required decision transitions task to awaiting_approval", () => {
   const next = finishApprovalTransition({ currentStatus: "running", decision: "approval_required" });
   assert.equal(next.status, "awaiting_approval");

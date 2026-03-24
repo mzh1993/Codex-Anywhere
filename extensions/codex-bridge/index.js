@@ -149,6 +149,17 @@ export class CodexBridge {
       return;
     }
 
+    const malformedCodexCommand = extractMalformedCodexCommand(request.text);
+    if (malformedCodexCommand) {
+      await this.safeReply({
+        accountId: request.accountId,
+        conversationId: request.conversationId,
+        messageId: request.messageId,
+        text: this.text.malformedCodexCommand(malformedCodexCommand),
+      });
+      return;
+    }
+
     const activeTask = await this.loadActiveTask(profile.senderId, profile);
     if (activeTask) {
       const routeResult = routeIncomingPlainText({
@@ -1466,6 +1477,12 @@ function parseCodexCommand(text) {
 
 function isCodexCommand(text) {
   return normalizeText(text)?.startsWith("/codex") ?? false;
+}
+
+function extractMalformedCodexCommand(text) {
+  const normalized = normalizeText(text);
+  const match = normalized.match(/^(?:[:：]\s*)+(\/codex(?:\s.*)?$)/i);
+  return match?.[1]?.trim() ?? null;
 }
 
 function shouldBypassClaim(text) {
