@@ -26,7 +26,7 @@ const READ_DISCUSSION_PATTERN =
   /\b(review|summari[sz]e|inspect|check|explain|describe)\b.*\b(move|rename|copy)\b/i;
 const READ_INTENT_PATTERN = /\b(read|show|list|summari[sz]e|inspect|check|review|view)\b|读取|查看|列出|总结|检查/i;
 const WRITE_COMMAND_PATTERN =
-  /(?:^|\s)(?:cp|mv|tee|install|touch|mkdir|ln|rsync)\b|\b(?:echo|printf|cat)\b[^\n]*>>?|\bsed\s+-i\b/i;
+  /(?:^|\s)(?:cp|mv|tee|install|touch|mkdir|ln|rsync|chmod|chown)\b|\b(?:echo|printf|cat)\b[^\n]*>>?|\bsed\s+-i\b/i;
 const WRITE_INTENT_PATTERN =
   /\b(write|append|create|modify|edit|update|save|rewrite|replace|move|rename|copy|touch|mkdir)\b|写入|追加|创建|修改|编辑|更新|保存|覆盖|移动|重命名|复制/i;
 

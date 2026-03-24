@@ -176,6 +176,17 @@ test("allow/write/inside_cwd: rsync within the controlled cwd stays allowed", ()
   assert.deepEqual(decision.reasonCodes, []);
 });
 
+test("allow/write/inside_cwd: chmod within the controlled cwd stays allowed", () => {
+  const decision = assessPolicyDecision({
+    prompt: "chmod +x ./scripts/bootstrap.sh",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "allowed");
+  assert.deepEqual(decision.reasonCodes, []);
+});
+
 test("approval/write/outside_cwd: host path outside the controlled cwd requires approval", () => {
   const decision = assessPolicyDecision({
     prompt: "write summary to /home/neousys/Desktop/today.md",
@@ -223,6 +234,17 @@ test("approval/write/outside_cwd: shell copy to parent path outside the controll
 test("approval/write/outside_cwd: rsync to parent path outside the controlled cwd requires approval", () => {
   const decision = assessPolicyDecision({
     prompt: "rsync -a ./notes/ ../shared/notes/",
+    cwd: "/home/neousys/project/worktree",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "approval_required");
+  assert.deepEqual(decision.reasonCodes, ["host_mutation_requires_approval"]);
+});
+
+test("approval/write/outside_cwd: chmod outside the controlled cwd requires approval", () => {
+  const decision = assessPolicyDecision({
+    prompt: "chmod 600 ../shared/secrets.txt",
     cwd: "/home/neousys/project/worktree",
     protectedRoots: [],
     hostCodexRoot: "/home/neousys/.codex",
