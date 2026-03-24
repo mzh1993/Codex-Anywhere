@@ -21,6 +21,7 @@ const PROCESS_CONTROL_PATTERN =
 const BACKGROUND_PROCESS_PATTERN = /(?:^|[;\n])[^&\n]*\s&\s*$/;
 const REMOTE_BOUNDARY_PATTERN =
   /(?:^|[;&\n]\s*)(?:ssh|scp|sftp)\s+\S+|(?:^|[;&\n]\s*)rsync\b[^\n]*\b(?:[A-Za-z0-9._-]+@)?[A-Za-z0-9._-]+:[^\s]+|(?:^|[;&\n]\s*)curl\b[^\n]*(?:\s-T\s+\S+|\s-F\s+\S*=@\S+)/i;
+const ADMIN_ESCALATION_PATTERN = /(?:^|[;&\n]\s*)(?:sudo|su|doas)\b/i;
 const GLOBAL_ENV_PATTERN = /\b(npm\s+install\s+-g|pnpm\s+add\s+-g|pip\s+install\s+--user|apt\s+install)\b/i;
 const DESTRUCTIVE_PATTERN = /\brm\s+-rf\b|\bdelete\b|\btruncate\b/i;
 const READ_ONLY_PHRASE_PATTERN = /\b(update me on|keep me updated on)\b/i;
@@ -37,6 +38,9 @@ export function assessPolicyDecision(input) {
 
   if (assessment.touchesIsolationBoundary || assessment.touchesProtectedRoots) {
     return deny("isolation_boundary_denied");
+  }
+  if (assessment.requiresAdminBoundaryDeny) {
+    return deny("out_of_scope_admin_denied");
   }
 
   const reasonCodes = [];
@@ -111,6 +115,7 @@ function createPolicyAssessment(input) {
     requiresProcessControlApproval:
       PROCESS_CONTROL_PATTERN.test(prompt) || BACKGROUND_PROCESS_PATTERN.test(prompt),
     requiresRemoteBoundaryApproval: REMOTE_BOUNDARY_PATTERN.test(prompt),
+    requiresAdminBoundaryDeny: ADMIN_ESCALATION_PATTERN.test(prompt),
     requiresGlobalEnvApproval: GLOBAL_ENV_PATTERN.test(prompt),
     requiresDestructiveApproval: DESTRUCTIVE_PATTERN.test(prompt),
   };

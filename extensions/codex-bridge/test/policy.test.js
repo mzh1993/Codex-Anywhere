@@ -154,6 +154,28 @@ test("approval/write/remote: curl upload requires approval", () => {
   assert.deepEqual(decision.reasonCodes, ["remote_boundary_requires_approval"]);
 });
 
+test("deny/admin/escalation: sudo commands are denied", () => {
+  const decision = assessPolicyDecision({
+    prompt: "sudo systemctl restart nginx",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "denied");
+  assert.deepEqual(decision.reasonCodes, ["out_of_scope_admin_denied"]);
+});
+
+test("deny/admin/escalation: su to root is denied", () => {
+  const decision = assessPolicyDecision({
+    prompt: "su - root",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "denied");
+  assert.deepEqual(decision.reasonCodes, ["out_of_scope_admin_denied"]);
+});
+
 test("approval/any/host_codex_root: host codex root access requires approval", () => {
   const decision = assessPolicyDecision({
     prompt: "list files",
@@ -377,6 +399,17 @@ test("allow/read/discussion: ampersand in a read request does not imply backgrou
 test("allow/read/discussion: discussing ssh docs does not imply remote execution", () => {
   const decision = assessPolicyDecision({
     prompt: "summarize the SSH deployment notes in README.md",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "allowed");
+  assert.deepEqual(decision.reasonCodes, []);
+});
+
+test("allow/read/discussion: discussing sudo docs does not imply privilege escalation", () => {
+  const decision = assessPolicyDecision({
+    prompt: "summarize how sudo works in the Linux admin notes",
     cwd: "/home/neousys/project",
     protectedRoots: [],
     hostCodexRoot: "/home/neousys/.codex",
