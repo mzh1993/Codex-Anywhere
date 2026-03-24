@@ -13,6 +13,7 @@ import { assessPolicyDecision, POLICY_DECISIONS } from "./lib/policy.js";
 import { detectExecutionRuntimeCompatibility } from "./lib/runtime-compatibility.js";
 import { resolveSettings } from "./lib/settings.js";
 import {
+  routeApproveCommand,
   isActiveTaskStatus,
   routeContinueCommand,
   routeIncomingPlainText,
@@ -318,6 +319,31 @@ export class CodexBridge {
           conversationId: request.conversationId,
           messageId: request.messageId,
           text: this.text.usageApprove,
+        });
+        return;
+      }
+      const activeTask = await this.loadActiveTask(profile.senderId, profile);
+      const approveRoute = routeApproveCommand({ activeTaskStatus: activeTask?.status ?? null });
+      if (!approveRoute.accepted) {
+        if (activeTask) {
+          await this.safeReply({
+            accountId: request.accountId,
+            conversationId: request.conversationId,
+            messageId: request.messageId,
+            text: this.text.taskAlreadyRunning({
+              taskId: activeTask.taskId,
+              status: activeTask.status,
+              code: approveRoute.code,
+              suggestedCommand: approveRoute.suggestedCommand,
+            }),
+          });
+          return;
+        }
+        await this.safeReply({
+          accountId: request.accountId,
+          conversationId: request.conversationId,
+          messageId: request.messageId,
+          text: this.text.noPendingApproval,
         });
         return;
       }

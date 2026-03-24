@@ -374,6 +374,123 @@ test("approve command ignores trailing text after the token", async () => {
   assert.match(replies[0], /执行环境|bubblewrap|基础设施/);
 });
 
+test("approve command is rejected when the active task is not awaiting approval", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-approve-state-"));
+  const { bridge, replies } = await createBridgeHarness(tempRoot);
+
+  const task = createTaskRecord({
+    taskId: "task-awaiting-input",
+    locale: "zh-CN",
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-old",
+    cwd: tempRoot,
+    mode: "new",
+    status: "awaiting_input",
+    currentRunId: null,
+    lastRunId: "run-old",
+    prompt: "旧任务",
+    createdAt: "2026-03-24T08:00:00.000Z",
+    updatedAt: "2026-03-24T08:00:00.000Z",
+  });
+  const profile = {
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    defaultCwd: tempRoot,
+    activeTaskId: task.taskId,
+    lastTaskId: task.taskId,
+    updatedAt: "2026-03-24T08:00:00.000Z",
+  };
+
+  await bridge.saveTask(task);
+  await bridge.saveProfile(profile);
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-approve",
+    text: "/codex approve TOKEN1",
+  });
+
+  assert.equal(replies.length, 1);
+  assert.match(replies[0], /task_not_waiting_approval|等待输入/);
+  assert.match(replies[0], /`\/codex continue <prompt>`/);
+  assert.doesNotMatch(replies[0], /未找到审批令牌/);
+});
+
+test("cwd changes future default only and does not hot-switch the active task cwd", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-cwd-default-"));
+  const activeCwd = path.join(tempRoot, "active");
+  const nextDefaultCwd = path.join(tempRoot, "next-default");
+  await fs.mkdir(activeCwd, { recursive: true });
+  await fs.mkdir(nextDefaultCwd, { recursive: true });
+
+  const { bridge, replies } = await createBridgeHarness(tempRoot);
+  const queued = [];
+  bridge.queueOrStartTask = async (params) => {
+    queued.push({ cwd: params.cwd, mode: params.mode, prompt: params.prompt });
+  };
+
+  const task = createTaskRecord({
+    taskId: "task-awaiting-input",
+    locale: "zh-CN",
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-old",
+    cwd: activeCwd,
+    mode: "new",
+    status: "awaiting_input",
+    currentRunId: null,
+    lastRunId: "run-old",
+    prompt: "旧任务",
+    createdAt: "2026-03-24T08:00:00.000Z",
+    updatedAt: "2026-03-24T08:00:00.000Z",
+  });
+  const profile = {
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    defaultCwd: activeCwd,
+    activeTaskId: task.taskId,
+    lastTaskId: task.taskId,
+    updatedAt: "2026-03-24T08:00:00.000Z",
+  };
+
+  await bridge.saveTask(task);
+  await bridge.saveProfile(profile);
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-cwd",
+    text: `/codex cwd ${nextDefaultCwd}`,
+  });
+
+  const persistedProfile = await bridge.loadProfile("user-1", null);
+  assert.equal(persistedProfile.defaultCwd, nextDefaultCwd);
+  assert.match(replies[0], /默认工作目录已更新为/);
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-continue",
+    text: "/codex continue 继续",
+  });
+
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].cwd, activeCwd);
+  assert.equal(queued[0].prompt, "继续");
+});
+
 test("malformed codex command prefix is rejected without starting a task", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-malformed-command-"));
   const { bridge, replies } = await createBridgeHarness(tempRoot);

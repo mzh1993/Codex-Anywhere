@@ -133,6 +133,7 @@ export function getLocaleText(locale) {
       noRunningTaskToAbort: "当前没有可终止的任务。",
       noPreviousSession: "当前没有可继续的活动任务。",
       noActiveTaskToContinue: "当前没有可继续的活动任务。",
+      noPendingApproval: "当前没有待审批的活动任务。",
       interruptedTaskRequiresContinue: (taskId) => [
         `任务 ${taskId} 的上一轮执行已中断。`,
         "请明确继续。",
@@ -259,6 +260,7 @@ export function getLocaleText(locale) {
     noRunningTaskToAbort: "No active task to abort.",
     noPreviousSession: "No active task to continue.",
     noActiveTaskToContinue: "No active task to continue.",
+    noPendingApproval: "No active task awaiting approval.",
     interruptedTaskRequiresContinue: (taskId) => [
       `Previous run interrupted for task ${taskId}.`,
       "Continue explicitly.",

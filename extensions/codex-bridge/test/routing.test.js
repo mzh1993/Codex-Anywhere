@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { getLocaleText } from "../lib/locale.js";
 import {
   finishApprovalTransition,
+  routeApproveCommand,
   routeContinueCommand,
   routeIncomingPlainText,
   routePlainTextWithActiveTask,
@@ -113,5 +114,26 @@ test("approval starts the next run instead of resuming the blocked run", () => {
   assert.deepEqual(startNextRunFromApproval(), {
     taskStatus: "running",
     action: "create_next_run",
+  });
+});
+
+test("approve requires the task to be waiting for approval", () => {
+  assert.deepEqual(routeApproveCommand({ activeTaskStatus: "awaiting_approval" }), {
+    accepted: true,
+    action: "approve_pending_request",
+  });
+  assert.deepEqual(routeApproveCommand({ activeTaskStatus: null }), {
+    accepted: false,
+    code: "no_pending_approval",
+  });
+  assert.deepEqual(routeApproveCommand({ activeTaskStatus: "awaiting_input" }), {
+    accepted: false,
+    code: "task_not_waiting_approval",
+    suggestedCommand: "/codex continue <prompt>",
+  });
+  assert.deepEqual(routeApproveCommand({ activeTaskStatus: "running" }), {
+    accepted: false,
+    code: "task_not_waiting_approval",
+    suggestedCommand: "/codex status",
   });
 });

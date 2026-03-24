@@ -72,6 +72,26 @@ export function routeContinueCommand({ activeTaskStatus }) {
   };
 }
 
+export function routeApproveCommand({ activeTaskStatus }) {
+  if (!activeTaskStatus) {
+    return {
+      accepted: false,
+      code: "no_pending_approval",
+    };
+  }
+  if (activeTaskStatus !== "awaiting_approval") {
+    return {
+      accepted: false,
+      code: "task_not_waiting_approval",
+      suggestedCommand: activeTaskStatus === "awaiting_input" ? "/codex continue <prompt>" : "/codex status",
+    };
+  }
+  return {
+    accepted: true,
+    action: "approve_pending_request",
+  };
+}
+
 export function routeIncomingPlainText({ activeTaskStatus, requiresExplicitContinue = false }) {
   if (!activeTaskStatus) {
     return {
