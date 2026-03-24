@@ -132,6 +132,28 @@ test("read-style update phrasing does not trigger write approval", () => {
   assert.deepEqual(decision.reasonCodes, []);
 });
 
+test("reviewing a move plan does not trigger write approval", () => {
+  const decision = assessPolicyDecision({
+    prompt: "review the move from ../shared/result.txt to ./notes/result.txt",
+    cwd: "/home/neousys/project/worktree",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "allowed");
+  assert.deepEqual(decision.reasonCodes, []);
+});
+
+test("summarizing a rename plan does not trigger write approval", () => {
+  const decision = assessPolicyDecision({
+    prompt: "summarize the rename from ../shared/result.txt to ./notes/archive.txt",
+    cwd: "/home/neousys/project/worktree",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "allowed");
+  assert.deepEqual(decision.reasonCodes, []);
+});
+
 test("global environment changes require approval", () => {
   const decision = assessPolicyDecision({
     prompt: "npm install -g pnpm",

@@ -19,6 +19,8 @@ const SERVICE_CONTROL_PATTERN = /\b(systemctl|systemd)\b|(?:\b(?:start|stop|rest
 const GLOBAL_ENV_PATTERN = /\b(npm\s+install\s+-g|pnpm\s+add\s+-g|pip\s+install\s+--user|apt\s+install)\b/i;
 const DESTRUCTIVE_PATTERN = /\brm\s+-rf\b|\bdelete\b|\btruncate\b/i;
 const READ_ONLY_PHRASE_PATTERN = /\b(update me on|keep me updated on)\b/i;
+const READ_DISCUSSION_PATTERN =
+  /\b(review|summari[sz]e|inspect|check|explain|describe)\b.*\b(move|rename|copy)\b/i;
 const READ_INTENT_PATTERN = /\b(read|show|list|summari[sz]e|inspect|check|review|view)\b|读取|查看|列出|总结|检查/i;
 const WRITE_INTENT_PATTERN =
   /\b(write|append|create|modify|edit|update|save|rewrite|replace|move|rename|copy|touch|mkdir)\b|写入|追加|创建|修改|编辑|更新|保存|覆盖|移动|重命名|复制/i;
@@ -81,6 +83,7 @@ function touchesIsolationBoundary(lowerPrompt) {
 
 function classifyAction(prompt) {
   if (READ_ONLY_PHRASE_PATTERN.test(prompt)) return "read";
+  if (READ_DISCUSSION_PATTERN.test(prompt)) return "read";
   if (WRITE_INTENT_PATTERN.test(prompt)) return "write";
   if (READ_INTENT_PATTERN.test(prompt)) return "read";
   return "none";
