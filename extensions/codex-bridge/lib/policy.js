@@ -24,6 +24,8 @@ const REMOTE_BOUNDARY_PATTERN =
 const ADMIN_ESCALATION_PATTERN = /(?:^|[;&\n]\s*)(?:sudo|su|doas)\b/i;
 const POLICY_BYPASS_PATTERN =
   /\b(?:ignore|bypass|disable|turn\s+off)\b[^\n]*\b(?:policy|approval|approvals|sandbox|guardrail|guardrails)\b|(?:绕过|关闭|禁用)(?:审批|策略|沙箱)/i;
+const CONTAINER_CONTROL_PATTERN =
+  /(?:^|[;&\n]\s*)(?:docker|podman)\b|(?:^|[;&\n]\s*)(?:kubectl|helm)\b/i;
 const GLOBAL_ENV_PATTERN = /\b(npm\s+install\s+-g|pnpm\s+add\s+-g|pip\s+install\s+--user|apt\s+install)\b/i;
 const DESTRUCTIVE_PATTERN = /\brm\s+-rf\b|\bdelete\b|\btruncate\b/i;
 const READ_ONLY_PHRASE_PATTERN = /\b(update me on|keep me updated on)\b/i;
@@ -57,6 +59,9 @@ export function assessPolicyDecision(input) {
   }
   if (assessment.requiresRemoteBoundaryApproval) {
     reasonCodes.push("remote_boundary_requires_approval");
+  }
+  if (assessment.requiresContainerControlApproval) {
+    reasonCodes.push("container_control_requires_approval");
   }
   if (assessment.touchesHostCodexRoot) {
     reasonCodes.push("host_mutation_requires_approval");
@@ -120,6 +125,7 @@ function createPolicyAssessment(input) {
     requiresProcessControlApproval:
       PROCESS_CONTROL_PATTERN.test(prompt) || BACKGROUND_PROCESS_PATTERN.test(prompt),
     requiresRemoteBoundaryApproval: REMOTE_BOUNDARY_PATTERN.test(prompt),
+    requiresContainerControlApproval: CONTAINER_CONTROL_PATTERN.test(prompt),
     requiresAdminBoundaryDeny: ADMIN_ESCALATION_PATTERN.test(prompt),
     requiresPolicyBypassDeny: POLICY_BYPASS_PATTERN.test(prompt),
     requiresGlobalEnvApproval: GLOBAL_ENV_PATTERN.test(prompt),

@@ -187,6 +187,50 @@ test("deny/bypass/policy: explicit sandbox bypass intent is denied", () => {
   assert.deepEqual(decision.reasonCodes, ["policy_bypass_denied"]);
 });
 
+test("approval/control/container: docker compose up requires approval", () => {
+  const decision = assessPolicyDecision({
+    prompt: "docker compose up -d",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "approval_required");
+  assert.deepEqual(decision.reasonCodes, ["container_control_requires_approval"]);
+});
+
+test("approval/control/container: docker run requires approval", () => {
+  const decision = assessPolicyDecision({
+    prompt: "docker run --rm -p 8080:80 nginx",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "approval_required");
+  assert.deepEqual(decision.reasonCodes, ["container_control_requires_approval"]);
+});
+
+test("approval/control/container: kubectl apply requires approval", () => {
+  const decision = assessPolicyDecision({
+    prompt: "kubectl apply -f k8s/deployment.yaml",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "approval_required");
+  assert.deepEqual(decision.reasonCodes, ["container_control_requires_approval"]);
+});
+
+test("approval/control/container: podman run requires approval", () => {
+  const decision = assessPolicyDecision({
+    prompt: "podman run --rm alpine echo hello",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "approval_required");
+  assert.deepEqual(decision.reasonCodes, ["container_control_requires_approval"]);
+});
+
 test("approval/any/host_codex_root: host codex root access requires approval", () => {
   const decision = assessPolicyDecision({
     prompt: "list files",
@@ -432,6 +476,17 @@ test("allow/read/discussion: discussing sudo docs does not imply privilege escal
 test("allow/read/discussion: discussing policy boundaries does not imply bypass intent", () => {
   const decision = assessPolicyDecision({
     prompt: "summarize the policy boundary section in docs/feishu-codex-runner-v1.md",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "allowed");
+  assert.deepEqual(decision.reasonCodes, []);
+});
+
+test("allow/read/discussion: discussing docker docs does not imply container control", () => {
+  const decision = assessPolicyDecision({
+    prompt: "summarize the Docker usage notes in README.md",
     cwd: "/home/neousys/project",
     protectedRoots: [],
     hostCodexRoot: "/home/neousys/.codex",
