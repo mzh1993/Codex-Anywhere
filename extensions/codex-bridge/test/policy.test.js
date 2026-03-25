@@ -308,6 +308,39 @@ test("deny/any/host_secret_root: reading kube config is denied", () => {
   assert.deepEqual(decision.reasonCodes, ["host_secret_boundary_denied"]);
 });
 
+test("approval/control/scheduler: crontab mutation requires approval", () => {
+  const decision = assessPolicyDecision({
+    prompt: "crontab -e",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "approval_required");
+  assert.deepEqual(decision.reasonCodes, ["scheduler_control_requires_approval"]);
+});
+
+test("approval/control/scheduler: at job creation requires approval", () => {
+  const decision = assessPolicyDecision({
+    prompt: "echo 'backup.sh' | at 02:00",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "approval_required");
+  assert.deepEqual(decision.reasonCodes, ["scheduler_control_requires_approval"]);
+});
+
+test("approval/control/scheduler: systemd-run timer requires approval", () => {
+  const decision = assessPolicyDecision({
+    prompt: "systemd-run --on-calendar='*:0/15' ./scripts/sync.sh",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "approval_required");
+  assert.deepEqual(decision.reasonCodes, ["scheduler_control_requires_approval"]);
+});
+
 test("approval/any/host_codex_root: host codex root access requires approval", () => {
   const decision = assessPolicyDecision({
     prompt: "list files",
@@ -586,6 +619,17 @@ test("allow/read/discussion: discussing git push flow does not imply publication
 test("allow/read/discussion: discussing ssh setup docs does not imply secret access", () => {
   const decision = assessPolicyDecision({
     prompt: "summarize the SSH setup guide in docs/setup.md",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "allowed");
+  assert.deepEqual(decision.reasonCodes, []);
+});
+
+test("allow/read/discussion: discussing cron docs does not imply scheduler control", () => {
+  const decision = assessPolicyDecision({
+    prompt: "summarize the cron setup notes in ops.md",
     cwd: "/home/neousys/project",
     protectedRoots: [],
     hostCodexRoot: "/home/neousys/.codex",

@@ -27,6 +27,8 @@ const HOST_SECRET_RELATIVE_ROOTS = [
 ];
 
 const SERVICE_CONTROL_PATTERN = /\b(systemctl|systemd)\b|(?:\b(?:start|stop|restart|reload)\b|重启|启动|停止|重载)[^\n]*\.service\b/i;
+const SCHEDULER_CONTROL_PATTERN =
+  /(?:^|[;&|\n]\s*)crontab\b|(?:^|[;&|\n]\s*)(?:at|atq|atrm|batch)\b|(?:^|[;&|\n]\s*)systemd-run\b[^\n]*--on-(?:calendar|active|boot|startup|unit-active|unit-inactive)\b|(?:\b(?:start|stop|restart|reload|enable|disable)\b|启动|停止|重启|重载)[^\n]*\.timer\b|\bsystemctl\b[^\n]*\.timer\b/i;
 const PROCESS_CONTROL_PATTERN =
   /\b(nohup|pm2|supervisorctl|forever|daemonize|uvicorn|gunicorn)\b|\b(?:python|python3)\b[^\n]*\s-m\s+http\.server\b|\bnpx\s+http-server\b|\bflask\b[^\n]*\brun\b|\b(?:python|python3)\b[^\n]*\bmanage\.py\b[^\n]*\brunserver\b/i;
 const BACKGROUND_PROCESS_PATTERN = /(?:^|[;\n])[^&\n]*\s&\s*$/;
@@ -67,6 +69,9 @@ export function assessPolicyDecision(input) {
   }
 
   const reasonCodes = [];
+  if (assessment.requiresSchedulerControlApproval) {
+    reasonCodes.push("scheduler_control_requires_approval");
+  }
   if (assessment.requiresServiceApproval) {
     reasonCodes.push("service_control_requires_approval");
   }
@@ -120,6 +125,7 @@ function createPolicyAssessment(input) {
   const controlledRoots = cwd ? [cwd] : [];
   const referencedPaths = extractReferencedPaths(prompt, cwd);
   const action = classifyAction(prompt);
+  const requiresSchedulerControlApproval = SCHEDULER_CONTROL_PATTERN.test(prompt);
 
   return {
     prompt,
@@ -144,7 +150,8 @@ function createPolicyAssessment(input) {
       : false,
     writesOutsideControlledRoots:
       action === "write" && referencedPaths.some((candidatePath) => !isPathInsideAny(candidatePath, controlledRoots)),
-    requiresServiceApproval: SERVICE_CONTROL_PATTERN.test(prompt),
+    requiresSchedulerControlApproval,
+    requiresServiceApproval: !requiresSchedulerControlApproval && SERVICE_CONTROL_PATTERN.test(prompt),
     requiresProcessControlApproval:
       PROCESS_CONTROL_PATTERN.test(prompt) || BACKGROUND_PROCESS_PATTERN.test(prompt),
     requiresRemoteBoundaryApproval: REMOTE_BOUNDARY_PATTERN.test(prompt),

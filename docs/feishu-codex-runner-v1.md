@@ -79,6 +79,7 @@ V1 不尝试复刻桌面 Codex 会话，只做任务型远程执行。
 - 触碰 `~/.codex`
 - `cwd` 外普通宿主路径写入
 - systemd / `systemctl`
+- 计划任务控制（如 `crontab`、`at`、带定时参数的 `systemd-run`、`.timer`）
 - 长期运行进程控制或托管启动（如 `nohup`、`pm2`、`uvicorn`、`npx http-server`、显式后台化 `&`）
 - 远端执行或外发传输（如 `ssh`、`scp`、远端 `rsync`、`curl -T`）
 - 容器或编排执行平面控制（如 `docker`、`podman`、`kubectl`、`helm`）
@@ -113,6 +114,7 @@ V1 不尝试复刻桌面 Codex 会话，只做任务型远程执行。
 | 直接提权 / 切换用户 | 宿主管理员边界 | 拒绝 | 如 `sudo`、`su`、`doas`。 |
 | 策略绕过意图 | 审批 / 沙箱 / 策略边界 | 拒绝 | 如 `ignore policy`、`disable sandbox`。 |
 | 服务控制 | `systemctl` / `.service` | 审批 | 视为系统级控制动作。 |
+| 计划任务控制 | `crontab` / `at` / 定时 `systemd-run` / `.timer` | 审批 | 视为调度执行平面控制动作。 |
 | 进程控制 | `nohup` / `pm2` / `supervisorctl` / `uvicorn` / `npx http-server` / 显式后台化 `&` 等 | 审批 | 视为长期运行进程控制动作。 |
 | 远端执行 / 外发传输 | 远端主机或外部端点 | 审批 | 如 `ssh`、`scp`、远端 `rsync`、`curl -T`。 |
 | 容器 / 编排控制 | 容器引擎或编排平面 | 审批 | 如 `docker`、`podman`、`kubectl`、`helm`。 |

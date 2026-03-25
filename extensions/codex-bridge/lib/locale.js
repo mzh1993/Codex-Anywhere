@@ -16,6 +16,7 @@ const REASON_LABELS = {
   "zh-CN": {
     host_mutation_requires_approval: "会修改宿主机上的 Codex 状态。",
     service_control_requires_approval: "会控制系统服务。",
+    scheduler_control_requires_approval: "会创建或控制计划任务。",
     process_control_requires_approval: "会启动或控制长期运行进程。",
     remote_boundary_requires_approval: "会连接远端主机或向外发送内容。",
     container_control_requires_approval: "会控制容器或编排执行平面。",
@@ -31,6 +32,7 @@ const REASON_LABELS = {
   "en-US": {
     host_mutation_requires_approval: "Touches host Codex state.",
     service_control_requires_approval: "Controls system services.",
+    scheduler_control_requires_approval: "Creates or controls scheduled tasks.",
     process_control_requires_approval: "Starts or controls long-running processes.",
     remote_boundary_requires_approval: "Crosses a remote or outbound execution boundary.",
     container_control_requires_approval: "Controls a container or orchestration execution plane.",
