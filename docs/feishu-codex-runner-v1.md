@@ -90,6 +90,7 @@ V1 不尝试复刻桌面 Codex 会话，只做任务型远程执行。
 
 - 触碰 `~/.openclaw`
 - 触碰 bridge 自身隔离状态目录
+- 触碰宿主凭证/秘密材料（如 `~/.ssh`、`~/.aws`、`~/.kube`、`~/.gnupg`）
 - 直接提权或切换用户（如 `sudo`、`su`、`doas`）
 - 显式要求绕过策略/审批/沙箱
 - `openclaw gateway install`
@@ -108,6 +109,7 @@ V1 不尝试复刻桌面 Codex 会话，只做任务型远程执行。
 | 任意动作 | `~/.codex` | 审批 | 属于宿主 Codex 状态边界。 |
 | 任意动作 | `~/.openclaw` | 拒绝 | 属于宿主 OpenClaw 边界，不允许任务触碰。 |
 | 任意动作 | bridge 隔离状态目录 | 拒绝 | 不允许任务回写自身运行状态。 |
+| 任意动作 | 宿主凭证 / 秘密材料 | 拒绝 | 如 `~/.ssh`、`~/.aws`、`~/.kube`、`~/.gnupg`。 |
 | 直接提权 / 切换用户 | 宿主管理员边界 | 拒绝 | 如 `sudo`、`su`、`doas`。 |
 | 策略绕过意图 | 审批 / 沙箱 / 策略边界 | 拒绝 | 如 `ignore policy`、`disable sandbox`。 |
 | 服务控制 | `systemctl` / `.service` | 审批 | 视为系统级控制动作。 |

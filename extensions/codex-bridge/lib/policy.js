@@ -14,6 +14,17 @@ const ISOLATION_BOUNDARY_PATTERNS = [
   "openclaw gateway install",
   "codex_feishu_gateway_token",
 ];
+const HOST_SECRET_RELATIVE_ROOTS = [
+  ".ssh",
+  ".gnupg",
+  ".aws",
+  ".kube",
+  ".docker",
+  ".config/gcloud",
+  ".npmrc",
+  ".pypirc",
+  ".netrc",
+];
 
 const SERVICE_CONTROL_PATTERN = /\b(systemctl|systemd)\b|(?:\b(?:start|stop|restart|reload)\b|重启|启动|停止|重载)[^\n]*\.service\b/i;
 const PROCESS_CONTROL_PATTERN =
@@ -44,6 +55,9 @@ export function assessPolicyDecision(input) {
 
   if (assessment.touchesIsolationBoundary || assessment.touchesProtectedRoots) {
     return deny("isolation_boundary_denied");
+  }
+  if (assessment.touchesHostSecretRoots) {
+    return deny("host_secret_boundary_denied");
   }
   if (assessment.requiresAdminBoundaryDeny) {
     return deny("out_of_scope_admin_denied");
@@ -102,6 +116,7 @@ function createPolicyAssessment(input) {
   const cwd = normalizeText(input?.cwd);
   const protectedRoots = normalizeRoots(input?.protectedRoots);
   const hostCodexRoot = normalizeText(input?.hostCodexRoot);
+  const hostSecretRoots = getHostSecretRoots();
   const controlledRoots = cwd ? [cwd] : [];
   const referencedPaths = extractReferencedPaths(prompt, cwd);
   const action = classifyAction(prompt);
@@ -112,12 +127,15 @@ function createPolicyAssessment(input) {
     cwd,
     protectedRoots,
     hostCodexRoot,
+    hostSecretRoots,
     controlledRoots,
     referencedPaths,
     action,
     touchesIsolationBoundary: touchesIsolationBoundary(lowerPrompt),
     touchesProtectedRoots:
       isPathInsideAny(cwd, protectedRoots) || referencesPathInsideAny(referencedPaths, protectedRoots),
+    touchesHostSecretRoots:
+      isPathInsideAny(cwd, hostSecretRoots) || referencesPathInsideAny(referencedPaths, hostSecretRoots),
     touchesHostCodexRoot: hostCodexRoot
       ? isPathInsideAny(cwd, [hostCodexRoot]) ||
         referencesPathInsideAny(referencedPaths, [hostCodexRoot]) ||
@@ -150,6 +168,11 @@ function classifyAction(prompt) {
 
 function normalizeRoots(value) {
   return Array.isArray(value) ? value.filter(Boolean) : [];
+}
+
+function getHostSecretRoots() {
+  const homeDir = os.homedir();
+  return HOST_SECRET_RELATIVE_ROOTS.map((candidate) => path.resolve(homeDir, candidate));
 }
 
 function referencesPathInsideAny(candidatePaths, roots) {

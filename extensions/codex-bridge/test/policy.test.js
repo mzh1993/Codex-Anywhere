@@ -275,6 +275,39 @@ test("approval/publish/release: gh release create requires approval", () => {
   assert.deepEqual(decision.reasonCodes, ["publication_boundary_requires_approval"]);
 });
 
+test("deny/any/host_secret_root: reading ~/.ssh credentials is denied", () => {
+  const decision = assessPolicyDecision({
+    prompt: "summarize ~/.ssh/config",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "denied");
+  assert.deepEqual(decision.reasonCodes, ["host_secret_boundary_denied"]);
+});
+
+test("deny/any/host_secret_root: reading ~/.aws credentials is denied", () => {
+  const decision = assessPolicyDecision({
+    prompt: "show ~/.aws/credentials",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "denied");
+  assert.deepEqual(decision.reasonCodes, ["host_secret_boundary_denied"]);
+});
+
+test("deny/any/host_secret_root: reading kube config is denied", () => {
+  const decision = assessPolicyDecision({
+    prompt: "summarize ~/.kube/config",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "denied");
+  assert.deepEqual(decision.reasonCodes, ["host_secret_boundary_denied"]);
+});
+
 test("approval/any/host_codex_root: host codex root access requires approval", () => {
   const decision = assessPolicyDecision({
     prompt: "list files",
@@ -542,6 +575,17 @@ test("allow/read/discussion: discussing docker docs does not imply container con
 test("allow/read/discussion: discussing git push flow does not imply publication", () => {
   const decision = assessPolicyDecision({
     prompt: "summarize the git push workflow in CONTRIBUTING.md",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "allowed");
+  assert.deepEqual(decision.reasonCodes, []);
+});
+
+test("allow/read/discussion: discussing ssh setup docs does not imply secret access", () => {
+  const decision = assessPolicyDecision({
+    prompt: "summarize the SSH setup guide in docs/setup.md",
     cwd: "/home/neousys/project",
     protectedRoots: [],
     hostCodexRoot: "/home/neousys/.codex",
