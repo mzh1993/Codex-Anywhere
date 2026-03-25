@@ -1,5 +1,6 @@
 const DEFAULT_LOCALE = "en-US";
 const DEFAULT_MAX_CHANGED_FILES = 8;
+const HIDDEN_STATUS_HINT_PATTERNS = [/^(?:thread|turn|item)\./i];
 
 const TASK_STATUS_LABELS = {
   "zh-CN": {
@@ -64,14 +65,23 @@ export function localizeStatusHint(locale, hint) {
       "thread.started": "任务线程已启动",
       "turn.started": "开始执行",
       "turn.completed": "执行完成",
-      "run.interrupted": "上一轮执行中断，请明确继续",
+      "run.interrupted": "上一轮执行中断，请直接说明要继续做什么",
+      "run.interrupted.bridge_self_restart": "桥接服务自重启打断了本轮执行；现在已恢复，请直接说明下一步",
     };
     return mapped[key] ?? normalized;
   }
   const mapped = {
-    "run.interrupted": "Previous run interrupted. Continue explicitly.",
+    "run.interrupted": "Previous run was interrupted. Say what to continue with.",
+    "run.interrupted.bridge_self_restart": "The bridge restarted itself and interrupted this run. It is back now; say the next step directly.",
   };
   return mapped[key] ?? normalized;
+}
+
+export function getUserVisibleStatusHint(locale, hint) {
+  const normalized = normalizeText(hint);
+  if (!normalized) return "";
+  if (HIDDEN_STATUS_HINT_PATTERNS.some((pattern) => pattern.test(normalized))) return "";
+  return localizeStatusHint(locale, normalized);
 }
 
 export function localizeTaskStatus(locale, status) {
@@ -110,26 +120,59 @@ function getActiveTaskDetails(input, status) {
   return { taskId: input, status };
 }
 
-function getActiveTaskActionLine(locale, suggestedCommand) {
+function getActiveTaskActionLine(locale, details) {
   const normalized = normalizeLocale(locale);
-  const command = suggestedCommand ?? "/codex continue <prompt>";
+  const command = details.suggestedCommand ?? "/codex continue <prompt>";
+  const status = details.status ?? "";
   if (normalized === "zh-CN") {
+    if (status === "running") {
+      return `请先使用 \`${command}\` 查看当前任务状态。`;
+    }
+    if (status === "awaiting_approval") {
+      return "当前任务正在等待审批，请先处理当前审批。";
+    }
+    if (status === "awaiting_input") {
+      return "当前任务正在等待你的下一条输入，你可以直接回复。";
+    }
     if (command === "/codex continue <prompt>") {
-      return `请使用 \`${command}\` 提交明确的继续输入。`;
+      return `你也可以使用 \`${command}\` 显式续写。`;
     }
     return `请先使用 \`${command}\` 处理当前任务。`;
   }
+  if (status === "running") {
+    return `Use \`${command}\` to check the current task status first.`;
+  }
+  if (status === "awaiting_approval") {
+    return "This task is waiting for approval. Handle that approval first.";
+  }
+  if (status === "awaiting_input") {
+    return "This task is waiting for your next message. You can reply directly.";
+  }
   if (command === "/codex continue <prompt>") {
-    return `Use \`${command}\` to add input explicitly.`;
+    return `You can also use \`${command}\` for explicit continue.`;
   }
   return `Use \`${command}\` to handle the current task first.`;
 }
 
-function getActiveTaskFallbackLine(locale, suggestedCommand) {
+function getActiveTaskFallbackLine(locale, details) {
   const normalized = normalizeLocale(locale);
-  const statusIncluded = suggestedCommand === "/codex status";
+  const command = details.suggestedCommand ?? "/codex status";
+  const statusIncluded = command === "/codex status";
+  const status = details.status ?? "";
   if (normalized === "zh-CN") {
+    if (status === "awaiting_input") {
+      return "如需兜底，也可以使用 `/codex continue <prompt>`。";
+    }
+    if (status === "awaiting_approval") {
+      return `如需兜底，可使用 \`${command}\`，也可以使用 \`/codex abort\`。`;
+    }
     return statusIncluded ? "也可以使用 `/codex abort`。" : "也可以使用 `/codex status` 或 `/codex abort`。";
+  }
+  if (status === "awaiting_input") {
+    return "If needed, you can also use `/codex continue <prompt>` as a fallback.";
+  }
+  if (status === "awaiting_approval") {
+    return `If needed, use \`${command}\`, or use \`/codex abort\`.`;
   }
   return statusIncluded ? "Use `/codex abort` if needed." : "Use `/codex status` or `/codex abort` if needed.";
 }
@@ -146,10 +189,41 @@ export function getLocaleText(locale) {
       noPreviousSession: "当前没有可继续的活动任务。",
       noActiveTaskToContinue: "当前没有可继续的活动任务。",
       noPendingApproval: "当前没有待审批的活动任务。",
-      interruptedTaskRequiresContinue: (taskId) => [
+      bridgeActionBlockedByRunningTask: "当前 Codex 任务仍在运行；请等本轮结束后再做这个控制面动作。",
+      bridgeActionApprovalNeedsPureApprove: "这一步只接受纯批准。请直接回复“同意”或“不要执行”。",
+      bridgeActionDenied: "已取消这次控制面动作。",
+      bridgeActionLine: (status) => `控制面动作：${localizeTaskStatus(normalized, status)}`,
+      bridgeActionApprovalStillPending: ({ token, reasons = [] }) => [
+        "这一步仍在等待你的明确审批。",
+        ...reasons.map((reason) => formatReasonLine(normalized, reason)),
+        "你可以直接回复“同意”批准，回复“不要执行”拒绝。",
+        `如需兜底，可使用 \`/codex approve ${token}\`、\`/codex status\` 或 \`/codex abort\`。`,
+      ].join("\n"),
+      bridgeActionApprovalQueued: ({ token, reasons = [] }) => [
+        "这一步已进入审批。",
+        ...reasons.map((reason) => formatReasonLine(normalized, reason)),
+        "可直接回复“同意”批准，回复“不要执行”拒绝。",
+        `如需兜底，可使用 \`/codex approve ${token}\`、\`/codex status\` 或 \`/codex abort\`。`,
+      ].join("\n"),
+      bridgeActionFinished: ({ summary = "", resultStatus = "completed", error = null }) => {
+        if (summary) return summary;
+        if (resultStatus === "denied") return "已取消这次控制面动作。";
+        if (resultStatus === "failed") return error ? `控制面动作失败：${error}` : "控制面动作失败。";
+        return "控制面动作已完成。";
+      },
+      approvalStillPending: ({ token, reasons = [] }) => [
+        "这一步仍在等待你的明确审批。",
+        ...reasons.map((reason) => formatReasonLine(normalized, reason)),
+        "你可以直接回复“同意”批准，回复“不要执行”拒绝。",
+        "如需补充要求，也可以回复“同意，并……”。",
+        `如需兜底，可使用 \`/codex approve ${token}\`、\`/codex status\` 或 \`/codex abort\`。`,
+      ].join("\n"),
+      approvalDeniedAwaitingReplan: "已拒绝这次高风险动作。任务已回到可继续状态，请给我一个更安全的下一步。",
+      approvalDeniedTaskAborted: "已拒绝这次高风险动作。当前任务已终止。",
+      interruptedTaskRequiresContinue: (taskId, hint = "run.interrupted") => [
         `任务 ${taskId} 的上一轮执行已中断。`,
-        "请明确继续。",
-        "请使用 `/codex continue <prompt>`。",
+        getUserVisibleStatusHint(normalized, hint),
+        "如需兜底，也可以使用 `/codex continue <prompt>`。",
       ].join("\n"),
       approvalTokenDifferentDm: "这个审批令牌属于另一个私聊。",
       noBridgeState: "这个私聊还没有记录任何 Codex bridge 状态。",
@@ -176,7 +250,7 @@ export function getLocaleText(locale) {
         "Codex Runner 命令：",
         "`/codex cwd <path>` 设置默认工作目录",
         "`/codex pwd` 查看当前工作目录",
-        "`/codex continue <prompt>` 向当前活动任务补充明确输入",
+        "`/codex continue <prompt>` 兜底用于显式续写",
         "`/codex status` 查看当前任务状态",
         "`/codex abort` 停止当前任务",
         "`/codex approve <token>` 批准高风险请求",
@@ -190,8 +264,8 @@ export function getLocaleText(locale) {
           `已有活动任务：${details.taskId}`,
           ...(details.status ? [`状态：${localizeTaskStatus(normalized, details.status)}`] : []),
           ...(details.code ? [`代码：${details.code}`] : []),
-          getActiveTaskActionLine(normalized, details.suggestedCommand),
-          getActiveTaskFallbackLine(normalized, details.suggestedCommand),
+          getActiveTaskActionLine(normalized, details),
+          getActiveTaskFallbackLine(normalized, details),
         ].join("\n");
       },
       requestRejected: (reasons) => [
@@ -206,7 +280,9 @@ export function getLocaleText(locale) {
         `工作目录：\`${cwd}\``,
         ...reasons.map((reason) => formatReasonLine(normalized, reason)),
         "",
-        `请用 \`/codex approve ${token}\` 批准执行`,
+        "可直接回复“同意”批准，回复“不要执行”拒绝。",
+        "如需补充要求，也可以回复“同意，并……”。",
+        `如需兜底，可使用 \`/codex approve ${token}\`、\`/codex status\` 或 \`/codex abort\`。`,
       ].join("\n"),
       taskStarted: (task) => [
         "Codex 任务已启动。",
@@ -216,7 +292,7 @@ export function getLocaleText(locale) {
         `风险：${localizeRisk(normalized, task.riskLevel)}`,
         ...(task.sessionId ? [`会话 ID：${task.sessionId}`] : []),
       ].join("\n"),
-      taskProgress: (taskId, hint) => [`任务 ${taskId} 进度`, localizeStatusHint(normalized, hint)].join("\n"),
+      taskProgress: (taskId, hint) => [`任务 ${taskId} 进度`, getUserVisibleStatusHint(normalized, hint)].join("\n"),
       taskStillRunning: (taskId, elapsed, suffix) => `任务 ${taskId} 仍在运行（${elapsed}）。${suffix}`,
       activeTaskLine: (taskId) => `活动任务：${taskId}`,
       statusLine: (status) => `状态：${localizeTaskStatus(normalized, status)}`,
@@ -273,10 +349,41 @@ export function getLocaleText(locale) {
     noPreviousSession: "No active task to continue.",
     noActiveTaskToContinue: "No active task to continue.",
     noPendingApproval: "No active task awaiting approval.",
-    interruptedTaskRequiresContinue: (taskId) => [
+    bridgeActionBlockedByRunningTask: "The current Codex task is still running. Wait for it to finish before this control-plane action.",
+    bridgeActionApprovalNeedsPureApprove: "This step accepts only a pure approval reply. Reply with “approve” or “do not run”.",
+    bridgeActionDenied: "This control-plane action was canceled.",
+    bridgeActionLine: (status) => `control_plane: ${localizeTaskStatus(normalized, status)}`,
+    bridgeActionApprovalStillPending: ({ token, reasons = [] }) => [
+      "This step is still waiting for explicit approval.",
+      ...reasons.map((reason) => formatReasonLine(normalized, reason)),
+      'Reply with “approve” to allow it, or “do not run” to deny it.',
+      `Fallback: \`/codex approve ${token}\`, \`/codex status\`, or \`/codex abort\`.`,
+    ].join("\n"),
+    bridgeActionApprovalQueued: ({ token, reasons = [] }) => [
+      "This step is queued for approval.",
+      ...reasons.map((reason) => formatReasonLine(normalized, reason)),
+      'Reply with “approve” to allow it, or “do not run” to deny it.',
+      `Fallback: \`/codex approve ${token}\`, \`/codex status\`, or \`/codex abort\`.`,
+    ].join("\n"),
+    bridgeActionFinished: ({ summary = "", resultStatus = "completed", error = null }) => {
+      if (summary) return summary;
+      if (resultStatus === "denied") return "This control-plane action was canceled.";
+      if (resultStatus === "failed") return error ? `Control-plane action failed: ${error}` : "Control-plane action failed.";
+      return "Control-plane action completed.";
+    },
+    approvalStillPending: ({ token, reasons = [] }) => [
+      "This step is still waiting for explicit approval.",
+      ...reasons.map((reason) => formatReasonLine(normalized, reason)),
+      'Reply with “approve” to allow it, or “do not run” to deny it.',
+      'You can also reply with “approve, …” to add follow-up instructions.',
+      `Fallback: \`/codex approve ${token}\`, \`/codex status\`, or \`/codex abort\`.`,
+    ].join("\n"),
+    approvalDeniedAwaitingReplan: "This high-risk action was denied. The task is back in a safe replanning state.",
+    approvalDeniedTaskAborted: "This high-risk action was denied. The current task was aborted.",
+    interruptedTaskRequiresContinue: (taskId, hint = "run.interrupted") => [
       `Previous run interrupted for task ${taskId}.`,
-      "Continue explicitly.",
-      "Use `/codex continue <prompt>`.",
+      getUserVisibleStatusHint(normalized, hint),
+      "If needed, you can also use `/codex continue <prompt>`.",
     ].join("\n"),
     approvalTokenDifferentDm: "This approval token belongs to a different DM.",
     noBridgeState: "No Codex bridge state recorded for this DM.",
@@ -303,7 +410,7 @@ export function getLocaleText(locale) {
       "Codex Runner commands:",
       "`/codex cwd <path>` set default cwd",
       "`/codex pwd` show current cwd",
-      "`/codex continue <prompt>` add explicit input to the current active task",
+      "`/codex continue <prompt>` fallback for explicit continue",
       "`/codex status` show current task state",
       "`/codex abort` stop current task",
       "`/codex approve <token>` approve a high-risk request",
@@ -317,8 +424,8 @@ export function getLocaleText(locale) {
         `Task already active: ${details.taskId}`,
         ...(details.status ? [`Status: ${localizeTaskStatus(normalized, details.status)}`] : []),
         ...(details.code ? [`Code: ${details.code}`] : []),
-        getActiveTaskActionLine(normalized, details.suggestedCommand),
-        getActiveTaskFallbackLine(normalized, details.suggestedCommand),
+        getActiveTaskActionLine(normalized, details),
+        getActiveTaskFallbackLine(normalized, details),
       ].join("\n");
     },
     requestRejected: (reasons) => [
@@ -333,7 +440,9 @@ export function getLocaleText(locale) {
       `Cwd: \`${cwd}\``,
       ...reasons.map((reason) => formatReasonLine(normalized, reason)),
       "",
-      `Approve with \`/codex approve ${token}\``,
+      'Reply with “approve” to allow it, or “do not run” to deny it.',
+      'You can also reply with “approve, …” to add follow-up instructions.',
+      `Fallback: \`/codex approve ${token}\`, \`/codex status\`, or \`/codex abort\`.`,
     ].join("\n"),
     taskStarted: (task) => [
       "Codex task started.",
@@ -343,7 +452,7 @@ export function getLocaleText(locale) {
       `risk: ${localizeRisk(normalized, task.riskLevel)}`,
       ...(task.sessionId ? [`session_id: ${task.sessionId}`] : []),
     ].join("\n"),
-    taskProgress: (taskId, hint) => [`Task ${taskId} progress`, localizeStatusHint(normalized, hint)].join("\n"),
+    taskProgress: (taskId, hint) => [`Task ${taskId} progress`, getUserVisibleStatusHint(normalized, hint)].join("\n"),
     taskStillRunning: (taskId, elapsed, suffix) => `Task ${taskId} still running (${elapsed}).${suffix}`,
     activeTaskLine: (taskId) => `Active task: ${taskId}`,
     statusLine: (status) => `status: ${localizeTaskStatus(normalized, status)}`,

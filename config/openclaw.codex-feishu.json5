@@ -113,6 +113,7 @@
           statusThrottleMs: 15000,
           heartbeatMs: 30000,
           approvalTtlMs: 600000,
+          bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
         },
       },
     },

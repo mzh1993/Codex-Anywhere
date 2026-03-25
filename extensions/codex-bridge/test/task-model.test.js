@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import * as taskModel from "../lib/task-model.js";
 import {
   ACTIVE_TASK_STATUSES,
   RUN_STATUSES,
@@ -12,7 +13,7 @@ import {
   isActiveTaskStatus,
   isTerminalTaskStatus,
 } from "../lib/task-model.js";
-import { getLocaleText, localizeTaskStatus } from "../lib/locale.js";
+import { getLocaleText, getUserVisibleStatusHint, localizeTaskStatus } from "../lib/locale.js";
 import { createDeniedTaskPersistenceRecords } from "../lib/task-store.js";
 
 test("protocol/status/schema: task statuses and run statuses match the revised protocol", () => {
@@ -27,6 +28,30 @@ test("protocol/status/schema: task statuses and run statuses match the revised p
   assert.equal(canContinueTask("awaiting_input"), true);
   assert.equal(canContinueTask("running"), false);
   assert.equal(canContinueTask("awaiting_approval"), false);
+});
+
+test("protocol/approval/classification: contract-based replies classify approve, deny, tail, and keep-gate-open", () => {
+  const replyContract = {
+    kind: "natural_language_approval",
+    allowNumericChoice: false,
+  };
+
+  assert.deepEqual(taskModel.classifyApprovalReply?.({ text: "同意", replyContract }), {
+    outcome: "approve",
+    tail: null,
+  });
+  assert.deepEqual(taskModel.classifyApprovalReply?.({ text: "同意，并把结果总结成三句话", replyContract }), {
+    outcome: "approve_with_tail",
+    tail: "并把结果总结成三句话",
+  });
+  assert.deepEqual(taskModel.classifyApprovalReply?.({ text: "不要执行", replyContract }), {
+    outcome: "deny",
+    tail: null,
+  });
+  assert.deepEqual(taskModel.classifyApprovalReply?.({ text: "1", replyContract }), {
+    outcome: "keep_gate_open",
+    tail: null,
+  });
 });
 
 test("protocol/status/locale: localized task status labels only cover protocol task statuses", () => {
@@ -211,6 +236,12 @@ test("protocol/locale/recovery: interruption hint is localized for recovery guid
   const zh = getLocaleText("zh-CN");
   const en = getLocaleText("en-US");
 
+  assert.match(getUserVisibleStatusHint("zh-CN", "run.interrupted"), /直接说明要继续做什么/);
+  assert.match(getUserVisibleStatusHint("en-US", "run.interrupted"), /Say what to continue with/i);
+  assert.match(getUserVisibleStatusHint("zh-CN", "run.interrupted.bridge_self_restart"), /桥接服务.*重启|重启.*桥接服务/);
+  assert.match(getUserVisibleStatusHint("en-US", "run.interrupted.bridge_self_restart"), /bridge.*restart|restart.*bridge/i);
+  assert.equal(getUserVisibleStatusHint("zh-CN", "item.completed"), "");
+  assert.equal(getUserVisibleStatusHint("en-US", "turn.started"), "");
   assert.match(zh.taskProgress("task_123", "run.interrupted"), /上一轮执行中断/);
-  assert.match(en.taskProgress("task_123", "run.interrupted"), /Previous run interrupted/i);
+  assert.match(en.taskProgress("task_123", "run.interrupted"), /Previous run was interrupted/i);
 });

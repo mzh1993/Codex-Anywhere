@@ -4,15 +4,33 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { definePluginEntry } from "../../.runtime/openclaw-2026.3.22/node_modules/openclaw/dist/plugin-sdk/plugin-entry.js";
 import { sendMessageFeishu } from "../../.runtime/openclaw-2026.3.22/node_modules/openclaw/dist/extensions/feishu/index.js";
 import { buildCodexArgs, buildCodexEnv } from "./lib/codex-exec.js";
+import {
+  createBridgeActionPersistence,
+  createBridgeActionRecord,
+} from "./lib/bridge-action-store.js";
+import {
+  finishBridgeActionDenied,
+  finishBridgeActionFromExecution,
+  finishBridgeActionWithApprovalRequired,
+  startBridgeActionExecution,
+} from "./lib/bridge-action-model.js";
 import { isPathInsideAny } from "./lib/fs-utils.js";
-import { getLocaleText, localizeStatusHint } from "./lib/locale.js";
-import { assessPolicyDecision, POLICY_DECISIONS } from "./lib/policy.js";
+import { getLocaleText, getUserVisibleStatusHint } from "./lib/locale.js";
+import { ensureIsolatedOpenClawShim } from "./lib/openclaw-shim.js";
+import {
+  assessPolicyDecision,
+  classifyOwnedBridgeActionRequest,
+  POLICY_DECISIONS,
+} from "./lib/policy.js";
 import { detectExecutionRuntimeCompatibility } from "./lib/runtime-compatibility.js";
 import { resolveSettings } from "./lib/settings.js";
 import {
+  classifyApprovalReply,
+  createApprovalReplyContract,
   routeAbortCommand,
   routeApproveCommand,
   isActiveTaskStatus,
@@ -34,6 +52,8 @@ const FEISHU_CHANNEL = "feishu";
 const DEFAULT_ACCOUNT_ID = "default";
 const DEFAULT_MAX_CHANGED_FILES = 8;
 const DEFAULT_ABORT_GRACE_MS = 5000;
+const ISOLATED_OPENCLAW_SCRIPT_PATH = fileURLToPath(new URL("../../scripts/openclaw-isolated.sh", import.meta.url));
+const BOOTSTRAP_SCRIPT_PATH = fileURLToPath(new URL("../../scripts/bootstrap-codex-feishu.sh", import.meta.url));
 
 const activeTasks = new Map();
 export const __activeTasks = activeTasks;
@@ -67,8 +87,15 @@ export class CodexBridge {
       writeJson,
       safeFileName,
     });
+    const bridgeActionPersistence = createBridgeActionPersistence({
+      bridgeActionsRoot: this.settings.bridgeActionsRoot,
+      readJson,
+      writeJson,
+      safeFileName,
+    });
     this.taskStore = persistence.tasks;
     this.runStore = persistence.runs;
+    this.bridgeActionStore = bridgeActionPersistence.actions;
   }
 
   async handleInboundClaim(event, ctx) {
@@ -131,6 +158,7 @@ export class CodexBridge {
     await Promise.all([
       ensureDir(this.settings.profilesRoot),
       ensureDir(this.settings.tasksRoot),
+      ensureDir(this.settings.bridgeActionsRoot),
       ensureDir(this.settings.approvalsRoot),
       ensureDir(this.settings.runsRoot),
     ]);
@@ -163,11 +191,49 @@ export class CodexBridge {
     }
 
     const activeTask = await this.loadActiveTask(profile.senderId, profile);
+    const activeBridgeAction = await this.loadActiveBridgeAction(profile.senderId, profile);
+    if (activeBridgeAction?.status === "awaiting_approval") {
+      await this.handleBridgeActionApprovalReply(profile, request, activeBridgeAction);
+      return;
+    }
+
+    const ownedBridgeAction = classifyOwnedBridgeActionRequest({
+      prompt: request.text,
+      bridgeServiceUnitNames: this.settings.bridgeServiceUnitNames,
+    });
+    if (ownedBridgeAction) {
+      if (activeTask?.status === "running") {
+        await this.safeReply({
+          accountId: request.accountId,
+          conversationId: request.conversationId,
+          messageId: request.messageId,
+          text: this.text.bridgeActionBlockedByRunningTask,
+        });
+        return;
+      }
+      await this.queueOrExecuteBridgeAction({
+        ...ownedBridgeAction,
+        profile,
+        accountId: request.accountId,
+        conversationId: request.conversationId,
+        messageId: request.messageId,
+        cwd: profile.defaultCwd || this.settings.defaultCwd,
+        senderName: request.senderName,
+        requestText: request.text,
+      });
+      return;
+    }
+
     if (activeTask) {
       const routeResult = routeIncomingPlainText({
         activeTaskStatus: activeTask.status,
+        activeTaskOwner: activeTask.owner,
         requiresExplicitContinue: activeTask.requiresExplicitContinue,
       });
+      if (routeResult.action === "handle_approval_reply") {
+        await this.handleApprovalReply(profile, request, activeTask);
+        return;
+      }
       if (routeResult.action === "continue_task") {
         await this.queueOrStartTask({
           profile,
@@ -179,15 +245,6 @@ export class CodexBridge {
           cwd: activeTask.cwd,
           senderName: request.senderName,
           existingTask: activeTask,
-        });
-        return;
-      }
-      if (routeResult.code === "task_interrupted_requires_continue") {
-        await this.safeReply({
-          accountId: request.accountId,
-          conversationId: request.conversationId,
-          messageId: request.messageId,
-          text: this.text.interruptedTaskRequiresContinue(activeTask.taskId),
         });
         return;
       }
@@ -324,6 +381,12 @@ export class CodexBridge {
         });
         return;
       }
+      const activeBridgeAction = await this.loadActiveBridgeAction(profile.senderId, profile);
+      if (activeBridgeAction?.status === "awaiting_approval") {
+        await this.approvePendingBridgeActionRequest(profile, request, approvalToken);
+        return;
+      }
+
       const activeTask = await this.loadActiveTask(profile.senderId, profile);
       const approveRoute = routeApproveCommand({ activeTaskStatus: activeTask?.status ?? null });
       if (!approveRoute.accepted) {
@@ -415,7 +478,240 @@ export class CodexBridge {
     });
   }
 
-  async approvePendingRequest(profile, request, token) {
+  async queueOrExecuteBridgeAction(params) {
+    const timestamp = new Date().toISOString();
+    const actionId = makeBridgeActionId();
+    const baseAction = createBridgeActionRecord({
+      actionId,
+      locale: this.settings.locale,
+      senderId: params.profile.senderId,
+      accountId: params.accountId,
+      conversationId: params.conversationId,
+      messageId: params.messageId,
+      cwd: params.cwd,
+      kind: params.kind,
+      operation: params.operation,
+      target: params.target,
+      requestText: params.requestText ?? params.prompt ?? "",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+
+    params.profile.activeBridgeActionId = actionId;
+    params.profile.lastBridgeActionId = actionId;
+    params.profile.updatedAt = timestamp;
+    await this.saveProfile(params.profile);
+
+    if (params.requiresApproval) {
+      const token = makeApprovalToken();
+      const transition = finishBridgeActionWithApprovalRequired();
+      const action = createBridgeActionRecord({
+        ...baseAction,
+        status: transition.status,
+        owner: transition.owner,
+        resultStatus: transition.resultStatus,
+        approvalToken: token,
+      });
+      await this.saveBridgeAction(action);
+      await this.writeApproval({
+        token,
+        kind: "bridge_action",
+        actionId,
+        senderId: params.profile.senderId,
+        accountId: params.accountId,
+        conversationId: params.conversationId,
+        messageId: params.messageId,
+        reasonCodes: params.reasonCodes ?? [],
+        createdAtMs: Date.now(),
+        expiresAtMs: Date.now() + this.settings.approvalTtlMs,
+      });
+      await this.safeReply({
+        accountId: params.accountId,
+        conversationId: params.conversationId,
+        messageId: params.messageId,
+        text: this.text.bridgeActionApprovalQueued({
+          token,
+          reasons: params.reasonCodes ?? [],
+        }),
+      });
+      return;
+    }
+
+    const transition = startBridgeActionExecution();
+    const action = createBridgeActionRecord({
+      ...baseAction,
+      status: transition.status,
+      owner: transition.owner,
+      resultStatus: transition.resultStatus,
+    });
+    await this.saveBridgeAction(action);
+    await this.executeAndFinishBridgeAction(action, params.profile, requestMessageTarget(params));
+  }
+
+  async approvePendingBridgeActionRequest(profile, request, token) {
+    const approval = await this.readApproval(token);
+    if (!approval || approval.kind !== "bridge_action") {
+      await this.safeReply({
+        accountId: request.accountId,
+        conversationId: request.conversationId,
+        messageId: request.messageId,
+        text: this.text.approvalTokenNotFound(token),
+      });
+      return;
+    }
+    if (approval.senderId !== request.senderId) {
+      await this.safeReply({
+        accountId: request.accountId,
+        conversationId: request.conversationId,
+        messageId: request.messageId,
+        text: this.text.approvalTokenDifferentDm,
+      });
+      return;
+    }
+    if (Date.now() > approval.expiresAtMs) {
+      await this.deleteApproval(token);
+      const action = approval.actionId ? await this.readBridgeAction(approval.actionId) : null;
+      if (action) {
+        await this.finishBridgeAction(action, profile, {
+          resultStatus: "failed",
+          error: "approval token expired",
+        });
+      }
+      await this.safeReply({
+        accountId: request.accountId,
+        conversationId: request.conversationId,
+        messageId: request.messageId,
+        text: this.text.approvalTokenExpired(token),
+      });
+      return;
+    }
+
+    const action = approval.actionId ? await this.readBridgeAction(approval.actionId) : null;
+    if (!action) {
+      await this.safeReply({
+        accountId: request.accountId,
+        conversationId: request.conversationId,
+        messageId: request.messageId,
+        text: this.text.approvalTokenNotFound(token),
+      });
+      return;
+    }
+
+    await this.deleteApproval(token);
+    const transition = startBridgeActionExecution();
+    const nextAction = createBridgeActionRecord({
+      ...action,
+      status: transition.status,
+      owner: transition.owner,
+      resultStatus: transition.resultStatus,
+      approvalToken: null,
+      startedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    await this.saveBridgeAction(nextAction);
+    await this.executeAndFinishBridgeAction(nextAction, profile, request);
+  }
+
+  async handleBridgeActionApprovalReply(profile, request, action) {
+    if (!action.approvalToken) {
+      await this.safeReply({
+        accountId: request.accountId,
+        conversationId: request.conversationId,
+        messageId: request.messageId,
+        text: this.text.noPendingApproval,
+      });
+      return;
+    }
+
+    const approval = await this.readApproval(action.approvalToken);
+    if (!approval || approval.kind !== "bridge_action") {
+      await this.safeReply({
+        accountId: request.accountId,
+        conversationId: request.conversationId,
+        messageId: request.messageId,
+        text: this.text.noPendingApproval,
+      });
+      return;
+    }
+
+    const decision = classifyApprovalReply({
+      text: request.text,
+      replyContract: approval.replyContract,
+    });
+
+    if (decision.outcome === "approve") {
+      await this.approvePendingBridgeActionRequest(profile, request, approval.token);
+      return;
+    }
+    if (decision.outcome === "approve_with_tail") {
+      await this.safeReply({
+        accountId: request.accountId,
+        conversationId: request.conversationId,
+        messageId: request.messageId,
+        text: this.text.bridgeActionApprovalNeedsPureApprove,
+      });
+      return;
+    }
+    if (decision.outcome === "deny") {
+      await this.denyPendingBridgeAction(profile, request, action, approval);
+      return;
+    }
+
+    await this.safeReply({
+      accountId: request.accountId,
+      conversationId: request.conversationId,
+      messageId: request.messageId,
+      text: this.text.bridgeActionApprovalStillPending({
+        token: approval.token,
+        reasons: approval.reasonCodes ?? [],
+      }),
+    });
+  }
+
+  async denyPendingBridgeAction(profile, request, action, approval) {
+    await this.deleteApproval(approval.token);
+    await this.finishBridgeAction(action, profile, {
+      resultStatus: finishBridgeActionDenied().resultStatus,
+      error: null,
+    });
+    await this.safeReply({
+      accountId: request.accountId,
+      conversationId: request.conversationId,
+      messageId: request.messageId,
+      text: this.text.bridgeActionDenied,
+    });
+  }
+
+  async executeAndFinishBridgeAction(action, profile, request) {
+    let result;
+    try {
+      result = await this.executeBridgeAction(action);
+    } catch (error) {
+      result = {
+        exitCode: 1,
+        error: toErrorText(error),
+        summary: "",
+      };
+    }
+    const finished = await this.finishBridgeAction(action, profile, {
+      resultStatus: finishBridgeActionFromExecution(result).resultStatus,
+      error: result.error ?? null,
+      summary: result.summary ?? "",
+    });
+    await this.safeReply({
+      accountId: request.accountId,
+      conversationId: request.conversationId,
+      messageId: request.messageId,
+      text: this.text.bridgeActionFinished({
+        summary: finished.resultText,
+        resultStatus: finished.resultStatus,
+        error: finished.error,
+      }),
+    });
+  }
+
+  async approvePendingRequest(profile, request, token, options = {}) {
+    const promptOverride = options.promptOverride ?? null;
     const approval = await this.readApproval(token);
     if (!approval) {
       await this.safeReply({
@@ -480,7 +776,7 @@ export class CodexBridge {
       conversationId: approval.conversationId,
       messageId: approval.messageId,
       mode: approval.sessionId ? "resume" : approval.mode,
-      prompt: approval.prompt,
+      prompt: promptOverride ?? approval.prompt,
       cwd: approval.cwd,
       sessionId: approval.sessionId,
       policyDecision: approval.policyDecision ?? POLICY_DECISIONS.APPROVAL_REQUIRED,
@@ -490,6 +786,102 @@ export class CodexBridge {
       status: nextRun.taskStatus,
       existingTask,
       runtimeCheck,
+    });
+  }
+
+  async handleApprovalReply(profile, request, task) {
+    if (!task.approvalToken) {
+      await this.safeReply({
+        accountId: request.accountId,
+        conversationId: request.conversationId,
+        messageId: request.messageId,
+        text: this.text.noPendingApproval,
+      });
+      return;
+    }
+
+    const approval = await this.readApproval(task.approvalToken);
+    if (!approval) {
+      await this.safeReply({
+        accountId: request.accountId,
+        conversationId: request.conversationId,
+        messageId: request.messageId,
+        text: this.text.noPendingApproval,
+      });
+      return;
+    }
+
+    const decision = classifyApprovalReply({
+      text: request.text,
+      replyContract: approval.replyContract,
+    });
+
+    if (decision.outcome === "approve") {
+      await this.approvePendingRequest(profile, request, approval.token);
+      return;
+    }
+
+    if (decision.outcome === "approve_with_tail") {
+      await this.approvePendingRequest(profile, request, approval.token, {
+        promptOverride: mergeApprovalPrompt(approval.prompt, decision.tail),
+      });
+      return;
+    }
+
+    if (decision.outcome === "deny") {
+      await this.denyPendingRequest(profile, request, task, approval);
+      return;
+    }
+
+    await this.safeReply({
+      accountId: request.accountId,
+      conversationId: request.conversationId,
+      messageId: request.messageId,
+      text: this.text.approvalStillPending({
+        token: approval.token,
+        reasons: approval.reasonCodes ?? [],
+      }),
+    });
+  }
+
+  async denyPendingRequest(profile, request, task, approval) {
+    const onDeny = approval.onDeny ?? "await_user_replan";
+    if (onDeny === "abort_task") {
+      await this.finalizeStoredTask(task, profile, {
+        status: "aborted",
+        error: "approval denied by user",
+      });
+      await this.safeReply({
+        accountId: request.accountId,
+        conversationId: request.conversationId,
+        messageId: request.messageId,
+        text: this.text.approvalDeniedTaskAborted,
+      });
+      return;
+    }
+
+    await this.deleteApproval(approval.token);
+    const timestamp = new Date().toISOString();
+    task.status = "awaiting_input";
+    task.owner = "codex";
+    task.currentRunId = null;
+    task.approvalToken = null;
+    task.finishedAt = null;
+    task.updatedAt = timestamp;
+    task.error = null;
+    await this.saveTask(task);
+
+    if (profile.pendingApprovalToken === approval.token) delete profile.pendingApprovalToken;
+    profile.activeTaskId = task.taskId;
+    profile.lastTaskId = task.taskId;
+    profile.updatedAt = timestamp;
+    await this.saveProfile(profile);
+
+    await this.safeReply({
+      accountId: request.accountId,
+      conversationId: request.conversationId,
+      messageId: request.messageId,
+      text: this.text.approvalDeniedAwaitingReplan,
     });
   }
 
@@ -579,6 +971,8 @@ export class CodexBridge {
         sessionId: params.sessionId ?? null,
         policyDecision: decision.kind,
         reasonCodes,
+        replyContract: createApprovalReplyContract(),
+        onDeny: "await_user_replan",
         createdAtMs: Date.now(),
         expiresAtMs: Date.now() + this.settings.approvalTtlMs,
       };
@@ -762,6 +1156,8 @@ export class CodexBridge {
       sessionId: params.existingTask.sessionId ?? null,
       policyDecision: decision.kind,
       reasonCodes: decision.reasonCodes ?? [],
+      replyContract: createApprovalReplyContract(),
+      onDeny: "await_user_replan",
       createdAtMs: Date.now(),
       expiresAtMs: Date.now() + this.settings.approvalTtlMs,
     };
@@ -991,7 +1387,7 @@ export class CodexBridge {
         if (!line) continue;
         const parsed = safeJsonParse(line);
         const hint = parsed ? extractStatusHint(parsed) : undefined;
-        if (hint) {
+        if (getUserVisibleStatusHint(this.settings.locale, hint)) {
           runtime.task.lastStatusHint = hint;
           runtime.run.lastStatusHint = hint;
           runtime.task.updatedAt = new Date().toISOString();
@@ -1044,6 +1440,7 @@ export class CodexBridge {
   }
 
   async maybeSendStatusHint(task, hint) {
+    if (!getUserVisibleStatusHint(this.settings.locale, hint)) return;
     const now = Date.now();
     if (now - task.lastStatusSentAtMs < this.settings.statusThrottleMs) return;
     task.lastStatusSentAtMs = now;
@@ -1066,7 +1463,8 @@ export class CodexBridge {
       runtime.task.updatedAt = new Date().toISOString();
       await this.saveTask(runtime.task);
       const elapsed = formatElapsed(runtime.task.startedAt);
-      const suffix = runtime.task.lastStatusHint ? `\n${this.text.lastLabel}: ${localizeStatusHint(this.settings.locale, runtime.task.lastStatusHint)}` : "";
+      const visibleHint = getUserVisibleStatusHint(this.settings.locale, runtime.task.lastStatusHint);
+      const suffix = visibleHint ? `\n${this.text.lastLabel}: ${visibleHint}` : "";
       await this.safeReply({
         accountId: runtime.task.accountId,
         conversationId: runtime.task.conversationId,
@@ -1208,6 +1606,7 @@ export class CodexBridge {
 
   async formatStatus(senderId, profileFallback = null) {
     const activeTask = await this.loadActiveTask(senderId);
+    const activeBridgeAction = await this.loadActiveBridgeAction(senderId, profileFallback);
     if (activeTask) {
       const lines = [
         this.text.activeTaskLine(activeTask.taskId),
@@ -1219,7 +1618,15 @@ export class CodexBridge {
       ];
       if (activeTask.sessionId) lines.push(this.text.sessionIdLine(activeTask.sessionId));
       if (activeTask.approvalToken) lines.push(this.text.pendingApprovalLine(activeTask.approvalToken));
-      if (activeTask.lastStatusHint) lines.push(this.text.lastLine(localizeStatusHint(this.settings.locale, activeTask.lastStatusHint)));
+      if (activeBridgeAction) lines.push(this.text.bridgeActionLine(activeBridgeAction.status));
+      const visibleHint = getUserVisibleStatusHint(this.settings.locale, activeTask.lastStatusHint);
+      if (visibleHint) lines.push(this.text.lastLine(visibleHint));
+      return lines.join("\n");
+    }
+
+    if (activeBridgeAction) {
+      const lines = [this.text.bridgeActionLine(activeBridgeAction.status)];
+      if (activeBridgeAction.approvalToken) lines.push(this.text.pendingApprovalLine(activeBridgeAction.approvalToken));
       return lines.join("\n");
     }
 
@@ -1268,11 +1675,31 @@ export class CodexBridge {
     }
   }
 
+  async executeBridgeAction(action) {
+    if (action.kind === "service_control") {
+      return runCommandCapture("systemctl", [action.operation, action.target], { cwd: action.cwd });
+    }
+    if (action.kind === "gateway_health") {
+      return runCommandCapture("bash", [ISOLATED_OPENCLAW_SCRIPT_PATH, "health", "--json"], { cwd: action.cwd });
+    }
+    if (action.kind === "install_lifecycle") {
+      return runCommandCapture("bash", [BOOTSTRAP_SCRIPT_PATH, "install-systemd"], { cwd: action.cwd });
+    }
+    if (action.kind === "diagnostic") {
+      return runCommandCapture("bash", [BOOTSTRAP_SCRIPT_PATH, "gateway-status"], { cwd: action.cwd });
+    }
+    throw new Error(`unsupported bridge action kind: ${action.kind}`);
+  }
+
   async ensureCodexHome() {
     await ensureDir(this.settings.codexHome);
     await ensureDir(path.join(this.settings.codexHome, "sessions"));
     await ensureSeedFile(this.settings.authJsonPath, path.join(this.settings.codexHome, "auth.json"));
     await ensureSeedFile(this.settings.configTomlPath, path.join(this.settings.codexHome, "config.toml"));
+    await ensureIsolatedOpenClawShim({
+      codexHome: this.settings.codexHome,
+      isolatedCliPath: ISOLATED_OPENCLAW_SCRIPT_PATH,
+    });
   }
 
   profilePath(senderId) {
@@ -1292,7 +1719,8 @@ export class CodexBridge {
   }
 
   async readTask(taskId) {
-    return this.taskStore.read(taskId);
+    const task = await this.taskStore.read(taskId);
+    return task ? createTaskRecord(task) : null;
   }
 
   async saveTask(task) {
@@ -1307,12 +1735,31 @@ export class CodexBridge {
     await this.runStore.write(run);
   }
 
+  async readBridgeAction(actionId) {
+    const action = await this.bridgeActionStore.read(actionId);
+    return action ? createBridgeActionRecord(action) : null;
+  }
+
+  async saveBridgeAction(action) {
+    await this.bridgeActionStore.write(action);
+  }
+
   async readApproval(token) {
-    return readJson(this.approvalPath(token), null);
+    const approval = await readJson(this.approvalPath(token), null);
+    if (!approval) return null;
+    return {
+      ...approval,
+      replyContract: createApprovalReplyContract(approval.replyContract ?? {}),
+      onDeny: approval.onDeny ?? "await_user_replan",
+    };
   }
 
   async writeApproval(approval) {
-    await writeJson(this.approvalPath(approval.token), approval);
+    await writeJson(this.approvalPath(approval.token), {
+      ...approval,
+      replyContract: createApprovalReplyContract(approval.replyContract ?? {}),
+      onDeny: approval.onDeny ?? "await_user_replan",
+    });
   }
 
   async deleteApproval(token) {
@@ -1347,16 +1794,17 @@ export class CodexBridge {
       }
     }
 
-    if (task.status === "running") {
-      const run = task.currentRunId ? await this.readRun(task.currentRunId) : null;
-      const recovered = recoverStaleRunningTask({
-        task,
-        run,
-      });
-      task = recovered.task;
-      await this.saveTask(task);
-      if (recovered.run) await this.saveRun(recovered.run);
-    }
+      if (task.status === "running") {
+        const run = task.currentRunId ? await this.readRun(task.currentRunId) : null;
+        const recovered = recoverStaleRunningTask({
+          task,
+          run,
+          interruptionHint: inferRecoveredInterruptionHint(task, this.settings),
+        });
+        task = recovered.task;
+        await this.saveTask(task);
+        if (recovered.run) await this.saveRun(recovered.run);
+      }
 
     if (isActiveTaskStatus(task.status)) return task;
 
@@ -1369,9 +1817,72 @@ export class CodexBridge {
     return null;
   }
 
+  async loadActiveBridgeAction(senderId, profile = null) {
+    const currentProfile = profile ?? (await this.loadProfile(senderId, null));
+    if (!currentProfile?.activeBridgeActionId) return null;
+
+    const action = await this.readBridgeAction(currentProfile.activeBridgeActionId);
+    if (!action) {
+      delete currentProfile.activeBridgeActionId;
+      currentProfile.updatedAt = new Date().toISOString();
+      await this.saveProfile(currentProfile);
+      return null;
+    }
+
+    if (action.status === "finished") {
+      delete currentProfile.activeBridgeActionId;
+      currentProfile.lastBridgeActionId = action.actionId;
+      currentProfile.updatedAt = new Date().toISOString();
+      await this.saveProfile(currentProfile);
+      return null;
+    }
+
+    if (action.status === "awaiting_approval" && action.approvalToken) {
+      const approval = await this.readApproval(action.approvalToken);
+      if (!approval || Date.now() > approval.expiresAtMs) {
+        if (approval) await this.deleteApproval(action.approvalToken);
+        await this.finishBridgeAction(action, currentProfile, {
+          resultStatus: "failed",
+          error: "approval token expired",
+        });
+        return null;
+      }
+    }
+
+    return action;
+  }
+
+  async finishBridgeAction(action, profile, result = {}) {
+    const timestamp = new Date().toISOString();
+    const nextAction = createBridgeActionRecord({
+      ...action,
+      ...finishBridgeActionFromExecution({
+        exitCode: result.resultStatus === "failed" ? 1 : 0,
+        error: result.error ?? null,
+      }),
+      approvalToken: null,
+      resultStatus: result.resultStatus ?? finishBridgeActionFromExecution({}).resultStatus,
+      resultText: result.summary ?? action.resultText ?? null,
+      error: result.error ?? null,
+      finishedAt: timestamp,
+      updatedAt: timestamp,
+    });
+    await this.saveBridgeAction(nextAction);
+
+    const currentProfile = profile ?? (await this.loadProfile(action.senderId, null));
+    if (currentProfile) {
+      if (currentProfile.activeBridgeActionId === action.actionId) delete currentProfile.activeBridgeActionId;
+      currentProfile.lastBridgeActionId = action.actionId;
+      currentProfile.updatedAt = timestamp;
+      await this.saveProfile(currentProfile);
+    }
+    return nextAction;
+  }
+
   async finalizeStoredTask(task, profile, result) {
-    if (task.approvalToken) {
-      await this.deleteApproval(task.approvalToken);
+    const previousApprovalToken = task.approvalToken;
+    if (previousApprovalToken) {
+      await this.deleteApproval(previousApprovalToken);
     }
     const timestamp = new Date().toISOString();
     if (task.currentRunId) {
@@ -1385,14 +1896,16 @@ export class CodexBridge {
       }
     }
     task.status = result.status;
+    task.owner = "codex";
     task.currentRunId = null;
+    task.approvalToken = null;
     task.error = result.error ?? task.error;
     task.finishedAt = timestamp;
     task.updatedAt = timestamp;
     await this.saveTask(task);
 
     if (profile.activeTaskId === task.taskId) delete profile.activeTaskId;
-    if (profile.pendingApprovalToken === task.approvalToken) delete profile.pendingApprovalToken;
+    if (profile.pendingApprovalToken === previousApprovalToken) delete profile.pendingApprovalToken;
     profile.lastTaskId = task.taskId;
     profile.updatedAt = timestamp;
     await this.saveProfile(profile);
@@ -1443,6 +1956,7 @@ export class CodexBridge {
             error: runtime.run.error ?? `runtime persistence failure: ${toErrorText(error)}`,
           }
         : null,
+      interruptionHint: inferRecoveredInterruptionHint(runtime.task, this.settings),
     });
 
     await this.persistRecoveredRuntimeState(runtime, recovered, error);
@@ -1451,7 +1965,7 @@ export class CodexBridge {
       accountId: runtime.task.accountId,
       conversationId: runtime.task.conversationId,
       messageId: runtime.task.messageId,
-      text: this.text.interruptedTaskRequiresContinue(runtime.task.taskId),
+      text: this.text.interruptedTaskRequiresContinue(runtime.task.taskId, recovered.task.lastStatusHint),
     });
   }
 
@@ -1511,6 +2025,37 @@ function extractFirstArgToken(text) {
   return firstToken;
 }
 
+function mergeApprovalPrompt(prompt, tail) {
+  const base = normalizeText(prompt);
+  const extra = normalizeText(tail);
+  if (!base) return extra ?? "";
+  if (!extra) return base;
+  return `${base}\n\n补充要求：${extra}`;
+}
+
+function requestMessageTarget(params) {
+  return {
+    accountId: params.accountId,
+    conversationId: params.conversationId,
+    messageId: params.messageId,
+  };
+}
+
+function inferRecoveredInterruptionHint(task, settings) {
+  const prompt = normalizeText(task?.prompt)?.toLowerCase() ?? "";
+  if (!prompt) return "run.interrupted";
+  const reasonCodes = Array.isArray(task?.reasonCodes) ? task.reasonCodes : [];
+  if (!reasonCodes.includes("service_control_requires_approval")) return "run.interrupted";
+  const bridgeServiceUnitNames = Array.isArray(settings?.bridgeServiceUnitNames) ? settings.bridgeServiceUnitNames : [];
+  const normalizedUnits = bridgeServiceUnitNames
+    .map((unit) => normalizeText(unit)?.toLowerCase() ?? "")
+    .filter(Boolean);
+  if (normalizedUnits.some((unit) => prompt.includes(unit))) {
+    return "run.interrupted.bridge_self_restart";
+  }
+  return "run.interrupted";
+}
+
 function isCodexCommand(text) {
   return normalizeText(text)?.startsWith("/codex") ?? false;
 }
@@ -1553,6 +2098,10 @@ function makeTaskId() {
 
 function makeRunId() {
   return `run-${new Date().toISOString().replace(/[:.]/g, "-")}-${crypto.randomBytes(3).toString("hex")}`;
+}
+
+function makeBridgeActionId() {
+  return `action-${new Date().toISOString().replace(/[:.]/g, "-")}-${crypto.randomBytes(3).toString("hex")}`;
 }
 
 function makeApprovalToken() {
@@ -1641,6 +2190,39 @@ function truncate(text, maxLength) {
 function toErrorText(error) {
   if (error instanceof Error && error.message) return error.message;
   return String(error);
+}
+
+async function runCommandCapture(command, args, options = {}) {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout?.on("data", (chunk) => {
+      stdout += String(chunk);
+    });
+    child.stderr?.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+    child.on("error", (error) => {
+      resolve({
+        exitCode: 1,
+        error: toErrorText(error),
+        summary: normalizeText(stderr || stdout || toErrorText(error)),
+      });
+    });
+    child.on("close", (code) => {
+      const summary = normalizeText(stdout || stderr);
+      resolve({
+        exitCode: typeof code === "number" ? code : 1,
+        error: typeof code === "number" && code === 0 ? null : normalizeText(stderr) || null,
+        summary,
+      });
+    });
+  });
 }
 
 async function listFilesRecursive(rootDir) {

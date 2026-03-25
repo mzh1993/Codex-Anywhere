@@ -1,15 +1,15 @@
 # Feishu Codex Runner V1
 
-> Alpha protocol note. Explains current behavior, not a production guarantee.
+> Current V1 protocol reference. This file records the current Feishu runner behavior, not product vision.
 
 ## 定位
 
-- 核心产品：安全执行核心
-- Feishu：第一控制平面
-- OpenClaw：当前 Feishu transport shell、pairing、去重、安全壳
-- Codex CLI：唯一执行器
+- Feishu：当前输入 / 输出渠道
+- OpenClaw：当前 transport shell、pairing、去重、安全壳
+- `codex-bridge`：当前任务路由、审批、恢复、状态持久化实现
+- Codex CLI：唯一任务执行器
 
-V1 不尝试复刻桌面 Codex 会话，只做任务型远程执行。
+V1 当前默认以自然语言作为主交互；`/codex ...` 只作为 bridge 控制面兜底入口。
 
 ## 代码入口
 
@@ -22,7 +22,8 @@ V1 不尝试复刻桌面 Codex 会话，只做任务型远程执行。
 - Bridge 根目录位于仓库隔离状态目录，例如：`$REPO_ROOT/.isolated/codex-feishu/state/codex-bridge`
 - 用户 profile：`profiles/<sender>.json`
 - 任务状态：`tasks/<task>.json`
-- 审批 token：`approvals/<token>.json`
+- bridge 控制面动作：`bridge-actions/<action>.json`
+- 审批 token：`approvals/<token>.json`（含 `replyContract` / `onDeny`）
 - run 记录：`runs/<run>.json`
 - run 日志目录：`runs/<run>/`
 - 隔离 `CODEX_HOME`：`codex-home/`
@@ -50,11 +51,14 @@ V1 不尝试复刻桌面 Codex 会话，只做任务型远程执行。
 ## 执行模型
 
 - 单用户同一时刻仅保留一个活动 task
+- 同一私聊内可临时存在一个独立的 `bridge action`
 - 一个 task 可跨多个串行 runs
 - 新消息且无活动 task：创建新 task
-- 新消息且活动 task 为 `awaiting_input`：自动续到同一 task 的下一次 run
-- `/codex continue <prompt>`：仅当活动 task 为 `awaiting_input` 时，创建下一次 run
+- 新消息且活动 task 为 `awaiting_input`：默认续到同一 task 的下一次 run
+- 若该 task 来自“上一轮执行中断”的恢复态，普通文本仍是默认续写路径
+- `/codex continue <prompt>`：仅作为兜底显式续写入口；当活动 task 为 `awaiting_input` 时可继续使用
 - 获批后不会恢复旧 run，而是为同一 task 创建新的获批 run
+- 仓库自有控制面请求（如 `openclaw-codex-feishu.service`、gateway 健康检查）优先进入独立的 `bridge action`，不占用 task continuity
 - 新任务默认 `cwd` 取自 bridge 默认工作目录配置
 - 若用户先执行 `/codex cwd <path>`，后续任务改用新目录
 
@@ -62,9 +66,15 @@ V1 不尝试复刻桌面 Codex 会话，只做任务型远程执行。
 
 - task statuses：`created`、`running`、`awaiting_input`、`awaiting_approval`、`completed`、`aborted`
 - run statuses：`running`、`completed`、`failed`、`aborted`、`blocked`
+- bridge action statuses：`created`、`awaiting_approval`、`running`、`finished`
+- bridge 内部维护一个不对用户暴露的 reply owner：
+  - `owner=codex`：普通文本直接归 Codex 会话语义
+  - `owner=bridge_approval`：下一条普通文本先归 bridge 审批语义
+  - `owner=bridge_action`：当前由 bridge 自己拥有控制面动作闭环
 - 普通 run 完成或失败后，task 默认回到 `awaiting_input`
 - denied 不会落成 task 终态；默认会记录一次 `blocked` run，并把 task 放回 `awaiting_input`
 - approval_required 会结束当前 run，并把 task 置为 `awaiting_approval`
+- `bridge action` 完成后只产出最小结果，不写入 task 的 `summary / changedFiles / nextSteps / sessionId`
 
 ## 风控
 
@@ -167,9 +177,12 @@ V1 不尝试复刻桌面 Codex 会话，只做任务型远程执行。
 /codex help
 ```
 
-- 普通文本只会在 `awaiting_input` 时自动续任务
-- `running` / `awaiting_approval` 时，继续输入必须走显式协议，避免渠道猜测执行语义
-- `/codex approve <token>` 对应的是当前 task 的审批点，而不是恢复旧 run
+- 这些命令属于 bridge 控制面兜底入口，不应成为日常主交互路径
+- 普通文本在 `awaiting_input` 时默认续任务，包括恢复后的 `awaiting_input`
+- `running` 时，普通文本仍不能插队
+- `awaiting_approval` 时，普通文本不再当普通任务执行，而是先进入 bridge 审批判定
+- `/codex approve <token>` 可作为当前待审批对象的兜底批准入口；task 与 bridge action 都优先走自然语言审批
+- `item.completed`、`turn.started` 这类内部事件不会直接回传给用户
 
 ## 输入协议矩阵
 
@@ -185,8 +198,8 @@ V1 不尝试复刻桌面 Codex 会话，只做任务型远程执行。
 ### `awaiting_input`
 
 - 普通文本：允许，续到同一 task 的下一次 run
-- 若该 task 带“上一轮执行中断，请明确继续”语义：普通文本拒绝，必须使用 `/codex continue <prompt>`
-- `/codex continue <prompt>`：允许，显式续到同一 task
+- 若该 task 带“上一轮执行中断”语义：普通文本仍允许，默认按自然语言继续
+- `/codex continue <prompt>`：允许，作为兜底显式续写路径
 - `/codex approve <token>`：拒绝，当前不在审批态
 - `/codex abort`：允许，终止整个 task
 - `/codex status`：允许，只查询当前状态
@@ -204,7 +217,11 @@ V1 不尝试复刻桌面 Codex 会话，只做任务型远程执行。
 
 ### `awaiting_approval`
 
-- 普通文本：拒绝，不能当普通任务执行
+- 普通文本：由 bridge 先按审批 contract 处理，而不是直接透传给 Codex
+- `同意`：允许，创建同一 task 的新的获批 run
+- `同意，并……`：允许，批准后把尾部补充要求一并带入新的获批 run
+- `不要执行`：允许，拒绝这次高风险动作，并回到安全的 `awaiting_input`
+- `为什么要审批？`、`你看着办`、`1`（未显式给编号选项时）：不授权，保持审批态继续解释
 - `/codex continue <prompt>`：拒绝，当前不在等待输入
 - `/codex approve <token>`：允许，为同一 task 创建新的获批 run
 - `/codex abort`：允许，终止整个 task
@@ -212,14 +229,25 @@ V1 不尝试复刻桌面 Codex 会话，只做任务型远程执行。
 - `/codex pwd`：允许
 - `/codex cwd <path>`：允许修改未来默认值，但不影响当前待审批 task
 
+### `bridge_action.awaiting_approval`
+
+- 普通文本：由 bridge 先按控制面审批处理
+- `同意`：允许，由 bridge 直接执行当前已拥有的控制面动作
+- `同意，并……`：拒绝追加尾巴；V1 只接受纯批准
+- `不要执行`：允许，安全结束本次 bridge action，不终止原有 task
+- `为什么要审批？`、`你看着办`、`1`（未显式给编号选项时）：不授权，保持审批态继续解释
+- `/codex approve <token>`：允许，作为 bridge action 的兜底批准入口
+- `/codex status`：允许，只暴露最小 bridge action 状态
+
 ## 关键规则
 
 - `/codex status` 在所有状态下都合法，但只负责查询，不推进状态
-- `/codex continue <prompt>` 只在 `awaiting_input` 合法
-- `/codex approve <token>` 只在 `awaiting_approval` 合法
+- `/codex continue <prompt>` 只在 `awaiting_input` 合法，但它是兜底入口，不是默认主路径
+- `/codex approve <token>` 只在 `awaiting_approval` 合法，但它是审批兜底入口，不是默认主路径
 - `/codex abort` 在 `awaiting_input`、`running`、`awaiting_approval` 下都表示终止整个 task
 - `/codex cwd <path>` 只修改未来默认工作目录，不热切换当前活动 task
-- 默认采用严格状态机：宁可多拒绝一次，也不让渠道猜测执行语义
+- 默认自然语言优先；`awaiting_approval` 的普通文本也允许继续对话，但由 bridge 守住审批边界
+- bridge 只劫持仓库自有控制面动作；如 `请重启 nginx`、`docker restart xxx` 仍不属于 bridge action
 
 ## 状态机回归测试命名
 
@@ -253,14 +281,16 @@ V1 不尝试复刻桌面 Codex 会话，只做任务型远程执行。
 
 ## 当前已知限制
 
-- `codex exec --json` 的事件聚合做的是宽松兼容解析，V1 以开始/心跳/结束回传为主
-- 高风险审批仍是文本 token，不依赖卡片
+- `codex exec --json` 的事件聚合做的是宽松兼容解析；当前会过滤低信号内部事件，只保留用户可感知的状态提示
+- 高风险审批仍是文本协议，不依赖卡片；token 只作为兜底控制面
 - 非 `/codex` 的 slash 命令不会被 bridge claim
 - `plugins.allow` 目前保持为空，因此 OpenClaw 会提示本地非 bundled 插件被显式发现；这不影响运行
 
 ## 恢复语义
 
 - 若 bridge 重启后发现持久化里仍有旧的 `running` task，会先把它回收到 `awaiting_input`
-- 该 task 会保留为当前活动 task，但会要求一次显式 `/codex continue <prompt>`
-- 对用户提示为“上一轮执行中断，请明确继续”
+- 该 task 会保留为当前活动 task，用户可以直接用自然语言继续
+- `/codex continue <prompt>` 仍可作为兜底显式续写入口
+- 对用户提示为“上一轮执行中断，请直接说明要继续做什么”
+- 若中断原因可判定为“桥接器所在 service 被它自己重启”，则提示更具体的恢复语义，而不是只给通用中断文案
 - 当前不根据“长时间无心跳”自动改写 task 状态；无心跳只用于观测，不用于推断执行已死

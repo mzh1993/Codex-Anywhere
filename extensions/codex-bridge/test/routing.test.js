@@ -10,6 +10,7 @@ import {
   routePlainTextWithActiveTask,
   startNextRunFromApproval,
 } from "../lib/task-model.js";
+import { classifyOwnedBridgeActionRequest } from "../lib/policy.js";
 
 test("protocol/input/no_task: plain text starts a new task when there is no active task", () => {
   assert.deepEqual(routeIncomingPlainText({ activeTaskStatus: null }), {
@@ -21,12 +22,13 @@ test("protocol/input/awaiting_input: plain text auto-continues only when task is
   assert.deepEqual(routeIncomingPlainText({ activeTaskStatus: "awaiting_input" }), {
     action: "continue_task",
   });
+  assert.deepEqual(routeIncomingPlainText({ activeTaskStatus: "awaiting_input", activeTaskOwner: "codex" }), {
+    action: "continue_task",
+  });
   assert.deepEqual(
     routeIncomingPlainText({ activeTaskStatus: "awaiting_input", requiresExplicitContinue: true }),
     {
-      action: "reject",
-      code: "task_interrupted_requires_continue",
-      suggestedCommand: "/codex continue <prompt>",
+      action: "continue_task",
     },
   );
   assert.deepEqual(routeIncomingPlainText({ activeTaskStatus: "running" }), {
@@ -34,6 +36,67 @@ test("protocol/input/awaiting_input: plain text auto-continues only when task is
     code: "active_task_exists",
     suggestedCommand: "/codex status",
   });
+});
+
+test("protocol/input/approval_owner: bridge-owned approval replies are routed to approval handling first", () => {
+  assert.deepEqual(
+    routeIncomingPlainText({
+      activeTaskStatus: "awaiting_approval",
+      activeTaskOwner: "bridge_approval",
+    }),
+    {
+      action: "handle_approval_reply",
+    },
+  );
+});
+
+test("protocol/input/bridge_action: repository-owned service control is classified as a bridge action", () => {
+  assert.deepEqual(
+    classifyOwnedBridgeActionRequest({
+      prompt: "请重启 openclaw-codex-feishu.service",
+      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
+    }),
+    {
+      kind: "service_control",
+      operation: "restart",
+      target: "openclaw-codex-feishu.service",
+      requiresApproval: true,
+      reasonCodes: ["service_control_requires_approval"],
+    },
+  );
+});
+
+test("protocol/input/bridge_action: repository-owned gateway health checks stay bridge-owned and read-only", () => {
+  assert.deepEqual(
+    classifyOwnedBridgeActionRequest({
+      prompt: "请帮我检查 gateway 健康状态",
+      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
+    }),
+    {
+      kind: "gateway_health",
+      operation: "check",
+      target: "gateway",
+      requiresApproval: false,
+      reasonCodes: [],
+    },
+  );
+});
+
+test("protocol/input/bridge_action: non-owned host operations are not hijacked by the bridge", () => {
+  assert.equal(
+    classifyOwnedBridgeActionRequest({
+      prompt: "请重启 nginx",
+      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
+    }),
+    null,
+  );
+  assert.equal(
+    classifyOwnedBridgeActionRequest({
+      prompt: "请 docker restart xxx",
+      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
+    }),
+    null,
+  );
 });
 
 test("protocol/command/continue: continue is rejected when no active task exists", () => {
@@ -74,10 +137,23 @@ test("protocol/locale/continue: continue guidance text targets the current activ
   const en = getLocaleText("en-US");
   const zh = getLocaleText("zh-CN");
 
-  assert.match(en.help("/tmp"), /`\/codex continue <prompt>` add explicit input to the current active task/);
-  assert.match(zh.help("/tmp"), /`\/codex continue <prompt>` 向当前活动任务补充明确输入/);
+  assert.match(en.help("/tmp"), /`\/codex continue <prompt>` fallback for explicit continue/);
+  assert.match(zh.help("/tmp"), /`\/codex continue <prompt>` 兜底用于显式续写/);
   assert.equal(en.noActiveTaskToContinue, "No active task to continue.");
   assert.equal(zh.noActiveTaskToContinue, "当前没有可继续的活动任务。");
+});
+
+test("protocol/locale/recovery: interruption guidance keeps natural language as the main path", () => {
+  const en = getLocaleText("en-US");
+  const zh = getLocaleText("zh-CN");
+
+  assert.match(zh.interruptedTaskRequiresContinue("task-1"), /请直接说明要继续做什么/);
+  assert.match(zh.interruptedTaskRequiresContinue("task-1"), /也可以使用 `\/codex continue <prompt>`/);
+  assert.doesNotMatch(zh.interruptedTaskRequiresContinue("task-1"), /请使用 `\/codex continue <prompt>`/);
+
+  assert.match(en.interruptedTaskRequiresContinue("task-1"), /Say what to continue with/);
+  assert.match(en.interruptedTaskRequiresContinue("task-1"), /you can also use `\/codex continue <prompt>`/i);
+  assert.doesNotMatch(en.interruptedTaskRequiresContinue("task-1"), /^Use `\/codex continue <prompt>`/m);
 });
 
 test("protocol/locale/status: running-task guidance does not mislabel status as a continue command", () => {
@@ -104,6 +180,33 @@ test("protocol/locale/status: running-task guidance does not repeat the same sta
 
   assert.equal(text.match(/\/codex status/g)?.length ?? 0, 1);
   assert.match(text, /`\/codex abort`/);
+});
+
+test("protocol/locale/approval: queued approval text keeps natural language as the primary path", () => {
+  const zh = getLocaleText("zh-CN");
+  const text = zh.approvalQueued({
+    token: "TOKEN1",
+    mode: "new",
+    cwd: "/repo",
+    reasons: ["service_control_requires_approval"],
+  });
+
+  assert.match(text, /直接回复“同意”批准/);
+  assert.match(text, /回复“不要执行”拒绝/);
+  assert.match(text, /`\/codex approve TOKEN1`/);
+});
+
+test("protocol/locale/approval: keep-gate-open text explains approval without authorizing", () => {
+  const zh = getLocaleText("zh-CN");
+  const text = zh.approvalStillPending({
+    token: "TOKEN1",
+    reasons: ["service_control_requires_approval"],
+  });
+
+  assert.match(text, /等待你的明确审批/);
+  assert.match(text, /直接回复“同意”/);
+  assert.match(text, /“不要执行”/);
+  assert.match(text, /`\/codex approve TOKEN1`/);
 });
 
 test("protocol/transition/approval: approval-required decision transitions task to awaiting_approval", () => {

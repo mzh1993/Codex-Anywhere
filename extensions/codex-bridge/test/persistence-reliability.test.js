@@ -164,7 +164,7 @@ test("runtime/persistence/recovery: runtime persistence failure becomes recovera
 
   try {
     await assert.doesNotReject(async () => {
-      await bridge.handleStdout(senderId, Buffer.from('{"status":"turn.started"}\n'));
+      await bridge.handleStdout(senderId, Buffer.from('{"status":"analyzing task"}\n'));
     });
   } finally {
     globalThis.setTimeout = originalSetTimeout;
@@ -174,7 +174,7 @@ test("runtime/persistence/recovery: runtime persistence failure becomes recovera
   assert.deepEqual(killSignals, ["SIGTERM", "SIGKILL"]);
   assert.equal(replies.length, 1);
   assert.match(replies[0], /上一轮执行已中断/);
-  assert.match(replies[0], /请明确继续/);
+  assert.match(replies[0], /请直接说明要继续做什么/);
 
   const persistedTask = await bridge.readTask(taskId);
   const persistedRun = await bridge.readRun(runId);
@@ -185,4 +185,83 @@ test("runtime/persistence/recovery: runtime persistence failure becomes recovera
   assert.equal(persistedTask.currentRunId, null);
   assert.equal(persistedRun.status, "failed");
   assert.match(persistedRun.error, /interrupted|persistence failure/i);
+});
+
+test("runtime/persistence/progress: internal item events stay silent and do not overwrite user-visible status", async () => {
+  const { CodexBridge, __activeTasks } = await import("../index.js");
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-progress-filter-"));
+  const replies = [];
+  const bridge = new CodexBridge(createFakeApi(tempRoot));
+  bridge.safeReply = async (params) => {
+    replies.push(params.text);
+  };
+
+  const senderId = "user-progress";
+  const timestamp = "2026-03-24T07:00:00.000Z";
+  const taskId = "task-progress";
+  const runId = "run-progress";
+  const runDir = path.join(bridge.settings.runsRoot, runId);
+  await fs.mkdir(runDir, { recursive: true });
+
+  const task = createTaskRecord({
+    taskId,
+    locale: "zh-CN",
+    senderId,
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-1",
+    cwd: tempRoot,
+    mode: "new",
+    sessionId: null,
+    status: "running",
+    currentRunId: runId,
+    lastRunId: runId,
+    prompt: "帮我总结 README",
+    createdAt: timestamp,
+    startedAt: timestamp,
+    updatedAt: timestamp,
+  });
+  const run = createRunRecord({
+    runId,
+    taskId,
+    locale: "zh-CN",
+    senderId,
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-1",
+    cwd: tempRoot,
+    mode: "new",
+    sessionId: null,
+    status: "running",
+    prompt: "帮我总结 README",
+    createdAt: timestamp,
+    startedAt: timestamp,
+    updatedAt: timestamp,
+    stdoutLogPath: path.join(runDir, "stdout.jsonl"),
+    stderrLogPath: path.join(runDir, "stderr.log"),
+    lastMessagePath: path.join(runDir, "last-message.txt"),
+    runDir,
+    beforeSessions: new Set(),
+  });
+
+  __activeTasks.set(senderId, {
+    task,
+    run,
+    child: {
+      kill() {},
+    },
+    heartbeatTimer: null,
+    sessionPollTimer: null,
+    stdoutBuffer: "",
+    stderrBuffer: "",
+    stopping: false,
+  });
+
+  try {
+    await bridge.handleStdout(senderId, Buffer.from('{"status":"item.completed"}\n'));
+    assert.equal(replies.length, 0);
+    assert.equal(__activeTasks.get(senderId)?.task.lastStatusHint ?? null, null);
+  } finally {
+    __activeTasks.delete(senderId);
+  }
 });

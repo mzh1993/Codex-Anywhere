@@ -8,6 +8,7 @@ const DEFAULT_CODEX_BIN = "codex";
 const DEFAULT_CODEX_HOME_DIRNAME = "codex-home";
 const DEFAULT_DEFAULT_CWD = "/home/neousys";
 const DEFAULT_LOCALE = "en-US";
+const DEFAULT_BRIDGE_SERVICE_UNIT_NAMES = ["openclaw-codex-feishu.service"];
 
 export const DEFAULT_ENV_ALLOWLIST = ["HOME", "PATH", "LANG", "LC_ALL", "TERM", "USER", "LOGNAME"];
 
@@ -38,11 +39,13 @@ export function resolveSettings(api) {
     stateRoot,
     profilesRoot: path.join(stateRoot, "profiles"),
     tasksRoot: path.join(stateRoot, "tasks"),
+    bridgeActionsRoot: path.join(stateRoot, "bridge-actions"),
     approvalsRoot: path.join(stateRoot, "approvals"),
     runsRoot: path.join(stateRoot, "runs"),
     statusThrottleMs: normalizeInteger(pluginConfig.statusThrottleMs) || DEFAULT_STATUS_THROTTLE_MS,
     heartbeatMs: normalizeInteger(pluginConfig.heartbeatMs) || DEFAULT_HEARTBEAT_MS,
     approvalTtlMs: normalizeInteger(pluginConfig.approvalTtlMs) || DEFAULT_APPROVAL_TTL_MS,
+    bridgeServiceUnitNames: resolveStringList(pluginConfig.bridgeServiceUnitNames, DEFAULT_BRIDGE_SERVICE_UNIT_NAMES),
   };
 }
 
@@ -57,6 +60,19 @@ export function resolveEnvAllowlist(value) {
   );
   if (allowlist.length === 0) return [...DEFAULT_ENV_ALLOWLIST];
   return allowlist;
+}
+
+function resolveStringList(value, fallback = []) {
+  if (!Array.isArray(value)) return [...fallback];
+  const list = Array.from(
+    new Set(
+      value
+        .map((entry) => normalizeText(typeof entry === "string" ? entry : ""))
+        .filter(Boolean),
+    ),
+  );
+  if (list.length === 0) return [...fallback];
+  return list;
 }
 
 function normalizeLocale(value) {

@@ -17,6 +17,12 @@ test("runtime/contract/schema: plugin schema accepts envAllowlist", () => {
       type: "string",
     },
   });
+  assert.deepEqual(pluginManifest.configSchema.properties.bridgeServiceUnitNames, {
+    type: "array",
+    items: {
+      type: "string",
+    },
+  });
 });
 
 test("runtime/contract/systemd: generated systemd unit uses an always-restart policy", () => {

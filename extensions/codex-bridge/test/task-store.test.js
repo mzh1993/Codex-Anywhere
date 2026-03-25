@@ -104,6 +104,72 @@ test("protocol/persistence/task: task records exclude run-scoped execution field
   assert.equal("signal" in task, false);
 });
 
+test("protocol/persistence/owner: new tasks default to codex owner and approval tasks force bridge approval owner", () => {
+  const normalTask = createTaskRecord({
+    taskId: "task_owner_default",
+    locale: "en-US",
+    senderId: "sender_123",
+    accountId: "account_123",
+    conversationId: "conversation_123",
+    messageId: "message_123",
+    cwd: "/repo",
+    mode: "new",
+    prompt: "summarize README",
+    status: "awaiting_input",
+    createdAt: "2026-03-24T00:00:00.000Z",
+  });
+
+  const approvalTask = createAwaitingApprovalTaskRecord({
+    taskId: "task_owner_approval",
+    locale: "en-US",
+    senderId: "sender_123",
+    accountId: "account_123",
+    conversationId: "conversation_123",
+    messageId: "message_123",
+    cwd: "/repo",
+    mode: "new",
+    prompt: "restart service",
+    currentRunId: "run_approval",
+    lastRunId: "run_approval",
+    createdAt: "2026-03-24T00:00:00.000Z",
+    timestamp: "2026-03-24T00:00:00.000Z",
+  });
+
+  const legacyApprovalTask = createTaskRecord({
+    taskId: "task_owner_legacy",
+    locale: "en-US",
+    senderId: "sender_123",
+    accountId: "account_123",
+    conversationId: "conversation_123",
+    messageId: "message_123",
+    cwd: "/repo",
+    mode: "new",
+    prompt: "restart service",
+    status: "awaiting_approval",
+    createdAt: "2026-03-24T00:00:00.000Z",
+  });
+
+  const carriedApprovalTask = createTaskRecord({
+    taskId: "task_owner_carried",
+    locale: "en-US",
+    senderId: "sender_123",
+    accountId: "account_123",
+    conversationId: "conversation_123",
+    messageId: "message_123",
+    cwd: "/repo",
+    mode: "resume",
+    prompt: "restart service",
+    status: "awaiting_approval",
+    owner: "codex",
+    createdAt: "2026-03-24T00:00:00.000Z",
+  });
+
+  assert.equal(normalTask.owner, "codex");
+  assert.equal(approvalTask.owner, "bridge_approval");
+  assert.equal(legacyApprovalTask.owner, "bridge_approval");
+  assert.equal(carriedApprovalTask.owner, "bridge_approval");
+});
+
 test("protocol/persistence/task: completed runs keep the task active and unfinished", () => {
   const timestamp = "2026-03-24T00:10:00.000Z";
   const { task, run } = applyRunResultToPersistence({
@@ -188,9 +254,28 @@ test("protocol/recovery/stale_task: stale running tasks recover to awaiting_inpu
   assert.equal(task.currentRunId, null);
   assert.equal(task.lastRunId, "run_123");
   assert.equal(task.finishedAt, null);
+  assert.equal(task.owner, "codex");
   assert.equal(task.requiresExplicitContinue, true);
   assert.equal(task.lastStatusHint, "run.interrupted");
   assert.equal(run.status, "failed");
   assert.equal(run.finishedAt, timestamp);
   assert.match(run.error, /interrupted/i);
+});
+
+test("protocol/recovery/stale_task: stale running tasks can persist a more specific interruption hint", () => {
+  const timestamp = "2026-03-24T00:15:00.000Z";
+  const { task } = recoverStaleRunningTask({
+    task: buildTask({
+      status: "running",
+      currentRunId: "run_123",
+      lastRunId: "run_prev",
+      prompt: "请帮我重启 openclaw-codex-feishu.service",
+      reasonCodes: ["service_control_requires_approval"],
+    }),
+    timestamp,
+    interruptionHint: "run.interrupted.bridge_self_restart",
+  });
+
+  assert.equal(task.status, "awaiting_input");
+  assert.equal(task.lastStatusHint, "run.interrupted.bridge_self_restart");
 });

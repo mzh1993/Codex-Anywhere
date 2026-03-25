@@ -1,6 +1,11 @@
 export const ACTIVE_TASK_STATUSES = ["created", "running", "awaiting_input", "awaiting_approval"];
 export const TERMINAL_TASK_STATUSES = ["completed", "aborted"];
 export const RUN_STATUSES = ["running", "completed", "failed", "aborted", "blocked"];
+export const TASK_OWNERS = ["codex", "bridge_approval"];
+
+const APPROVE_PREFIXES = ["同意", "继续执行", "批准执行", "批准", "approve", "approved", "yes", "ok", "okay"];
+const DENY_PREFIXES = ["不要执行", "拒绝执行", "拒绝", "不同意", "deny", "denied", "no", "stop"];
+const APPROVAL_TAIL_SEPARATOR = /^[，,\s:：;；.\-—]+/u;
 
 export function isActiveTaskStatus(status) {
   return ACTIVE_TASK_STATUSES.includes(status);
@@ -12,6 +17,60 @@ export function isTerminalTaskStatus(status) {
 
 export function canContinueTask(status) {
   return status === "awaiting_input";
+}
+
+export function defaultTaskOwner(status) {
+  return status === "awaiting_approval" ? "bridge_approval" : "codex";
+}
+
+export function normalizeTaskOwner(owner, status) {
+  if (status === "awaiting_approval") return "bridge_approval";
+  if (owner === "bridge_approval") return "codex";
+  if (owner === "codex") return "codex";
+  return defaultTaskOwner(status);
+}
+
+export function createApprovalReplyContract(overrides = {}) {
+  return {
+    kind: "natural_language_approval",
+    allowNumericChoice: false,
+    ...overrides,
+  };
+}
+
+function matchApprovalPrefix(text, prefixes) {
+  for (const prefix of prefixes) {
+    if (text === prefix) return { matched: true, tail: null };
+    if (text.startsWith(prefix)) {
+      const tail = text.slice(prefix.length).replace(APPROVAL_TAIL_SEPARATOR, "").trim();
+      if (tail) return { matched: true, tail };
+    }
+  }
+  return { matched: false, tail: null };
+}
+
+export function classifyApprovalReply({ text, replyContract = null }) {
+  const normalizedText = String(text ?? "").trim();
+  if (!normalizedText) return { outcome: "keep_gate_open", tail: null };
+
+  const contract = createApprovalReplyContract(replyContract ?? {});
+  if (contract.allowNumericChoice && /^(1|１)$/.test(normalizedText)) {
+    return { outcome: "approve", tail: null };
+  }
+
+  const approveMatch = matchApprovalPrefix(normalizedText, APPROVE_PREFIXES);
+  if (approveMatch.matched) {
+    return approveMatch.tail
+      ? { outcome: "approve_with_tail", tail: approveMatch.tail }
+      : { outcome: "approve", tail: null };
+  }
+
+  const denyMatch = matchApprovalPrefix(normalizedText, DENY_PREFIXES);
+  if (denyMatch.matched) {
+    return { outcome: "deny", tail: null };
+  }
+
+  return { outcome: "keep_gate_open", tail: null };
 }
 
 export function finishRunWithApprovalRequired() {
@@ -105,17 +164,16 @@ export function routeAbortCommand({ activeTaskStatus }) {
   };
 }
 
-export function routeIncomingPlainText({ activeTaskStatus, requiresExplicitContinue = false }) {
+export function routeIncomingPlainText({ activeTaskStatus, activeTaskOwner = null, requiresExplicitContinue = false }) {
   if (!activeTaskStatus) {
     return {
       action: "create_task",
     };
   }
-  if (activeTaskStatus === "awaiting_input" && requiresExplicitContinue) {
+  const owner = normalizeTaskOwner(activeTaskOwner, activeTaskStatus);
+  if (owner === "bridge_approval" && activeTaskStatus === "awaiting_approval") {
     return {
-      action: "reject",
-      code: "task_interrupted_requires_continue",
-      suggestedCommand: "/codex continue <prompt>",
+      action: "handle_approval_reply",
     };
   }
   if (canContinueTask(activeTaskStatus)) {

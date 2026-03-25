@@ -336,9 +336,11 @@ install_runtime() {
 
 apply_runtime_patches() {
   require_command node
-  local monitor_file
+  local monitor_file net_file
   monitor_file="${RUNTIME_DIR}/node_modules/openclaw/dist/monitor-CPPX9Bc9.js"
+  net_file="${RUNTIME_DIR}/node_modules/openclaw/dist/net-Dk658jWW.js"
   [[ -f "${monitor_file}" ]] || die "missing monitor file to patch: ${monitor_file}"
+  [[ -f "${net_file}" ]] || die "missing network file to patch: ${net_file}"
 
   node - "${monitor_file}" <<'EOF'
 const fs = require("fs");
@@ -357,7 +359,27 @@ if (!source.includes('claimed by codex bridge')) {
 }
 EOF
 
-  log "applied isolated runtime patches in ${monitor_file}"
+  node - "${net_file}" <<'EOF'
+const fs = require("fs");
+const filePath = process.argv[2];
+let source = fs.readFileSync(filePath, "utf8");
+
+const loopbackNeedle = `\tif (mode === "loopback") {\n\t\tif (await canBindToHost("127.0.0.1")) return "127.0.0.1";\n\t\treturn "0.0.0.0";\n\t}`;
+const loopbackReplacement = `\tif (mode === "loopback") return "127.0.0.1";`;
+if (source.includes(loopbackNeedle)) {
+  source = source.replace(loopbackNeedle, loopbackReplacement);
+}
+
+const customNeedle = `\tif (mode === "custom") {\n\t\tconst host = customHost?.trim();\n\t\tif (!host) return "0.0.0.0";\n\t\tif (isValidIPv4(host) && await canBindToHost(host)) return host;\n\t\treturn "0.0.0.0";\n\t}`;
+const customReplacement = `\tif (mode === "custom") {\n\t\tconst host = customHost?.trim();\n\t\tif (!host) return "0.0.0.0";\n\t\tif (isValidIPv4(host)) return host;\n\t\treturn "0.0.0.0";\n\t}`;
+if (source.includes(customNeedle)) {
+  source = source.replace(customNeedle, customReplacement);
+}
+
+fs.writeFileSync(filePath, source);
+EOF
+
+  log "applied isolated runtime patches in ${monitor_file} and ${net_file}"
 }
 
 assert_path_not_shared() {

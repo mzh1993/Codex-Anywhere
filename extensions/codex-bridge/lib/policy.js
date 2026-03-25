@@ -52,6 +52,11 @@ const WRITE_COMMAND_PATTERN =
   /(?:^|\s)(?:cp|mv|tee|install|touch|mkdir|ln|rsync|chmod|chown)\b|\b(?:echo|printf|cat)\b[^\n]*>>?|\bsed\s+-i\b/i;
 const WRITE_INTENT_PATTERN =
   /\b(write|append|create|modify|edit|update|save|rewrite|replace|move|rename|copy|touch|mkdir)\b|写入|追加|创建|修改|编辑|更新|保存|覆盖|移动|重命名|复制/i;
+const BRIDGE_GATEWAY_HEALTH_PATTERN =
+  /(?:(?:检查|查看|确认|帮我检查|帮我看)\s*(?:一下)?\s*)?(?:gateway|runner|bridge)(?:[^\n]{0,18})?(?:health|status|健康|状态)|(?:gateway|runner|bridge)(?:[^\n]{0,18})?(?:health|status|健康|状态)(?:[^\n]{0,12})?(?:检查|查看|确认)?/i;
+const BRIDGE_INSTALL_SYSTEMD_PATTERN = /\binstall-systemd\b|安装(?:本仓库)?(?:的)?\s*systemd|安装\s*systemd\s*服务/i;
+const BRIDGE_DIAGNOSTIC_PATTERN =
+  /(?:gateway-status|runner-status)|(?:(?:桥接|bridge|runner|gateway)(?:[^\n]{0,12})?(?:诊断|诊断信息|排障|状态详情|状态信息))/i;
 
 export function assessPolicyDecision(input) {
   const assessment = createPolicyAssessment(input);
@@ -107,9 +112,80 @@ export function assessPolicyDecision(input) {
   return allow();
 }
 
+export function classifyOwnedBridgeActionRequest(input) {
+  const prompt = normalizeText(input?.prompt);
+  if (!prompt) return null;
+
+  const bridgeServiceUnitNames = Array.isArray(input?.bridgeServiceUnitNames)
+    ? Array.from(
+        new Set(
+          input.bridgeServiceUnitNames
+            .map((entry) => normalizeText(typeof entry === "string" ? entry : ""))
+            .filter(Boolean),
+        ),
+      )
+    : [];
+
+  const serviceTarget = bridgeServiceUnitNames.find((unit) => prompt.toLowerCase().includes(unit.toLowerCase()));
+  if (serviceTarget) {
+    const operation = matchOwnedServiceOperation(prompt);
+    if (operation) {
+      return {
+        kind: "service_control",
+        operation,
+        target: serviceTarget,
+        requiresApproval: operation !== "status",
+        reasonCodes: operation !== "status" ? ["service_control_requires_approval"] : [],
+      };
+    }
+  }
+
+  if (BRIDGE_GATEWAY_HEALTH_PATTERN.test(prompt)) {
+    return {
+      kind: "gateway_health",
+      operation: "check",
+      target: "gateway",
+      requiresApproval: false,
+      reasonCodes: [],
+    };
+  }
+
+  if (BRIDGE_INSTALL_SYSTEMD_PATTERN.test(prompt)) {
+    return {
+      kind: "install_lifecycle",
+      operation: "install-systemd",
+      target: "systemd",
+      requiresApproval: true,
+      reasonCodes: ["host_mutation_requires_approval"],
+    };
+  }
+
+  if (BRIDGE_DIAGNOSTIC_PATTERN.test(prompt)) {
+    return {
+      kind: "diagnostic",
+      operation: "gateway-status",
+      target: "bridge",
+      requiresApproval: false,
+      reasonCodes: [],
+    };
+  }
+
+  return null;
+}
+
 function normalizeText(value) {
   if (typeof value !== "string") return "";
   return value.trim();
+}
+
+function matchOwnedServiceOperation(prompt) {
+  if (!prompt) return null;
+  if (/(?:重启|restart)/i.test(prompt)) return "restart";
+  if (/(?:启动|start)/i.test(prompt)) return "start";
+  if (/(?:停止|stop)/i.test(prompt)) return "stop";
+  if (/(?:重载|reload)/i.test(prompt)) return "reload";
+  if (/(?:状态|status|健康|health|检查|查看)/i.test(prompt)) return "status";
+  return null;
 }
 
 function touchesIsolationBoundary(lowerPrompt) {

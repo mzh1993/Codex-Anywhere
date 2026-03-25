@@ -1,4 +1,10 @@
-import { finishApprovalTransition, finishRunFromExecution, finishRunWithDeniedAction, isTerminalTaskStatus } from "./task-model.js";
+import {
+  finishApprovalTransition,
+  finishRunFromExecution,
+  finishRunWithDeniedAction,
+  isTerminalTaskStatus,
+  normalizeTaskOwner,
+} from "./task-model.js";
 
 export function createTaskRecord(input) {
   return {
@@ -12,6 +18,7 @@ export function createTaskRecord(input) {
     mode: input.mode,
     sessionId: input.sessionId ?? null,
     status: input.status ?? "created",
+    owner: normalizeTaskOwner(input.owner ?? null, input.status ?? "created"),
     currentRunId: input.currentRunId ?? null,
     lastRunId: input.lastRunId ?? null,
     riskLevel: input.riskLevel ?? "normal",
@@ -83,6 +90,7 @@ export function createAwaitingApprovalTaskRecord(input) {
   return createTaskRecord({
     ...input,
     status: transition.status,
+    owner: "bridge_approval",
     currentRunId: null,
     riskLevel: input.riskLevel ?? "high",
     policyDecision: input.policyDecision ?? "approval_required",
@@ -204,7 +212,7 @@ export function applyRunResultToPersistence({ task, run, result = {}, summary = 
   };
 }
 
-export function recoverStaleRunningTask({ task, run = null, timestamp }) {
+export function recoverStaleRunningTask({ task, run = null, timestamp, interruptionHint = null }) {
   const recoveredAt = timestamp ?? new Date().toISOString();
   const nextRun = run
     ? createRunRecord({
@@ -221,7 +229,7 @@ export function recoverStaleRunningTask({ task, run = null, timestamp }) {
     currentRunId: null,
     lastRunId: run?.runId ?? task.currentRunId ?? task.lastRunId ?? null,
     requiresExplicitContinue: true,
-    lastStatusHint: "run.interrupted",
+    lastStatusHint: interruptionHint ?? "run.interrupted",
     finishedAt: null,
     updatedAt: recoveredAt,
     error: null,

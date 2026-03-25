@@ -42,6 +42,12 @@
       "approvalTtlMs": {
         "type": "integer",
         "minimum": 1000
+      },
+      "bridgeServiceUnitNames": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
       }
     }
   },
@@ -85,6 +91,10 @@
     "approvalTtlMs": {
       "label": "Approval TTL",
       "help": "How long an approval token stays valid."
+    },
+    "bridgeServiceUnitNames": {
+      "label": "Bridge Service Units",
+      "help": "Service unit names that host this bridge instance and may interrupt their own runs when restarted."
     }
   }
 }
