@@ -44,6 +44,17 @@ test("approval/control/service: isolated gateway service control still requires 
   assert.deepEqual(decision.reasonCodes, ["service_control_requires_approval"]);
 });
 
+test("approval/control/service: service-like unit suffix typo still requires approval", () => {
+  const decision = assessPolicyDecision({
+    prompt: "请帮我重启 openclaw-codex-feishu.service3",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "approval_required");
+  assert.deepEqual(decision.reasonCodes, ["service_control_requires_approval"]);
+});
+
 test("approval/control/process: nohup process launch requires approval", () => {
   const decision = assessPolicyDecision({
     prompt: "nohup python -m http.server 8000 >/tmp/http.log 2>&1 &",
@@ -630,6 +641,17 @@ test("allow/read/discussion: discussing ssh setup docs does not imply secret acc
 test("allow/read/discussion: discussing cron docs does not imply scheduler control", () => {
   const decision = assessPolicyDecision({
     prompt: "summarize the cron setup notes in ops.md",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "allowed");
+  assert.deepEqual(decision.reasonCodes, []);
+});
+
+test("allow/read/discussion: discussing a service-like unit name does not imply service control", () => {
+  const decision = assessPolicyDecision({
+    prompt: "explain why openclaw-codex-feishu.service3 is a strange unit name",
     cwd: "/home/neousys/project",
     protectedRoots: [],
     hostCodexRoot: "/home/neousys/.codex",
