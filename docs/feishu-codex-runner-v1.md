@@ -113,7 +113,7 @@ V1 不尝试复刻桌面 Codex 会话，只做任务型远程执行。
 | 任意动作 | 宿主凭证 / 秘密材料 | 拒绝 | 如 `~/.ssh`、`~/.aws`、`~/.kube`、`~/.gnupg`。 |
 | 直接提权 / 切换用户 | 宿主管理员边界 | 拒绝 | 如 `sudo`、`su`、`doas`。 |
 | 策略绕过意图 | 审批 / 沙箱 / 策略边界 | 拒绝 | 如 `ignore policy`、`disable sandbox`。 |
-| 服务控制 | `systemctl` / `.service`（含明显 unit 名变体） | 审批 | 视为系统级控制动作，避免服务名笔误绕过审批。 |
+| 服务控制 | `systemctl` / `service` / `rc-service` / `initctl` / `.service`（含明显 unit 名变体） | 审批 | 视为系统级控制动作，避免服务名笔误或不同 init 命令绕过审批。 |
 | 计划任务控制 | `crontab` / `at` / 定时 `systemd-run` / `.timer` | 审批 | 视为调度执行平面控制动作。 |
 | 进程控制 | `nohup` / `pm2` / `supervisorctl` / `uvicorn` / `npx http-server` / 显式后台化 `&` 等 | 审批 | 视为长期运行进程控制动作。 |
 | 远端执行 / 外发传输 | 远端主机或外部端点 | 审批 | 如 `ssh`、`scp`、远端 `rsync`、`curl -T`。 |

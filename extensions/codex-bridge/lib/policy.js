@@ -27,7 +27,7 @@ const HOST_SECRET_RELATIVE_ROOTS = [
 ];
 
 const SERVICE_CONTROL_PATTERN =
-  /\b(systemctl|systemd)\b|(?:\b(?:start|stop|restart|reload)\b|重启|启动|停止|重载)[^\n]*\.service(?:[\w.-]+)?\b/i;
+  /(?:^|[;&\n]\s*)(?:systemctl|service|rc-service|invoke-rc\.d|initctl)\b|(?:\b(?:start|stop|restart|reload)\b|重启|启动|停止|重载)[^\n]*\b(?:systemctl|systemd|service|rc-service|invoke-rc\.d|initctl)\b|(?:\b(?:start|stop|restart|reload)\b|重启|启动|停止|重载)[^\n]*\.service(?:[\w.-]+)?\b/i;
 const SCHEDULER_CONTROL_PATTERN =
   /(?:^|[;&|\n]\s*)crontab\b|(?:^|[;&|\n]\s*)(?:at|atq|atrm|batch)\b|(?:^|[;&|\n]\s*)systemd-run\b[^\n]*--on-(?:calendar|active|boot|startup|unit-active|unit-inactive)\b|(?:\b(?:start|stop|restart|reload|enable|disable)\b|启动|停止|重启|重载)[^\n]*\.timer\b|\bsystemctl\b[^\n]*\.timer\b/i;
 const PROCESS_CONTROL_PATTERN =

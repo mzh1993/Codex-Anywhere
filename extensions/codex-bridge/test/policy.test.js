@@ -55,6 +55,39 @@ test("approval/control/service: service-like unit suffix typo still requires app
   assert.deepEqual(decision.reasonCodes, ["service_control_requires_approval"]);
 });
 
+test("approval/control/service: sysv service command requires approval", () => {
+  const decision = assessPolicyDecision({
+    prompt: "service nginx restart",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "approval_required");
+  assert.deepEqual(decision.reasonCodes, ["service_control_requires_approval"]);
+});
+
+test("approval/control/service: rc-service command requires approval", () => {
+  const decision = assessPolicyDecision({
+    prompt: "rc-service sshd restart",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "approval_required");
+  assert.deepEqual(decision.reasonCodes, ["service_control_requires_approval"]);
+});
+
+test("approval/control/service: initctl command requires approval", () => {
+  const decision = assessPolicyDecision({
+    prompt: "initctl restart docker",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "approval_required");
+  assert.deepEqual(decision.reasonCodes, ["service_control_requires_approval"]);
+});
+
 test("approval/control/process: nohup process launch requires approval", () => {
   const decision = assessPolicyDecision({
     prompt: "nohup python -m http.server 8000 >/tmp/http.log 2>&1 &",
@@ -652,6 +685,17 @@ test("allow/read/discussion: discussing cron docs does not imply scheduler contr
 test("allow/read/discussion: discussing a service-like unit name does not imply service control", () => {
   const decision = assessPolicyDecision({
     prompt: "explain why openclaw-codex-feishu.service3 is a strange unit name",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "allowed");
+  assert.deepEqual(decision.reasonCodes, []);
+});
+
+test("allow/read/discussion: discussing service command docs does not imply service control", () => {
+  const decision = assessPolicyDecision({
+    prompt: "summarize the service command usage in ops.md",
     cwd: "/home/neousys/project",
     protectedRoots: [],
     hostCodexRoot: "/home/neousys/.codex",
