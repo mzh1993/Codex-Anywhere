@@ -459,7 +459,8 @@ test("runtime/protocol/approve: approve command is rejected when the active task
 
   assert.equal(replies.length, 1);
   assert.match(replies[0], /task_not_waiting_approval|等待输入/);
-  assert.match(replies[0], /`\/codex continue <prompt>`/);
+  assert.match(replies[0], /`\/codex resume <prompt>`/);
+  assert.doesNotMatch(replies[0], /`\/codex continue <prompt>`/);
   assert.doesNotMatch(replies[0], /未找到审批令牌/);
 });
 
@@ -618,490 +619,221 @@ test("runtime/protocol/approval_input: approve with tail strips authorization wo
   assert.doesNotMatch(started[0].prompt, /同意/);
 });
 
-test("runtime/protocol/approval: stored grant mismatch keeps the approval pending instead of starting the task", async () => {
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-approval-grant-mismatch-"));
-  const { bridge, replies } = await createBridgeHarness(tempRoot);
-  const started = [];
-
-  bridge.ensureExecutionRuntimeReady = async () => ({
-    ok: true,
-    reasonCode: null,
-    message: null,
-  });
-  bridge.startTask = async (params) => {
-    started.push(params);
+test("runtime/protocol/approval: stored grant mismatches keep the approval pending instead of starting the task", async () => {
+  const executionBoundaries = {
+    insideCwd: false,
+    outsideCwdWrite: false,
+    hostCodex: false,
+    hostSecret: false,
+    protectedRoot: false,
+    isolationBoundary: false,
+  };
+  const serviceEffects = {
+    serviceControl: true,
+    schedulerControl: false,
+    processControl: false,
+    remoteBoundary: false,
+    containerControl: false,
+    publicationBoundary: false,
+    adminEscalation: false,
+    policyBypass: false,
+    globalEnvChange: false,
+    destructiveChange: false,
+  };
+  const publicationEffects = {
+    ...serviceEffects,
+    serviceControl: false,
+    publicationBoundary: true,
   };
 
-  const task = createTaskRecord({
-    taskId: "task-approval-grant-mismatch",
-    locale: "zh-CN",
-    senderId: "user-1",
-    accountId: "default",
-    conversationId: "conv-1",
-    messageId: "msg-old",
-    cwd: tempRoot,
-    mode: "new",
-    status: "awaiting_approval",
-    currentRunId: null,
-    lastRunId: "run-blocked",
-    approvalToken: "TOKEN1",
-    prompt: "systemctl restart nginx",
-    createdAt: "2026-03-24T08:00:00.000Z",
-    updatedAt: "2026-03-24T08:00:00.000Z",
-  });
-  const profile = {
-    senderId: "user-1",
-    accountId: "default",
-    conversationId: "conv-1",
-    defaultCwd: tempRoot,
-    activeTaskId: task.taskId,
-    lastTaskId: task.taskId,
-    pendingApprovalToken: "TOKEN1",
-    updatedAt: "2026-03-24T08:00:00.000Z",
-  };
-  const approval = {
-    token: "TOKEN1",
-    taskId: task.taskId,
-    senderId: "user-1",
-    accountId: "default",
-    conversationId: "conv-1",
-    messageId: "msg-old",
-    mode: "new",
-    prompt: "systemctl restart nginx",
-    cwd: tempRoot,
-    sessionId: null,
-    policyDecision: "approval_required",
-    reasonCodes: ["service_control_requires_approval"],
-    replyContract: {
-      kind: "natural_language_approval",
-      allowNumericChoice: false,
-    },
-    onDeny: "await_user_replan",
-    approvalGrant: {
-      taskId: task.taskId,
-      approvalToken: "TOKEN1",
-      decisionKind: "approval_required",
-      reasonCodes: ["publication_boundary_requires_approval"],
-      intent: "unknown",
-      executionBoundaries: {
-        insideCwd: false,
-        outsideCwdWrite: false,
-        hostCodex: false,
-        hostSecret: false,
-        protectedRoot: false,
-        isolationBoundary: false,
+  const cases = [
+    {
+      label: "reason code mismatch",
+      tempPrefix: "codex-bridge-approval-grant-mismatch-",
+      mutateGrant(taskId) {
+        return {
+          taskId,
+          approvalToken: "TOKEN1",
+          decisionKind: "approval_required",
+          reasonCodes: ["publication_boundary_requires_approval"],
+          intent: "unknown",
+          executionBoundaries,
+          effects: publicationEffects,
+          createdAtMs: Date.now(),
+          consumedAtMs: null,
+        };
       },
-      effects: {
-        serviceControl: false,
-        schedulerControl: false,
-        processControl: false,
-        remoteBoundary: false,
-        containerControl: false,
-        publicationBoundary: true,
-        adminEscalation: false,
-        policyBypass: false,
-        globalEnvChange: false,
-        destructiveChange: false,
+      assertPersistedGrant(approval) {
+        assert.deepEqual(approval?.approvalGrant?.reasonCodes, ["publication_boundary_requires_approval"]);
       },
-      createdAtMs: Date.now(),
-      consumedAtMs: null,
     },
-    createdAtMs: Date.now(),
-    expiresAtMs: Date.now() + 60_000,
-  };
-
-  await bridge.saveTask(task);
-  await bridge.saveProfile(profile);
-  await fs.mkdir(path.dirname(bridge.approvalPath("TOKEN1")), { recursive: true });
-  await fs.writeFile(bridge.approvalPath("TOKEN1"), JSON.stringify(approval), "utf8");
-
-  await bridge.routeInbound({
-    senderId: "user-1",
-    senderName: "tester",
-    accountId: "default",
-    conversationId: "conv-1",
-    messageId: "msg-approve-grant",
-    text: "同意",
-  });
-
-  const persistedTask = await bridge.readTask(task.taskId);
-  const persistedProfile = await bridge.loadProfile("user-1", null);
-  const persistedApproval = await bridge.readApproval("TOKEN1");
-
-  assert.equal(started.length, 0);
-  assert.equal(persistedTask.status, "awaiting_approval");
-  assert.equal(persistedProfile.pendingApprovalToken, "TOKEN1");
-  assert.equal(persistedApproval?.token, "TOKEN1");
-  assert.deepEqual(persistedApproval?.approvalGrant?.reasonCodes, ["publication_boundary_requires_approval"]);
-  assert.match(replies[0], /审批|边界|未消费/);
-});
-
-test("runtime/protocol/approval: stored grant action or intent mismatch keeps the approval pending instead of starting the task", async () => {
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-approval-assessment-mismatch-"));
-  const { bridge, replies } = await createBridgeHarness(tempRoot);
-  const started = [];
-
-  bridge.ensureExecutionRuntimeReady = async () => ({
-    ok: true,
-    reasonCode: null,
-    message: null,
-  });
-  bridge.startTask = async (params) => {
-    started.push(params);
-  };
-
-  const task = createTaskRecord({
-    taskId: "task-approval-assessment-mismatch",
-    locale: "zh-CN",
-    senderId: "user-1",
-    accountId: "default",
-    conversationId: "conv-1",
-    messageId: "msg-old",
-    cwd: tempRoot,
-    mode: "new",
-    status: "awaiting_approval",
-    currentRunId: null,
-    lastRunId: "run-blocked",
-    approvalToken: "TOKEN1",
-    prompt: "systemctl restart nginx",
-    createdAt: "2026-03-24T08:00:00.000Z",
-    updatedAt: "2026-03-24T08:00:00.000Z",
-  });
-  const profile = {
-    senderId: "user-1",
-    accountId: "default",
-    conversationId: "conv-1",
-    defaultCwd: tempRoot,
-    activeTaskId: task.taskId,
-    lastTaskId: task.taskId,
-    pendingApprovalToken: "TOKEN1",
-    updatedAt: "2026-03-24T08:00:00.000Z",
-  };
-  const approval = {
-    token: "TOKEN1",
-    taskId: task.taskId,
-    senderId: "user-1",
-    accountId: "default",
-    conversationId: "conv-1",
-    messageId: "msg-old",
-    mode: "new",
-    prompt: "systemctl restart nginx",
-    cwd: tempRoot,
-    sessionId: null,
-    policyDecision: "approval_required",
-    reasonCodes: ["service_control_requires_approval"],
-    replyContract: {
-      kind: "natural_language_approval",
-      allowNumericChoice: false,
+    {
+      label: "action or intent mismatch",
+      tempPrefix: "codex-bridge-approval-assessment-mismatch-",
+      mutateGrant(taskId) {
+        return {
+          grantType: "codex_task_run",
+          taskId,
+          approvalToken: "TOKEN1",
+          decisionKind: "approval_required",
+          action: "read",
+          reasonCodes: ["service_control_requires_approval"],
+          intent: "discussion",
+          promptDigest: "deadbeef",
+          executionBoundaries,
+          effects: serviceEffects,
+          createdAtMs: Date.now(),
+          expiresAtMs: Date.now() + 60_000,
+          consumedAtMs: null,
+        };
+      },
+      assertPersistedGrant(approval) {
+        assert.equal(approval?.approvalGrant?.grantType, "codex_task_run");
+        assert.equal(approval?.approvalGrant?.action, "read");
+        assert.equal(approval?.approvalGrant?.intent, "discussion");
+        assert.equal(approval?.approvalGrant?.promptDigest, "deadbeef");
+        assert.ok(Number.isFinite(approval?.approvalGrant?.expiresAtMs));
+      },
     },
-    onDeny: "await_user_replan",
-    approvalGrant: {
-      grantType: "codex_task_run",
-      taskId: task.taskId,
+    {
+      label: "task id mismatch",
+      tempPrefix: "codex-bridge-approval-taskid-mismatch-",
+      mutateGrant() {
+        return {
+          grantType: "codex_task_run",
+          taskId: "task-other",
+          approvalToken: "TOKEN1",
+          decisionKind: "approval_required",
+          action: "none",
+          reasonCodes: ["service_control_requires_approval"],
+          intent: "unknown",
+          promptDigest: "f95bf5b7c005d63d6f0e9f2e295f57bf707b1b2915887f0495f8fca00a2f899e",
+          executionBoundaries,
+          effects: serviceEffects,
+          createdAtMs: Date.now(),
+          expiresAtMs: Date.now() + 60_000,
+          consumedAtMs: null,
+        };
+      },
+      assertPersistedGrant(approval) {
+        assert.equal(approval?.approvalGrant?.taskId, "task-other");
+      },
+    },
+    {
+      label: "prompt digest mismatch",
+      tempPrefix: "codex-bridge-approval-digest-mismatch-",
+      mutateGrant(taskId) {
+        return {
+          grantType: "codex_task_run",
+          taskId,
+          approvalToken: "TOKEN1",
+          decisionKind: "approval_required",
+          action: "none",
+          reasonCodes: ["service_control_requires_approval"],
+          intent: "unknown",
+          promptDigest: "deadbeef",
+          executionBoundaries,
+          effects: serviceEffects,
+          createdAtMs: Date.now(),
+          expiresAtMs: Date.now() + 60_000,
+          consumedAtMs: null,
+        };
+      },
+      assertPersistedGrant(approval) {
+        assert.equal(approval?.approvalGrant?.promptDigest, "deadbeef");
+      },
+    },
+  ];
+
+  for (const testCase of cases) {
+    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), testCase.tempPrefix));
+    const { bridge, replies } = await createBridgeHarness(tempRoot);
+    const started = [];
+
+    bridge.ensureExecutionRuntimeReady = async () => ({
+      ok: true,
+      reasonCode: null,
+      message: null,
+    });
+    bridge.startTask = async (params) => {
+      started.push(params);
+    };
+
+    const task = createTaskRecord({
+      taskId: `task-${testCase.label.replace(/\s+/g, "-")}`,
+      locale: "zh-CN",
+      senderId: "user-1",
+      accountId: "default",
+      conversationId: "conv-1",
+      messageId: "msg-old",
+      cwd: tempRoot,
+      mode: "new",
+      status: "awaiting_approval",
+      currentRunId: null,
+      lastRunId: "run-blocked",
       approvalToken: "TOKEN1",
-      decisionKind: "approval_required",
-      action: "read",
+      prompt: "systemctl restart nginx",
+      createdAt: "2026-03-24T08:00:00.000Z",
+      updatedAt: "2026-03-24T08:00:00.000Z",
+    });
+    const profile = {
+      senderId: "user-1",
+      accountId: "default",
+      conversationId: "conv-1",
+      defaultCwd: tempRoot,
+      activeTaskId: task.taskId,
+      lastTaskId: task.taskId,
+      pendingApprovalToken: "TOKEN1",
+      updatedAt: "2026-03-24T08:00:00.000Z",
+    };
+    const approval = {
+      token: "TOKEN1",
+      taskId: task.taskId,
+      senderId: "user-1",
+      accountId: "default",
+      conversationId: "conv-1",
+      messageId: "msg-old",
+      mode: "new",
+      prompt: "systemctl restart nginx",
+      cwd: tempRoot,
+      sessionId: null,
+      policyDecision: "approval_required",
       reasonCodes: ["service_control_requires_approval"],
-      intent: "discussion",
-      promptDigest: "deadbeef",
-      executionBoundaries: {
-        insideCwd: false,
-        outsideCwdWrite: false,
-        hostCodex: false,
-        hostSecret: false,
-        protectedRoot: false,
-        isolationBoundary: false,
+      replyContract: {
+        kind: "natural_language_approval",
+        allowNumericChoice: false,
       },
-      effects: {
-        serviceControl: true,
-        schedulerControl: false,
-        processControl: false,
-        remoteBoundary: false,
-        containerControl: false,
-        publicationBoundary: false,
-        adminEscalation: false,
-        policyBypass: false,
-        globalEnvChange: false,
-        destructiveChange: false,
-      },
+      onDeny: "await_user_replan",
+      approvalGrant: testCase.mutateGrant(task.taskId),
       createdAtMs: Date.now(),
       expiresAtMs: Date.now() + 60_000,
-      consumedAtMs: null,
-    },
-    createdAtMs: Date.now(),
-    expiresAtMs: Date.now() + 60_000,
-  };
+    };
 
-  await bridge.saveTask(task);
-  await bridge.saveProfile(profile);
-  await fs.mkdir(path.dirname(bridge.approvalPath("TOKEN1")), { recursive: true });
-  await fs.writeFile(bridge.approvalPath("TOKEN1"), JSON.stringify(approval), "utf8");
+    await bridge.saveTask(task);
+    await bridge.saveProfile(profile);
+    await fs.mkdir(path.dirname(bridge.approvalPath("TOKEN1")), { recursive: true });
+    await fs.writeFile(bridge.approvalPath("TOKEN1"), JSON.stringify(approval), "utf8");
 
-  await bridge.routeInbound({
-    senderId: "user-1",
-    senderName: "tester",
-    accountId: "default",
-    conversationId: "conv-1",
-    messageId: "msg-approve-assessment",
-    text: "同意",
-  });
+    await bridge.routeInbound({
+      senderId: "user-1",
+      senderName: "tester",
+      accountId: "default",
+      conversationId: "conv-1",
+      messageId: "msg-approve-grant",
+      text: "同意",
+    });
 
-  const persistedTask = await bridge.readTask(task.taskId);
-  const persistedProfile = await bridge.loadProfile("user-1", null);
-  const persistedApproval = await bridge.readApproval("TOKEN1");
+    const persistedTask = await bridge.readTask(task.taskId);
+    const persistedProfile = await bridge.loadProfile("user-1", null);
+    const persistedApproval = await bridge.readApproval("TOKEN1");
 
-  assert.equal(started.length, 0);
-  assert.equal(persistedTask.status, "awaiting_approval");
-  assert.equal(persistedProfile.pendingApprovalToken, "TOKEN1");
-  assert.equal(persistedApproval?.token, "TOKEN1");
-  assert.equal(persistedApproval?.approvalGrant?.grantType, "codex_task_run");
-  assert.equal(persistedApproval?.approvalGrant?.action, "read");
-  assert.equal(persistedApproval?.approvalGrant?.intent, "discussion");
-  assert.equal(persistedApproval?.approvalGrant?.promptDigest, "deadbeef");
-  assert.ok(Number.isFinite(persistedApproval?.approvalGrant?.expiresAtMs));
-  assert.match(replies[0], /审批|边界|未消费/);
-});
-
-test("runtime/protocol/approval: stored grant task id mismatch keeps the approval pending instead of starting the task", async () => {
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-approval-taskid-mismatch-"));
-  const { bridge, replies } = await createBridgeHarness(tempRoot);
-  const started = [];
-
-  bridge.ensureExecutionRuntimeReady = async () => ({
-    ok: true,
-    reasonCode: null,
-    message: null,
-  });
-  bridge.startTask = async (params) => {
-    started.push(params);
-  };
-
-  const task = createTaskRecord({
-    taskId: "task-approval-taskid-mismatch",
-    locale: "zh-CN",
-    senderId: "user-1",
-    accountId: "default",
-    conversationId: "conv-1",
-    messageId: "msg-old",
-    cwd: tempRoot,
-    mode: "new",
-    status: "awaiting_approval",
-    currentRunId: null,
-    lastRunId: "run-blocked",
-    approvalToken: "TOKEN1",
-    prompt: "systemctl restart nginx",
-    createdAt: "2026-03-24T08:00:00.000Z",
-    updatedAt: "2026-03-24T08:00:00.000Z",
-  });
-  const profile = {
-    senderId: "user-1",
-    accountId: "default",
-    conversationId: "conv-1",
-    defaultCwd: tempRoot,
-    activeTaskId: task.taskId,
-    lastTaskId: task.taskId,
-    pendingApprovalToken: "TOKEN1",
-    updatedAt: "2026-03-24T08:00:00.000Z",
-  };
-  const approval = {
-    token: "TOKEN1",
-    taskId: task.taskId,
-    senderId: "user-1",
-    accountId: "default",
-    conversationId: "conv-1",
-    messageId: "msg-old",
-    mode: "new",
-    prompt: "systemctl restart nginx",
-    cwd: tempRoot,
-    sessionId: null,
-    policyDecision: "approval_required",
-    reasonCodes: ["service_control_requires_approval"],
-    replyContract: {
-      kind: "natural_language_approval",
-      allowNumericChoice: false,
-    },
-    onDeny: "await_user_replan",
-    approvalGrant: {
-      grantType: "codex_task_run",
-      taskId: "task-other",
-      approvalToken: "TOKEN1",
-      decisionKind: "approval_required",
-      action: "none",
-      reasonCodes: ["service_control_requires_approval"],
-      intent: "unknown",
-      promptDigest: "f95bf5b7c005d63d6f0e9f2e295f57bf707b1b2915887f0495f8fca00a2f899e",
-      executionBoundaries: {
-        insideCwd: false,
-        outsideCwdWrite: false,
-        hostCodex: false,
-        hostSecret: false,
-        protectedRoot: false,
-        isolationBoundary: false,
-      },
-      effects: {
-        serviceControl: true,
-        schedulerControl: false,
-        processControl: false,
-        remoteBoundary: false,
-        containerControl: false,
-        publicationBoundary: false,
-        adminEscalation: false,
-        policyBypass: false,
-        globalEnvChange: false,
-        destructiveChange: false,
-      },
-      createdAtMs: Date.now(),
-      expiresAtMs: Date.now() + 60_000,
-      consumedAtMs: null,
-    },
-    createdAtMs: Date.now(),
-    expiresAtMs: Date.now() + 60_000,
-  };
-
-  await bridge.saveTask(task);
-  await bridge.saveProfile(profile);
-  await fs.mkdir(path.dirname(bridge.approvalPath("TOKEN1")), { recursive: true });
-  await fs.writeFile(bridge.approvalPath("TOKEN1"), JSON.stringify(approval), "utf8");
-
-  await bridge.routeInbound({
-    senderId: "user-1",
-    senderName: "tester",
-    accountId: "default",
-    conversationId: "conv-1",
-    messageId: "msg-approve-taskid",
-    text: "同意",
-  });
-
-  const persistedTask = await bridge.readTask(task.taskId);
-  const persistedProfile = await bridge.loadProfile("user-1", null);
-  const persistedApproval = await bridge.readApproval("TOKEN1");
-
-  assert.equal(started.length, 0);
-  assert.equal(persistedTask.status, "awaiting_approval");
-  assert.equal(persistedProfile.pendingApprovalToken, "TOKEN1");
-  assert.equal(persistedApproval?.approvalGrant?.taskId, "task-other");
-  assert.match(replies[0], /审批|边界|未消费/);
-});
-
-test("runtime/protocol/approval: stored grant prompt digest mismatch keeps the approval pending instead of starting the task", async () => {
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-approval-digest-mismatch-"));
-  const { bridge, replies } = await createBridgeHarness(tempRoot);
-  const started = [];
-
-  bridge.ensureExecutionRuntimeReady = async () => ({
-    ok: true,
-    reasonCode: null,
-    message: null,
-  });
-  bridge.startTask = async (params) => {
-    started.push(params);
-  };
-
-  const task = createTaskRecord({
-    taskId: "task-approval-digest-mismatch",
-    locale: "zh-CN",
-    senderId: "user-1",
-    accountId: "default",
-    conversationId: "conv-1",
-    messageId: "msg-old",
-    cwd: tempRoot,
-    mode: "new",
-    status: "awaiting_approval",
-    currentRunId: null,
-    lastRunId: "run-blocked",
-    approvalToken: "TOKEN1",
-    prompt: "systemctl restart nginx",
-    createdAt: "2026-03-24T08:00:00.000Z",
-    updatedAt: "2026-03-24T08:00:00.000Z",
-  });
-  const profile = {
-    senderId: "user-1",
-    accountId: "default",
-    conversationId: "conv-1",
-    defaultCwd: tempRoot,
-    activeTaskId: task.taskId,
-    lastTaskId: task.taskId,
-    pendingApprovalToken: "TOKEN1",
-    updatedAt: "2026-03-24T08:00:00.000Z",
-  };
-  const approval = {
-    token: "TOKEN1",
-    taskId: task.taskId,
-    senderId: "user-1",
-    accountId: "default",
-    conversationId: "conv-1",
-    messageId: "msg-old",
-    mode: "new",
-    prompt: "systemctl restart nginx",
-    cwd: tempRoot,
-    sessionId: null,
-    policyDecision: "approval_required",
-    reasonCodes: ["service_control_requires_approval"],
-    replyContract: {
-      kind: "natural_language_approval",
-      allowNumericChoice: false,
-    },
-    onDeny: "await_user_replan",
-    approvalGrant: {
-      grantType: "codex_task_run",
-      taskId: task.taskId,
-      approvalToken: "TOKEN1",
-      decisionKind: "approval_required",
-      action: "none",
-      reasonCodes: ["service_control_requires_approval"],
-      intent: "unknown",
-      promptDigest: "deadbeef",
-      executionBoundaries: {
-        insideCwd: false,
-        outsideCwdWrite: false,
-        hostCodex: false,
-        hostSecret: false,
-        protectedRoot: false,
-        isolationBoundary: false,
-      },
-      effects: {
-        serviceControl: true,
-        schedulerControl: false,
-        processControl: false,
-        remoteBoundary: false,
-        containerControl: false,
-        publicationBoundary: false,
-        adminEscalation: false,
-        policyBypass: false,
-        globalEnvChange: false,
-        destructiveChange: false,
-      },
-      createdAtMs: Date.now(),
-      expiresAtMs: Date.now() + 60_000,
-      consumedAtMs: null,
-    },
-    createdAtMs: Date.now(),
-    expiresAtMs: Date.now() + 60_000,
-  };
-
-  await bridge.saveTask(task);
-  await bridge.saveProfile(profile);
-  await fs.mkdir(path.dirname(bridge.approvalPath("TOKEN1")), { recursive: true });
-  await fs.writeFile(bridge.approvalPath("TOKEN1"), JSON.stringify(approval), "utf8");
-
-  await bridge.routeInbound({
-    senderId: "user-1",
-    senderName: "tester",
-    accountId: "default",
-    conversationId: "conv-1",
-    messageId: "msg-approve-digest",
-    text: "同意",
-  });
-
-  const persistedTask = await bridge.readTask(task.taskId);
-  const persistedProfile = await bridge.loadProfile("user-1", null);
-  const persistedApproval = await bridge.readApproval("TOKEN1");
-
-  assert.equal(started.length, 0);
-  assert.equal(persistedTask.status, "awaiting_approval");
-  assert.equal(persistedProfile.pendingApprovalToken, "TOKEN1");
-  assert.equal(persistedApproval?.approvalGrant?.promptDigest, "deadbeef");
-  assert.match(replies[0], /审批|边界|未消费/);
+    assert.equal(started.length, 0, testCase.label);
+    assert.equal(persistedTask.status, "awaiting_approval", testCase.label);
+    assert.equal(persistedProfile.pendingApprovalToken, "TOKEN1", testCase.label);
+    assert.equal(persistedApproval?.token, "TOKEN1", testCase.label);
+    testCase.assertPersistedGrant(persistedApproval);
+    assert.match(replies[0], /审批|边界|未消费/, testCase.label);
+  }
 });
 
 test("runtime/protocol/approval: a consumed approval token cannot start a second run even if deletion lags", async () => {
@@ -1489,7 +1221,7 @@ test("runtime/protocol/status: bridge self-restart recovery uses a specific inte
   assert.doesNotMatch(text, /上一轮执行中断，请直接说明要继续做什么/);
 });
 
-test("runtime/protocol/cwd: cwd changes future default only and does not hot-switch the active task cwd", async () => {
+test("runtime/protocol/command_compat/cwd: legacy cwd changes future default only and does not hot-switch the active task cwd", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-cwd-default-"));
   const activeCwd = path.join(tempRoot, "active");
   const nextDefaultCwd = path.join(tempRoot, "next-default");
@@ -1558,7 +1290,7 @@ test("runtime/protocol/cwd: cwd changes future default only and does not hot-swi
   assert.equal(queued[0].prompt, "继续");
 });
 
-test("runtime/protocol/abort: abort terminates the whole task while awaiting approval", async () => {
+test("runtime/protocol/command_compat/abort: legacy abort terminates the whole task while awaiting approval", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-abort-approval-"));
   const { bridge, replies } = await createBridgeHarness(tempRoot);
 
@@ -1629,7 +1361,7 @@ test("runtime/protocol/abort: abort terminates the whole task while awaiting app
   assert.match(replies[0], /已请求终止任务/);
 });
 
-test("runtime/protocol/status: status remains available while awaiting approval", async () => {
+test("runtime/protocol/command_compat/status: legacy status remains available while awaiting approval", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-status-approval-"));
   const { bridge, replies } = await createBridgeHarness(tempRoot);
 
@@ -1697,7 +1429,7 @@ test("runtime/protocol/status: status remains available while awaiting approval"
   assert.match(replies[0], /待审批令牌：TOKEN1/);
 });
 
-test("runtime/protocol/status: status without an active task reports default cwd", async () => {
+test("runtime/protocol/command_compat/status: legacy status without an active task reports default cwd", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-status-idle-"));
   const { bridge, replies } = await createBridgeHarness(tempRoot);
 
@@ -1714,7 +1446,7 @@ test("runtime/protocol/status: status without an active task reports default cwd
   assert.match(replies[0], /工作目录：/);
 });
 
-test("runtime/protocol/pwd: pwd reports the future default cwd even when the active task uses a different cwd", async () => {
+test("runtime/protocol/command_compat/pwd: legacy pwd reports the future default cwd even when the active task uses a different cwd", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-pwd-default-"));
   const activeCwd = path.join(tempRoot, "active");
   const defaultCwd = path.join(tempRoot, "default");
@@ -1784,4 +1516,314 @@ test("runtime/protocol/command_parse: malformed codex command prefix is rejected
   assert.equal(bridge.getActiveTask("user-1"), null);
   assert.equal((await fs.readdir(bridge.settings.tasksRoot).catch(() => [])).length, 0);
   assert.equal((await fs.readdir(bridge.settings.runsRoot).catch(() => [])).length, 0);
+});
+
+test("runtime/protocol/command_surface/help: help no longer exposes the legacy runner command page as the primary surface", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-help-surface-"));
+  const { bridge, replies } = await createBridgeHarness(tempRoot);
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-help",
+    text: "/codex help",
+  });
+
+  assert.equal(replies.length, 1);
+  assert.doesNotMatch(replies[0], /Codex Runner 命令/);
+  assert.match(replies[0], /`\/codex doctor`/);
+  assert.match(replies[0], /`\/codex --cd <path> --model <model> <prompt>`/);
+  assert.doesNotMatch(replies[0], /兼容/);
+  assert.doesNotMatch(replies[0], /`\/codex cwd <path>`|`\/codex pwd`|`\/codex continue <prompt>`/);
+});
+
+test("runtime/protocol/command_surface/unknown: unknown /codex subcommands return a short native-first hint instead of the full legacy help page", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-unknown-command-"));
+  const { bridge, replies } = await createBridgeHarness(tempRoot);
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-new",
+    text: "/codex new",
+  });
+
+  assert.equal(replies.length, 1);
+  assert.match(replies[0], /暂不支持 `\/codex new`/);
+  assert.match(replies[0], /`\/codex --cd <path> <prompt>`/);
+  assert.match(replies[0], /`\/codex doctor`/);
+  assert.doesNotMatch(replies[0], /Codex Runner 命令/);
+});
+
+test("runtime/protocol/command_surface/doctor: doctor returns a minimal health summary", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-doctor-"));
+  const { bridge, replies } = await createBridgeHarness(tempRoot);
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-doctor",
+    text: "/codex doctor",
+  });
+
+  assert.equal(replies.length, 1);
+  assert.match(replies[0], /健康摘要/);
+  assert.match(replies[0], /Codex：/);
+  assert.match(replies[0], /Bridge：/);
+  assert.match(replies[0], /下一步：/);
+});
+
+test("runtime/protocol/command_surface/doctor: running-task doctor advice stays short and does not expose status fallback by default", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-doctor-running-"));
+  const { bridge, replies } = await createBridgeHarness(tempRoot);
+  const task = createTaskRecord({
+    taskId: "task-running",
+    locale: "zh-CN",
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-running",
+    cwd: tempRoot,
+    mode: "new",
+    sessionId: null,
+    status: "running",
+    currentRunId: "run-1",
+    lastRunId: "run-1",
+    prompt: "运行中",
+    createdAt: "2026-03-24T08:00:00.000Z",
+    updatedAt: "2026-03-24T08:00:00.000Z",
+  });
+  bridge.loadActiveTask = async () => task;
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-doctor-running",
+    text: "/codex doctor",
+  });
+
+  assert.equal(replies.length, 1);
+  assert.match(replies[0], /下一步：等待当前任务完成/);
+  assert.doesNotMatch(replies[0], /\/codex status/);
+});
+
+test("runtime/protocol/native_entry/new: native flags start a new task with parsed cwd and execution options", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-native-new-"));
+  const worktree = path.join(tempRoot, "worktree");
+  await fs.mkdir(worktree, { recursive: true });
+  const { bridge } = await createBridgeHarness(tempRoot);
+  const queued = [];
+  bridge.queueOrStartTask = async (params) => {
+    queued.push(params);
+  };
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-native-new",
+    text: `/codex --cd ${worktree} --model gpt-5.3-codex --sandbox workspace-write --ask-for-approval on-request summarize README.md`,
+  });
+
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].mode, "new");
+  assert.equal(queued[0].cwd, worktree);
+  assert.equal(queued[0].prompt, "summarize README.md");
+  assert.deepEqual(queued[0].executionOptions, {
+    model: "gpt-5.3-codex",
+    sandbox: "workspace-write",
+    askForApproval: "on-request",
+  });
+});
+
+test("runtime/protocol/native_entry/resume: explicit resume uses native command naming for the current task", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-native-resume-"));
+  const { bridge } = await createBridgeHarness(tempRoot);
+  const task = createTaskRecord({
+    taskId: "task-existing",
+    locale: "zh-CN",
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-old",
+    cwd: tempRoot,
+    mode: "resume",
+    sessionId: "session-existing",
+    status: "awaiting_input",
+    currentRunId: null,
+    lastRunId: "run-old",
+    prompt: "旧任务",
+    createdAt: "2026-03-24T08:00:00.000Z",
+    updatedAt: "2026-03-24T08:00:00.000Z",
+  });
+  const profile = {
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    defaultCwd: tempRoot,
+    activeTaskId: task.taskId,
+    lastTaskId: task.taskId,
+    updatedAt: "2026-03-24T08:00:00.000Z",
+  };
+  const queued = [];
+  bridge.queueOrStartTask = async (params) => {
+    queued.push(params);
+  };
+  await bridge.saveTask(task);
+  await bridge.saveProfile(profile);
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-native-resume",
+    text: "/codex resume --model gpt-5.3-codex continue README.md",
+  });
+
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].mode, "resume");
+  assert.equal(queued[0].cwd, tempRoot);
+  assert.equal(queued[0].prompt, "continue README.md");
+  assert.equal(queued[0].existingTask.taskId, "task-existing");
+  assert.deepEqual(queued[0].executionOptions, {
+    model: "gpt-5.3-codex",
+  });
+});
+
+test("runtime/protocol/native_entry/usage: explicit resume without a prompt returns native resume usage", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-native-resume-usage-"));
+  const { bridge, replies } = await createBridgeHarness(tempRoot);
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-native-resume-usage",
+    text: "/codex resume",
+  });
+
+  assert.equal(replies.length, 1);
+  assert.match(replies[0], /用法：`\/codex resume/);
+  assert.doesNotMatch(replies[0], /`\/codex continue <prompt>`/);
+});
+
+test("runtime/protocol/native_entry/usage: missing flag values fail closed with native usage", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-native-missing-value-"));
+  const { bridge, replies } = await createBridgeHarness(tempRoot);
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-native-missing-value",
+    text: "/codex --model",
+  });
+
+  assert.equal(replies.length, 1);
+  assert.match(replies[0], /缺少 `--model` 的参数值/);
+  assert.match(replies[0], /用法：`\/codex \[--cd <path>\]/);
+  assert.equal(await bridge.loadProfile("user-1", null), null);
+});
+
+test("runtime/protocol/native_entry/validation: invalid native enum values fail closed before task creation", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-native-invalid-value-"));
+  const { bridge, replies } = await createBridgeHarness(tempRoot);
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-native-invalid-value",
+    text: "/codex --sandbox writable summarize README.md",
+  });
+
+  assert.equal(replies.length, 1);
+  assert.match(replies[0], /`--sandbox` 的值无效：`writable`/);
+  assert.match(replies[0], /`read-only`.*`workspace-write`.*`danger-full-access`/);
+  assert.equal(await bridge.loadProfile("user-1", null), null);
+});
+
+test("runtime/protocol/native_entry/validation: unknown native flags fail closed instead of becoming prompt text", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-native-unknown-option-"));
+  const { bridge, replies } = await createBridgeHarness(tempRoot);
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-native-unknown-option",
+    text: "/codex --foo summarize README.md",
+  });
+
+  assert.equal(replies.length, 1);
+  assert.match(replies[0], /暂不支持这个原生命令参数：`--foo`/);
+  assert.equal(await bridge.loadProfile("user-1", null), null);
+});
+
+test("runtime/protocol/native_entry/risk: danger-full-access sandbox requires approval before starting", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-native-sandbox-approval-"));
+  const { bridge, replies } = await createBridgeHarness(tempRoot);
+  bridge.startTask = async () => {
+    throw new Error("dangerous native flags must not start directly");
+  };
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-native-danger",
+    text: "/codex --sandbox danger-full-access summarize README.md",
+  });
+
+  const profile = await bridge.loadProfile("user-1", null);
+  const task = await bridge.readTask(profile.activeTaskId);
+
+  assert.match(replies[0], /审批|同意|不要执行/);
+  assert.match(replies[0], /native_dangerous_sandbox_requires_approval/);
+  assert.equal(task.status, "awaiting_approval");
+  assert.deepEqual(task.executionOptions, {
+    sandbox: "danger-full-access",
+  });
+});
+
+test("runtime/protocol/native_entry/risk: ask-for-approval never requires approval before starting", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-native-approval-never-"));
+  const { bridge, replies } = await createBridgeHarness(tempRoot);
+  bridge.startTask = async () => {
+    throw new Error("dangerous native flags must not start directly");
+  };
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-native-never",
+    text: "/codex --ask-for-approval never summarize README.md",
+  });
+
+  const profile = await bridge.loadProfile("user-1", null);
+  const task = await bridge.readTask(profile.activeTaskId);
+
+  assert.match(replies[0], /审批|同意|不要执行/);
+  assert.match(replies[0], /native_never_approval_requires_approval/);
+  assert.equal(task.status, "awaiting_approval");
+  assert.deepEqual(task.executionOptions, {
+    askForApproval: "never",
+  });
 });

@@ -122,7 +122,6 @@ export function routeContinueCommand({ activeTaskStatus }) {
     return {
       accepted: false,
       code: "task_not_waiting_input",
-      suggestedCommand: activeTaskStatus === "awaiting_approval" ? "/codex approve <token>" : "/codex status",
     };
   }
   return {
@@ -142,7 +141,7 @@ export function routeApproveCommand({ activeTaskStatus }) {
     return {
       accepted: false,
       code: "task_not_waiting_approval",
-      suggestedCommand: activeTaskStatus === "awaiting_input" ? "/codex continue <prompt>" : "/codex status",
+      ...(activeTaskStatus === "awaiting_input" ? { suggestedCommand: "/codex resume <prompt>" } : {}),
     };
   }
   return {
@@ -184,12 +183,7 @@ export function routeIncomingPlainText({ activeTaskStatus, activeTaskOwner = nul
   return {
     action: "reject",
     code: "active_task_exists",
-    suggestedCommand:
-      activeTaskStatus === "awaiting_approval"
-        ? "/codex approve <token>"
-        : activeTaskStatus === "awaiting_input"
-          ? "/codex continue <prompt>"
-          : "/codex status",
+    ...(activeTaskStatus === "awaiting_input" ? { suggestedCommand: "/codex resume <prompt>" } : {}),
   };
 }
 
@@ -197,7 +191,6 @@ export function routePlainTextWithActiveTask() {
   return {
     accepted: false,
     code: "active_task_exists",
-    suggestedCommand: "/codex continue <prompt>",
   };
 }
 

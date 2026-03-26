@@ -22,13 +22,13 @@ export function buildCodexArgs({ task, settings, outputPath = null }) {
   } else if (task.sessionId) {
     args.push(task.sessionId);
   }
-  args.push(buildRunnerPrompt({ task, settings }));
+  args.push(buildBridgeTaskPrompt({ task, settings }));
   return args;
 }
 
-export function buildRunnerPrompt({ task, settings = {} }) {
+export function buildBridgeTaskPrompt({ task, settings = {} }) {
   const policyLines = [
-    "You are running inside a Feishu remote Codex Runner task.",
+    "You are running inside a Feishu remote Codex bridge task.",
     `Working directory: ${task.cwd}`,
     `Task mode: ${task.mode}`,
     task.mode === "resume"
@@ -36,7 +36,7 @@ export function buildRunnerPrompt({ task, settings = {} }) {
       : "Start the run in the working directory above.",
     "Treat this as a bounded execution task, not a persona chat.",
     "Return a concise final answer with: summary, changed files, and next steps.",
-    getRunnerLanguageInstruction(task.locale ?? settings.locale),
+    getResponseLanguageInstruction(task.locale ?? settings.locale),
   ];
   if (task.riskLevel === "high") {
     policyLines.push("High-risk approval has already been granted for this run.");
@@ -50,14 +50,29 @@ export function buildRunnerPrompt({ task, settings = {} }) {
 }
 
 function buildSharedArgs(task, outputPath) {
-  const args = [task.riskLevel === "high" ? "--dangerously-bypass-approvals-and-sandbox" : "--full-auto", "--json", "--skip-git-repo-check"];
+  const args = [];
+  if (task.riskLevel === "high") {
+    args.push("--dangerously-bypass-approvals-and-sandbox");
+  } else if (!task.executionOptions?.sandbox && !task.executionOptions?.askForApproval) {
+    args.push("--full-auto");
+  }
+  args.push("--json", "--skip-git-repo-check");
+  if (task.executionOptions?.model) {
+    args.push("-m", task.executionOptions.model);
+  }
+  if (task.riskLevel !== "high" && task.executionOptions?.sandbox) {
+    args.push("-s", task.executionOptions.sandbox);
+  }
+  if (task.riskLevel !== "high" && task.executionOptions?.askForApproval) {
+    args.push("-a", task.executionOptions.askForApproval);
+  }
   if (outputPath) {
     args.push("-o", outputPath);
   }
   return args;
 }
 
-function getRunnerLanguageInstruction(locale) {
+function getResponseLanguageInstruction(locale) {
   return normalizeLocale(locale) === "zh-CN" ? "Respond in Simplified Chinese." : "Respond in English.";
 }
 

@@ -62,7 +62,7 @@
     },
     "codexHome": {
       "label": "Codex Home",
-      "help": "Isolated CODEX_HOME used by the remote runner."
+      "help": "Isolated CODEX_HOME used by the remote bridge."
     },
     "codexBin": {
       "label": "Codex Binary",

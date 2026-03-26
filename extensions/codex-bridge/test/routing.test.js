@@ -12,6 +12,55 @@ import {
 } from "../lib/task-model.js";
 import { classifyOwnedBridgeActionRequest } from "../lib/policy.js";
 
+const BRIDGE_SERVICE_UNIT_NAMES = ["openclaw-codex-feishu.service"];
+
+const RESTART_OWNED_SERVICE = {
+  kind: "service_control",
+  operation: "restart",
+  target: "openclaw-codex-feishu.service",
+  requiresApproval: true,
+  reasonCodes: ["service_control_requires_approval"],
+};
+
+const READ_ONLY_OWNED_SERVICE_STATUS = {
+  kind: "service_control",
+  operation: "status",
+  target: "openclaw-codex-feishu.service",
+  requiresApproval: false,
+  reasonCodes: [],
+};
+
+const READ_ONLY_GATEWAY_HEALTH = {
+  kind: "gateway_health",
+  operation: "check",
+  target: "gateway",
+  requiresApproval: false,
+  reasonCodes: [],
+};
+
+const READ_ONLY_BRIDGE_DIAGNOSTIC = {
+  kind: "diagnostic",
+  operation: "gateway-status",
+  target: "bridge",
+  requiresApproval: false,
+  reasonCodes: [],
+};
+
+const INSTALL_SYSTEMD_SERVICE = {
+  kind: "install_lifecycle",
+  operation: "install-systemd",
+  target: "systemd",
+  requiresApproval: true,
+  reasonCodes: ["install_lifecycle_requires_approval"],
+};
+
+function classifyBridgeAction(prompt) {
+  return classifyOwnedBridgeActionRequest({
+    prompt,
+    bridgeServiceUnitNames: BRIDGE_SERVICE_UNIT_NAMES,
+  });
+}
+
 test("protocol/input/no_task: plain text starts a new task when there is no active task", () => {
   assert.deepEqual(routeIncomingPlainText({ activeTaskStatus: null }), {
     action: "create_task",
@@ -34,7 +83,6 @@ test("protocol/input/awaiting_input: plain text auto-continues only when task is
   assert.deepEqual(routeIncomingPlainText({ activeTaskStatus: "running" }), {
     action: "reject",
     code: "active_task_exists",
-    suggestedCommand: "/codex status",
   });
 });
 
@@ -50,312 +98,75 @@ test("protocol/input/approval_owner: bridge-owned approval replies are routed to
   );
 });
 
-test("protocol/input/bridge_action: repository-owned service control is classified as a bridge action", () => {
-  assert.deepEqual(
-    classifyOwnedBridgeActionRequest({
-      prompt: "请重启 openclaw-codex-feishu.service",
-      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
-    }),
-    {
-      kind: "service_control",
-      operation: "restart",
-      target: "openclaw-codex-feishu.service",
-      requiresApproval: true,
-      reasonCodes: ["service_control_requires_approval"],
-    },
-  );
+test("protocol/input/bridge_action: representative repository-owned service control stays bridge-owned", () => {
+  assert.deepEqual(classifyBridgeAction("请重启 openclaw-codex-feishu.service"), RESTART_OWNED_SERVICE);
+
+  for (const prompt of [
+    "what is the status of openclaw-codex-feishu.service",
+    "请汇报一下 openclaw-codex-feishu.service 状态",
+    "please report status of openclaw-codex-feishu.service",
+    "please check status for openclaw-codex-feishu.service",
+  ]) {
+    assert.deepEqual(classifyBridgeAction(prompt), READ_ONLY_OWNED_SERVICE_STATUS, prompt);
+  }
 });
 
-test("protocol/input/bridge_action: repository-owned gateway health checks stay bridge-owned and read-only", () => {
-  assert.deepEqual(
-    classifyOwnedBridgeActionRequest({
-      prompt: "请帮我检查 gateway 健康状态",
-      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
-    }),
-    {
-      kind: "gateway_health",
-      operation: "check",
-      target: "gateway",
-      requiresApproval: false,
-      reasonCodes: [],
-    },
-  );
+test("protocol/input/bridge_action: representative gateway health prompts stay bridge-owned", () => {
+  for (const prompt of [
+    "请帮我检查 gateway 健康状态",
+    "汇报一下gateway健康状况",
+    "show gateway health details info",
+    "请查看网关健康详情信息",
+    "show health info for gateway",
+  ]) {
+    assert.deepEqual(classifyBridgeAction(prompt), READ_ONLY_GATEWAY_HEALTH, prompt);
+  }
 });
 
-test("protocol/input/bridge_action: non-owned host operations are not hijacked by the bridge", () => {
-  assert.equal(
-    classifyOwnedBridgeActionRequest({
-      prompt: "请重启 nginx",
-      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
-    }),
-    null,
-  );
-  assert.equal(
-    classifyOwnedBridgeActionRequest({
-      prompt: "请 docker restart xxx",
-      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
-    }),
-    null,
-  );
+test("protocol/input/bridge_action: representative diagnostic prompts stay bridge-owned", () => {
+  for (const prompt of [
+    "please check bridge diagnostic info",
+    "show diagnostic details of bridge",
+    "show diagnostic info for bridge",
+    "show diagnostics for bridge",
+    "请检查桥接状态详情",
+    "show bridge diagnostic details info",
+  ]) {
+    assert.deepEqual(classifyBridgeAction(prompt), READ_ONLY_BRIDGE_DIAGNOSTIC, prompt);
+  }
 });
 
-test("protocol/input/bridge_action: mixed repository-owned control plus normal work falls back to codex", () => {
-  assert.equal(
-    classifyOwnedBridgeActionRequest({
-      prompt: "请帮我重启 openclaw-codex-feishu.service 并总结 README.md",
-      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
-    }),
-    null,
-  );
+test("protocol/input/bridge_action: representative install lifecycle prompts stay bridge-owned", () => {
+  for (const prompt of [
+    "can you install the systemd service",
+    "install the repo systemd service",
+  ]) {
+    assert.deepEqual(classifyBridgeAction(prompt), INSTALL_SYSTEMD_SERVICE, prompt);
+  }
 });
 
-test("protocol/input/bridge_action: shorthand repository viewing after gateway health falls back to codex", () => {
-  assert.equal(
-    classifyOwnedBridgeActionRequest({
-      prompt: "show gateway health details view repository",
-      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
-    }),
-    null,
-  );
+test("protocol/input/bridge_action: non-owned, mixed-intent, and ambiguous prompts fall back to codex", () => {
+  for (const prompt of [
+    "请重启 nginx",
+    "请 docker restart xxx",
+    "请帮我重启 openclaw-codex-feishu.service 并总结 README.md",
+    "show gateway health details view repository",
+    "what is the status of openclaw-codex-feishu.service view repo",
+    "show me bridge diagnostic details and summarize README.md",
+    "show bridge diagnostic details and explain README structure",
+    "install the systemd service and then update docs/roadmap.md",
+    "status of openclaw-codex-feishu.service, then fix the failing test",
+    "show gateway health details view",
+    "what is the status of openclaw-codex-feishu.service check",
+    "show status info of bridge",
+    "show status info of gateway",
+    "show status info of runner",
+  ]) {
+    assert.equal(classifyBridgeAction(prompt), null, prompt);
+  }
 });
 
-test("protocol/input/bridge_action: shorthand repository viewing after owned service status falls back to codex", () => {
-  assert.equal(
-    classifyOwnedBridgeActionRequest({
-      prompt: "what is the status of openclaw-codex-feishu.service view repo",
-      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
-    }),
-    null,
-  );
-});
-
-test("protocol/input/bridge_action: english natural-language status checks for owned service stay bridge-owned", () => {
-  assert.deepEqual(
-    classifyOwnedBridgeActionRequest({
-      prompt: "what is the status of openclaw-codex-feishu.service",
-      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
-    }),
-    {
-      kind: "service_control",
-      operation: "status",
-      target: "openclaw-codex-feishu.service",
-      requiresApproval: false,
-      reasonCodes: [],
-    },
-  );
-});
-
-test("protocol/input/bridge_action: english natural-language gateway health checks stay bridge-owned", () => {
-  assert.deepEqual(
-    classifyOwnedBridgeActionRequest({
-      prompt: "can you check the health of gateway",
-      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
-    }),
-    {
-      kind: "gateway_health",
-      operation: "check",
-      target: "gateway",
-      requiresApproval: false,
-      reasonCodes: [],
-    },
-  );
-});
-
-test("protocol/input/bridge_action: english natural-language gateway health details stay bridge-owned", () => {
-  assert.deepEqual(
-    classifyOwnedBridgeActionRequest({
-      prompt: "show gateway health details",
-      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
-    }),
-    {
-      kind: "gateway_health",
-      operation: "check",
-      target: "gateway",
-      requiresApproval: false,
-      reasonCodes: [],
-    },
-  );
-});
-
-test("protocol/input/bridge_action: english natural-language diagnostics stay bridge-owned", () => {
-  assert.deepEqual(
-    classifyOwnedBridgeActionRequest({
-      prompt: "please check bridge diagnostic info",
-      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
-    }),
-    {
-      kind: "diagnostic",
-      operation: "gateway-status",
-      target: "bridge",
-      requiresApproval: false,
-      reasonCodes: [],
-    },
-  );
-});
-
-test("protocol/input/bridge_action: english natural-language diagnostic details stay bridge-owned", () => {
-  assert.deepEqual(
-    classifyOwnedBridgeActionRequest({
-      prompt: "show me bridge diagnostic details",
-      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
-    }),
-    {
-      kind: "diagnostic",
-      operation: "gateway-status",
-      target: "bridge",
-      requiresApproval: false,
-      reasonCodes: [],
-    },
-  );
-});
-
-test("protocol/input/bridge_action: reversed english diagnostic details phrasing stays bridge-owned", () => {
-  assert.deepEqual(
-    classifyOwnedBridgeActionRequest({
-      prompt: "show diagnostic details of bridge",
-      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
-    }),
-    {
-      kind: "diagnostic",
-      operation: "gateway-status",
-      target: "bridge",
-      requiresApproval: false,
-      reasonCodes: [],
-    },
-  );
-});
-
-test("protocol/input/bridge_action: ambiguous status info phrasing stays codex-owned", () => {
-  assert.equal(
-    classifyOwnedBridgeActionRequest({
-      prompt: "show status info of bridge",
-      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
-    }),
-    null,
-  );
-  assert.equal(
-    classifyOwnedBridgeActionRequest({
-      prompt: "show status info of gateway",
-      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
-    }),
-    null,
-  );
-  assert.equal(
-    classifyOwnedBridgeActionRequest({
-      prompt: "show status info of runner",
-      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
-    }),
-    null,
-  );
-});
-
-test("protocol/input/bridge_action: english natural-language install lifecycle stays bridge-owned", () => {
-  assert.deepEqual(
-    classifyOwnedBridgeActionRequest({
-      prompt: "can you install the systemd service",
-      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
-    }),
-    {
-      kind: "install_lifecycle",
-      operation: "install-systemd",
-      target: "systemd",
-      requiresApproval: true,
-      reasonCodes: ["install_lifecycle_requires_approval"],
-    },
-  );
-});
-
-test("protocol/input/bridge_action: diagnostic details mixed with normal work still fall back to codex", () => {
-  assert.equal(
-    classifyOwnedBridgeActionRequest({
-      prompt: "show me bridge diagnostic details and summarize README.md",
-      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
-    }),
-    null,
-  );
-});
-
-test("protocol/input/bridge_action: reversed diagnostic details mixed with normal work still fall back to codex", () => {
-  assert.equal(
-    classifyOwnedBridgeActionRequest({
-      prompt: "show diagnostic details of bridge and summarize README.md",
-      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
-    }),
-    null,
-  );
-});
-
-test("protocol/input/bridge_action: gateway health details mixed with normal work still fall back to codex", () => {
-  assert.equal(
-    classifyOwnedBridgeActionRequest({
-      prompt: "show gateway health details and summarize README.md",
-      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
-    }),
-    null,
-  );
-});
-
-test("protocol/input/bridge_action: diagnostic details plus explanation work still fall back to codex", () => {
-  assert.equal(
-    classifyOwnedBridgeActionRequest({
-      prompt: "show bridge diagnostic details and explain README structure",
-      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
-    }),
-    null,
-  );
-});
-
-test("protocol/input/bridge_action: install lifecycle plus docs update still falls back to codex", () => {
-  assert.equal(
-    classifyOwnedBridgeActionRequest({
-      prompt: "install the systemd service and then update docs/roadmap.md",
-      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
-    }),
-    null,
-  );
-});
-
-test("protocol/input/bridge_action: owned service status plus test fixing still falls back to codex", () => {
-  assert.equal(
-    classifyOwnedBridgeActionRequest({
-      prompt: "status of openclaw-codex-feishu.service, then fix the failing test",
-      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
-    }),
-    null,
-  );
-});
-
-test("protocol/input/bridge_action: gateway health with trailing ordinary verb falls back to codex", () => {
-  assert.equal(
-    classifyOwnedBridgeActionRequest({
-      prompt: "show gateway health details view",
-      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
-    }),
-    null,
-  );
-});
-
-test("protocol/input/bridge_action: diagnostic details with trailing ordinary verb falls back to codex", () => {
-  assert.equal(
-    classifyOwnedBridgeActionRequest({
-      prompt: "show bridge diagnostic details info",
-      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
-    }),
-    null,
-  );
-});
-
-test("protocol/input/bridge_action: owned service status with trailing ordinary verb falls back to codex", () => {
-  assert.equal(
-    classifyOwnedBridgeActionRequest({
-      prompt: "what is the status of openclaw-codex-feishu.service check",
-      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
-    }),
-    null,
-  );
-});
-
-test("protocol/command/continue: continue is rejected when no active task exists", () => {
+test("protocol/command_compat/continue: legacy continue is rejected when no active task exists", () => {
   const result = routeContinueCommand({ activeTaskStatus: null });
   assert.deepEqual(result, {
     accepted: false,
@@ -363,7 +174,7 @@ test("protocol/command/continue: continue is rejected when no active task exists
   });
 });
 
-test("protocol/command/continue: continue requires the task to be waiting for input", () => {
+test("protocol/command_compat/continue: legacy continue still requires the task to be waiting for input", () => {
   assert.deepEqual(routeContinueCommand({ activeTaskStatus: "awaiting_input" }), {
     accepted: true,
     action: "create_next_run",
@@ -371,32 +182,19 @@ test("protocol/command/continue: continue requires the task to be waiting for in
   assert.deepEqual(routeContinueCommand({ activeTaskStatus: "running" }), {
     accepted: false,
     code: "task_not_waiting_input",
-    suggestedCommand: "/codex status",
   });
   assert.deepEqual(routeContinueCommand({ activeTaskStatus: "awaiting_approval" }), {
     accepted: false,
     code: "task_not_waiting_input",
-    suggestedCommand: "/codex approve <token>",
   });
 });
 
-test("protocol/input/running: plain text with an active task does not implicitly continue", () => {
+test("protocol/input/compat_running: plain text with an active task does not implicitly continue", () => {
   const result = routePlainTextWithActiveTask({ activeTaskStatus: "running" });
   assert.deepEqual(result, {
     accepted: false,
     code: "active_task_exists",
-    suggestedCommand: "/codex continue <prompt>",
   });
-});
-
-test("protocol/locale/continue: continue guidance text targets the current active task", () => {
-  const en = getLocaleText("en-US");
-  const zh = getLocaleText("zh-CN");
-
-  assert.match(en.help("/tmp"), /`\/codex continue <prompt>` fallback for explicit continue/);
-  assert.match(zh.help("/tmp"), /`\/codex continue <prompt>` 兜底用于显式续写/);
-  assert.equal(en.noActiveTaskToContinue, "No active task to continue.");
-  assert.equal(zh.noActiveTaskToContinue, "当前没有可继续的活动任务。");
 });
 
 test("protocol/locale/recovery: interruption guidance keeps natural language as the main path", () => {
@@ -404,12 +202,12 @@ test("protocol/locale/recovery: interruption guidance keeps natural language as 
   const zh = getLocaleText("zh-CN");
 
   assert.match(zh.interruptedTaskRequiresContinue("task-1"), /请直接说明要继续做什么/);
-  assert.match(zh.interruptedTaskRequiresContinue("task-1"), /也可以使用 `\/codex continue <prompt>`/);
-  assert.doesNotMatch(zh.interruptedTaskRequiresContinue("task-1"), /请使用 `\/codex continue <prompt>`/);
+  assert.match(zh.interruptedTaskRequiresContinue("task-1"), /也可以使用 `\/codex resume <prompt>`/);
+  assert.doesNotMatch(zh.interruptedTaskRequiresContinue("task-1"), /请使用 `\/codex resume <prompt>`/);
 
   assert.match(en.interruptedTaskRequiresContinue("task-1"), /Say what to continue with/);
-  assert.match(en.interruptedTaskRequiresContinue("task-1"), /you can also use `\/codex continue <prompt>`/i);
-  assert.doesNotMatch(en.interruptedTaskRequiresContinue("task-1"), /^Use `\/codex continue <prompt>`/m);
+  assert.match(en.interruptedTaskRequiresContinue("task-1"), /you can also use `\/codex resume <prompt>`/i);
+  assert.doesNotMatch(en.interruptedTaskRequiresContinue("task-1"), /^Use `\/codex resume <prompt>`/m);
 });
 
 test("protocol/locale/status: running-task guidance does not mislabel status as a continue command", () => {
@@ -421,8 +219,8 @@ test("protocol/locale/status: running-task guidance does not mislabel status as 
     suggestedCommand: "/codex status",
   });
 
-  assert.match(text, /请先使用 `\/codex status`/);
-  assert.doesNotMatch(text, /`\/codex status` 提交明确的继续输入/);
+  assert.match(text, /当前任务仍在运行/);
+  assert.doesNotMatch(text, /\/codex status/);
 });
 
 test("protocol/locale/status: running-task guidance does not repeat the same status command twice", () => {
@@ -434,8 +232,8 @@ test("protocol/locale/status: running-task guidance does not repeat the same sta
     suggestedCommand: "/codex status",
   });
 
-  assert.equal(text.match(/\/codex status/g)?.length ?? 0, 1);
-  assert.match(text, /`\/codex abort`/);
+  assert.equal(text.match(/\/codex status/g)?.length ?? 0, 0);
+  assert.doesNotMatch(text, /\/codex abort/);
 });
 
 test("protocol/locale/approval: queued approval text keeps natural language as the primary path", () => {
@@ -449,7 +247,7 @@ test("protocol/locale/approval: queued approval text keeps natural language as t
 
   assert.match(text, /直接回复“同意”批准/);
   assert.match(text, /回复“不要执行”拒绝/);
-  assert.match(text, /`\/codex approve TOKEN1`/);
+  assert.doesNotMatch(text, /\/codex approve|\/codex status|\/codex abort/);
 });
 
 test("protocol/locale/approval: keep-gate-open text explains approval without authorizing", () => {
@@ -462,7 +260,24 @@ test("protocol/locale/approval: keep-gate-open text explains approval without au
   assert.match(text, /等待你的明确审批/);
   assert.match(text, /直接回复“同意”/);
   assert.match(text, /“不要执行”/);
-  assert.match(text, /`\/codex approve TOKEN1`/);
+  assert.doesNotMatch(text, /\/codex approve|\/codex status|\/codex abort/);
+});
+
+test("protocol/locale/approval: bridge-action approval text also keeps compatibility commands hidden by default", () => {
+  const zh = getLocaleText("zh-CN");
+  const queued = zh.bridgeActionApprovalQueued({
+    token: "TOKEN1",
+    reasons: ["service_control_requires_approval"],
+  });
+  const pending = zh.bridgeActionApprovalStillPending({
+    token: "TOKEN1",
+    reasons: ["service_control_requires_approval"],
+  });
+
+  assert.match(queued, /直接回复“同意”批准/);
+  assert.match(pending, /直接回复“同意”批准/);
+  assert.doesNotMatch(queued, /\/codex approve|\/codex status|\/codex abort/);
+  assert.doesNotMatch(pending, /\/codex approve|\/codex status|\/codex abort/);
 });
 
 test("protocol/transition/approval: approval-required decision transitions task to awaiting_approval", () => {
@@ -477,7 +292,7 @@ test("protocol/transition/approval: approval starts the next run instead of resu
   });
 });
 
-test("protocol/command/approve: approve requires the task to be waiting for approval", () => {
+test("protocol/command_compat/approve: legacy approve requires the task to be waiting for approval", () => {
   assert.deepEqual(routeApproveCommand({ activeTaskStatus: "awaiting_approval" }), {
     accepted: true,
     action: "approve_pending_request",
@@ -489,16 +304,15 @@ test("protocol/command/approve: approve requires the task to be waiting for appr
   assert.deepEqual(routeApproveCommand({ activeTaskStatus: "awaiting_input" }), {
     accepted: false,
     code: "task_not_waiting_approval",
-    suggestedCommand: "/codex continue <prompt>",
+    suggestedCommand: "/codex resume <prompt>",
   });
   assert.deepEqual(routeApproveCommand({ activeTaskStatus: "running" }), {
     accepted: false,
     code: "task_not_waiting_approval",
-    suggestedCommand: "/codex status",
   });
 });
 
-test("protocol/command/abort: abort is allowed for any active task and rejected without one", () => {
+test("protocol/command_compat/abort: legacy abort is allowed for any active task and rejected without one", () => {
   assert.deepEqual(routeAbortCommand({ activeTaskStatus: null }), {
     accepted: false,
     code: "no_active_task",
@@ -515,4 +329,21 @@ test("protocol/command/abort: abort is allowed for any active task and rejected 
     accepted: true,
     action: "abort_task",
   });
+});
+
+test("constitution/command/help: help should present doctor first and compatibility commands as secondary", () => {
+  const zh = getLocaleText("zh-CN");
+  const en = getLocaleText("en-US");
+
+  assert.doesNotMatch(zh.help("/tmp"), /Codex Runner 命令/);
+  assert.match(zh.help("/tmp"), /`\/codex doctor`/);
+  assert.match(zh.help("/tmp"), /`\/codex --cd <path> --model <model> <prompt>`/);
+  assert.doesNotMatch(zh.help("/tmp"), /兼容/);
+  assert.doesNotMatch(zh.help("/tmp"), /`\/codex cwd <path>`|`\/codex pwd`|`\/codex continue <prompt>`/);
+
+  assert.doesNotMatch(en.help("/tmp"), /Codex Runner commands/);
+  assert.match(en.help("/tmp"), /`\/codex doctor`/);
+  assert.match(en.help("/tmp"), /`\/codex --cd <path> --model <model> <prompt>`/);
+  assert.doesNotMatch(en.help("/tmp"), /Compatibility/);
+  assert.doesNotMatch(en.help("/tmp"), /`\/codex cwd <path>`|`\/codex pwd`|`\/codex continue <prompt>`/);
 });

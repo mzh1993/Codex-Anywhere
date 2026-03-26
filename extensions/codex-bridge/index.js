@@ -19,8 +19,9 @@ import {
   finishBridgeActionWithApprovalRequired,
   startBridgeActionExecution,
 } from "./lib/bridge-action-model.js";
+import { handleCompatCodexCommand, isCompatCodexCommand } from "./lib/compat-command-router.js";
 import { isPathInsideAny } from "./lib/fs-utils.js";
-import { getLocaleText, getUserVisibleStatusHint } from "./lib/locale.js";
+import { getLocaleText, getUserVisibleStatusHint, localizeTaskStatus } from "./lib/locale.js";
 import { ensureIsolatedOpenClawShim } from "./lib/openclaw-shim.js";
 import {
   assessPolicyDecision,
@@ -65,7 +66,7 @@ export const __activeBridgeActions = activeBridgeActions;
 export default definePluginEntry({
   id: "codex-bridge",
   name: "Codex Bridge",
-  description: "Feishu remote Codex runner",
+  description: "Feishu remote Codex bridge",
   register(api) {
     const bridge = new CodexBridge(api);
     api.logger.warn?.("codex-bridge register: plugin loaded");
@@ -298,148 +299,59 @@ export class CodexBridge {
       return;
     }
 
-    if (parsed.name === "help") {
-      await this.sendHelp(request, profile);
+    const nativeInvocation = parseNativeCodexInvocation(request.text);
+    if (nativeInvocation) {
+      if (nativeInvocation.error) {
+        await this.safeReply({
+          accountId: request.accountId,
+          conversationId: request.conversationId,
+          messageId: request.messageId,
+          text: this.formatNativeInvocationError(nativeInvocation.error),
+        });
+        return;
+      }
+      await this.handleNativeCodexInvocation(profile, request, nativeInvocation);
       return;
     }
 
-    if (parsed.name === "pwd") {
+    if (parsed.name === "doctor") {
+      const doctorText = await this.formatDoctor(profile.senderId, profile);
       await this.safeReply({
         accountId: request.accountId,
         conversationId: request.conversationId,
         messageId: request.messageId,
-        text: this.text.currentCwd(profile.defaultCwd || this.settings.defaultCwd),
+        text: doctorText,
       });
       return;
     }
 
-    if (parsed.name === "cwd") {
-      if (!parsed.args) {
-        await this.safeReply({
-          accountId: request.accountId,
-          conversationId: request.conversationId,
-          messageId: request.messageId,
-          text: this.text.usageCwd,
-        });
-        return;
-      }
-      const nextCwd = expandUserPath(parsed.args, profile.defaultCwd || this.settings.defaultCwd);
-      await assertAllowedCwd(nextCwd, this.settings);
-      const stat = await fsp.stat(nextCwd).catch(() => null);
-      if (!stat?.isDirectory()) {
-        await this.safeReply({
-          accountId: request.accountId,
-          conversationId: request.conversationId,
-          messageId: request.messageId,
-          text: this.text.directoryNotFound(nextCwd),
-        });
-        return;
-      }
-      profile.defaultCwd = nextCwd;
-      profile.updatedAt = new Date().toISOString();
-      await this.saveProfile(profile);
-      await this.safeReply({
-        accountId: request.accountId,
-        conversationId: request.conversationId,
-        messageId: request.messageId,
-        text: this.text.defaultCwdUpdated(nextCwd),
+    if (isCompatCodexCommand(parsed.name)) {
+      await handleCompatCodexCommand({
+        bridge: this,
+        parsed,
+        request,
+        profile,
+        expandUserPath,
+        assertAllowedCwd,
+        statPath: async (target) => fsp.stat(target).catch(() => null),
+        routeAbortCommand,
+        routeApproveCommand,
+        routeContinueCommand,
       });
       return;
     }
 
-    if (parsed.name === "status") {
-      const statusText = await this.formatStatus(profile.senderId, profile);
-      await this.safeReply({
-        accountId: request.accountId,
-        conversationId: request.conversationId,
-        messageId: request.messageId,
-        text: statusText,
-      });
-      return;
-    }
+    await this.sendUnknownCommand(request, parsed.name);
+  }
 
-    if (parsed.name === "abort") {
-      const activeTask = await this.loadActiveTask(profile.senderId, profile);
-      const abortRoute = routeAbortCommand({ activeTaskStatus: activeTask?.status ?? null });
-      if (!abortRoute.accepted) {
+  async handleNativeCodexInvocation(profile, request, invocation) {
+    if (invocation.mode === "resume") {
+      if (!invocation.prompt) {
         await this.safeReply({
           accountId: request.accountId,
           conversationId: request.conversationId,
           messageId: request.messageId,
-          text: this.text.noRunningTaskToAbort,
-        });
-        return;
-      }
-      if (this.getActiveTask(profile.senderId)?.taskId === activeTask.taskId) {
-        await this.stopTask(activeTask, "aborted by user");
-      } else {
-        await this.finalizeStoredTask(activeTask, profile, {
-          status: "aborted",
-          error: "aborted by user",
-        });
-      }
-      await this.safeReply({
-        accountId: request.accountId,
-        conversationId: request.conversationId,
-        messageId: request.messageId,
-        text: this.text.abortRequested(activeTask.taskId),
-      });
-      return;
-    }
-
-    if (parsed.name === "approve") {
-      const approvalToken = extractFirstArgToken(parsed.args);
-      if (!approvalToken) {
-        await this.safeReply({
-          accountId: request.accountId,
-          conversationId: request.conversationId,
-          messageId: request.messageId,
-          text: this.text.usageApprove,
-        });
-        return;
-      }
-      const activeBridgeAction = await this.loadActiveBridgeAction(profile.senderId, profile);
-      if (activeBridgeAction?.status === "awaiting_approval") {
-        await this.approvePendingBridgeActionRequest(profile, request, approvalToken);
-        return;
-      }
-
-      const activeTask = await this.loadActiveTask(profile.senderId, profile);
-      const approveRoute = routeApproveCommand({ activeTaskStatus: activeTask?.status ?? null });
-      if (!approveRoute.accepted) {
-        if (activeTask) {
-          await this.safeReply({
-            accountId: request.accountId,
-            conversationId: request.conversationId,
-            messageId: request.messageId,
-            text: this.text.taskAlreadyRunning({
-              taskId: activeTask.taskId,
-              status: activeTask.status,
-              code: approveRoute.code,
-              suggestedCommand: approveRoute.suggestedCommand,
-            }),
-          });
-          return;
-        }
-        await this.safeReply({
-          accountId: request.accountId,
-          conversationId: request.conversationId,
-          messageId: request.messageId,
-          text: this.text.noPendingApproval,
-        });
-        return;
-      }
-      await this.approvePendingRequest(profile, request, approvalToken);
-      return;
-    }
-
-    if (parsed.name === "continue") {
-      if (!parsed.args) {
-        await this.safeReply({
-          accountId: request.accountId,
-          conversationId: request.conversationId,
-          messageId: request.messageId,
-          text: this.text.usageContinue,
+          text: this.text.usageNativeResume,
         });
         return;
       }
@@ -474,15 +386,67 @@ export class CodexBridge {
         conversationId: request.conversationId,
         messageId: request.messageId,
         mode: this.getNextRunMode(activeTask),
-        prompt: parsed.args,
+        prompt: invocation.prompt,
         cwd: activeTask.cwd,
         senderName: request.senderName,
         existingTask: activeTask,
+        executionOptions: invocation.executionOptions,
       });
       return;
     }
 
-    await this.sendHelp(request, profile);
+    if (!invocation.prompt) {
+      await this.safeReply({
+        accountId: request.accountId,
+        conversationId: request.conversationId,
+        messageId: request.messageId,
+        text: this.text.usageNativeNew,
+      });
+      return;
+    }
+
+    const activeTask = await this.loadActiveTask(profile.senderId, profile);
+    if (activeTask) {
+      await this.safeReply({
+        accountId: request.accountId,
+        conversationId: request.conversationId,
+        messageId: request.messageId,
+        text: this.text.taskAlreadyRunning({
+          taskId: activeTask.taskId,
+          status: activeTask.status,
+          code: "active_task_exists",
+          ...(activeTask.status === "awaiting_input" ? { suggestedCommand: "/codex resume <prompt>" } : {}),
+        }),
+      });
+      return;
+    }
+
+    await this.queueOrStartTask({
+      profile,
+      accountId: request.accountId,
+      conversationId: request.conversationId,
+      messageId: request.messageId,
+      mode: "new",
+      prompt: invocation.prompt,
+      cwd: invocation.cwd ?? (profile.defaultCwd || this.settings.defaultCwd),
+      senderName: request.senderName,
+      executionOptions: invocation.executionOptions,
+    });
+  }
+
+  formatNativeInvocationError(error) {
+    if (!error) return this.text.help(this.settings.defaultCwd);
+    if (error.kind === "missing_value") {
+      const usageText = error.usage === "resume" ? this.text.usageNativeResume : this.text.usageNativeNew;
+      return this.text.nativeOptionMissingValue(error.option, usageText);
+    }
+    if (error.kind === "invalid_value") {
+      return this.text.nativeOptionInvalidValue(error.option, error.value, error.allowedValues ?? []);
+    }
+    if (error.kind === "unknown_option") {
+      return this.text.nativeUnknownOption(error.option);
+    }
+    return this.text.help(this.settings.defaultCwd);
   }
 
   async sendHelp(request, profile) {
@@ -492,6 +456,15 @@ export class CodexBridge {
       conversationId: request.conversationId,
       messageId: request.messageId,
       text: this.text.help(cwd),
+    });
+  }
+
+  async sendUnknownCommand(request, commandName) {
+    await this.safeReply({
+      accountId: request.accountId,
+      conversationId: request.conversationId,
+      messageId: request.messageId,
+      text: this.text.unknownCommand(`/codex ${commandName}`),
     });
   }
 
@@ -851,6 +824,7 @@ export class CodexBridge {
       policyDecision: approval.policyDecision ?? POLICY_DECISIONS.APPROVAL_REQUIRED,
       reasonCodes: approval.reasonCodes ?? approval.riskReasons ?? [],
       riskLevel: "high",
+      executionOptions: approval.executionOptions ?? existingTask?.executionOptions ?? null,
       approvalToken: null,
       status: nextRun.taskStatus,
       existingTask,
@@ -1087,12 +1061,14 @@ export class CodexBridge {
   async queueOrStartTask(params) {
     const cwd = expandUserPath(params.cwd, this.settings.defaultCwd);
     await assertAllowedCwd(cwd, this.settings);
-    const decision = assessPolicyDecision({
+    const promptDecision = assessPolicyDecision({
       prompt: params.prompt,
       cwd,
       protectedRoots: this.settings.policyProtectedRoots,
       hostCodexRoot: this.settings.hostCodexRoot,
     });
+    const nativeDecision = assessNativeExecutionDecision(params.executionOptions);
+    const decision = mergePolicyDecisionKinds(promptDecision, nativeDecision);
     const reasonCodes = decision.reasonCodes ?? [];
 
     if (decision.kind === POLICY_DECISIONS.DENIED) {
@@ -1134,6 +1110,7 @@ export class CodexBridge {
         reasonCodes,
         currentRunId: runId,
         lastRunId: runId,
+        executionOptions: params.executionOptions ?? null,
       });
       const run = createRunRecord({
         runId,
@@ -1149,6 +1126,7 @@ export class CodexBridge {
         status: "blocked",
         riskLevel: "high",
         approvalToken: token,
+        executionOptions: params.executionOptions ?? null,
         prompt: params.prompt,
         policyDecision: decision.kind,
         reasonCodes,
@@ -1168,6 +1146,7 @@ export class CodexBridge {
         prompt: params.prompt,
         cwd,
         sessionId: params.sessionId ?? null,
+        executionOptions: params.executionOptions ?? null,
         policyDecision: decision.kind,
         reasonCodes,
         replyContract: createApprovalReplyContract(),
@@ -1223,6 +1202,7 @@ export class CodexBridge {
       mode: params.mode,
       sessionId: params.sessionId ?? null,
       prompt: params.prompt,
+      executionOptions: params.executionOptions ?? params.existingTask.executionOptions ?? null,
       policyDecision: decision.kind,
       reasonCodes: decision.reasonCodes ?? [],
       timestamp,
@@ -1309,6 +1289,7 @@ export class CodexBridge {
       lastRunId: runId,
       riskLevel: "high",
       approvalToken: token,
+      executionOptions: params.executionOptions ?? params.existingTask.executionOptions ?? null,
       prompt: params.prompt,
       policyDecision: decision.kind,
       reasonCodes: decision.reasonCodes ?? [],
@@ -1353,6 +1334,7 @@ export class CodexBridge {
       prompt: params.prompt,
       cwd,
       sessionId: params.existingTask.sessionId ?? null,
+      executionOptions: params.executionOptions ?? params.existingTask.executionOptions ?? null,
       policyDecision: decision.kind,
       reasonCodes: decision.reasonCodes ?? [],
       replyContract: createApprovalReplyContract(),
@@ -1436,6 +1418,7 @@ export class CodexBridge {
       currentRunId: runId,
       lastRunId: runId,
       riskLevel: params.riskLevel ?? params.existingTask?.riskLevel ?? "normal",
+      executionOptions: params.executionOptions ?? params.existingTask?.executionOptions ?? null,
       approvalToken: params.approvalToken ?? null,
       policyDecision: params.policyDecision ?? params.existingTask?.policyDecision ?? POLICY_DECISIONS.ALLOWED,
       reasonCodes: params.reasonCodes ?? params.existingTask?.reasonCodes ?? [],
@@ -1465,6 +1448,7 @@ export class CodexBridge {
       sessionId: task.sessionId,
       status: "running",
       riskLevel: task.riskLevel,
+      executionOptions: task.executionOptions ?? null,
       approvalToken: task.approvalToken,
       prompt: params.prompt,
       policyDecision: task.policyDecision,
@@ -1839,6 +1823,27 @@ export class CodexBridge {
     if (profile.lastSessionId) lines.push(this.text.lastSessionIdLine(profile.lastSessionId));
     if (profile.pendingApprovalToken) lines.push(this.text.pendingApprovalLine(profile.pendingApprovalToken));
     return lines.join("\n");
+  }
+
+  async formatDoctor(senderId, profileFallback = null) {
+    const activeTask = await this.loadActiveTask(senderId);
+    const activeBridgeAction = await this.loadActiveBridgeAction(senderId, profileFallback);
+
+    const codex =
+      activeTask?.status != null ? localizeTaskStatus(this.settings.locale, activeTask.status) : doctorIdleLabel(this.settings.locale);
+    const bridge =
+      activeBridgeAction?.status != null
+        ? localizeTaskStatus(this.settings.locale, activeBridgeAction.status)
+        : doctorBridgeOkLabel(this.settings.locale);
+    const gateway = doctorGatewayUnknownLabel(this.settings.locale);
+    const nextStep = resolveDoctorNextStep(this.settings.locale, activeTask?.status ?? null);
+
+    return this.text.doctorSummary({
+      codex,
+      bridge,
+      gateway,
+      nextStep,
+    });
   }
 
   async isSenderPaired(accountId, senderId) {
@@ -2252,11 +2257,222 @@ function parseCodexCommand(text) {
   };
 }
 
-function extractFirstArgToken(text) {
+function parseNativeCodexInvocation(text) {
   const normalized = normalizeText(text);
-  if (!normalized) return "";
-  const [firstToken = ""] = normalized.split(/\s+/, 1);
-  return firstToken;
+  if (!normalized?.startsWith("/codex")) return null;
+  const rest = normalized.slice("/codex".length).trim();
+  if (!rest) return null;
+
+  const tokens = splitCommandTokens(rest);
+  if (tokens.length === 0) return null;
+
+  let index = 0;
+  let mode = "new";
+  if (tokens[0].toLowerCase() === "resume") {
+    mode = "resume";
+    index = 1;
+  } else if (!tokens[0].startsWith("-")) {
+    return null;
+  }
+
+  let cwd = null;
+  const executionOptions = {};
+
+  while (index < tokens.length) {
+    const token = tokens[index];
+    const lower = token.toLowerCase();
+    if (lower === "--cd" || token === "-C") {
+      if (mode === "resume") {
+        return createNativeInvocationError("unknown_option", { option: token });
+      }
+      const nextValue = tokens[index + 1];
+      if (!nextValue) {
+        return createNativeInvocationError("missing_value", {
+          option: token,
+          usage: mode === "resume" ? "resume" : "new",
+        });
+      }
+      cwd = nextValue;
+      index += 2;
+      continue;
+    }
+    if (lower.startsWith("--cd=")) {
+      if (mode === "resume") {
+        return createNativeInvocationError("unknown_option", { option: "--cd" });
+      }
+      cwd = token.slice(token.indexOf("=") + 1);
+      if (!cwd) {
+        return createNativeInvocationError("missing_value", {
+          option: "--cd",
+          usage: mode === "resume" ? "resume" : "new",
+        });
+      }
+      index += 1;
+      continue;
+    }
+    if (lower === "--model" || token === "-m") {
+      const nextValue = tokens[index + 1];
+      if (!nextValue) {
+        return createNativeInvocationError("missing_value", {
+          option: token,
+          usage: mode === "resume" ? "resume" : "new",
+        });
+      }
+      executionOptions.model = nextValue;
+      index += 2;
+      continue;
+    }
+    if (lower.startsWith("--model=")) {
+      executionOptions.model = token.slice(token.indexOf("=") + 1);
+      if (!executionOptions.model) {
+        return createNativeInvocationError("missing_value", {
+          option: "--model",
+          usage: mode === "resume" ? "resume" : "new",
+        });
+      }
+      index += 1;
+      continue;
+    }
+    if (lower === "--sandbox" || token === "-s") {
+      const nextValue = tokens[index + 1];
+      if (!nextValue) {
+        return createNativeInvocationError("missing_value", {
+          option: token,
+          usage: mode === "resume" ? "resume" : "new",
+        });
+      }
+      if (!NATIVE_SANDBOX_VALUES.includes(nextValue)) {
+        return createNativeInvocationError("invalid_value", {
+          option: token,
+          value: nextValue,
+          allowedValues: NATIVE_SANDBOX_VALUES,
+        });
+      }
+      executionOptions.sandbox = nextValue;
+      index += 2;
+      continue;
+    }
+    if (lower.startsWith("--sandbox=")) {
+      executionOptions.sandbox = token.slice(token.indexOf("=") + 1);
+      if (!executionOptions.sandbox) {
+        return createNativeInvocationError("missing_value", {
+          option: "--sandbox",
+          usage: mode === "resume" ? "resume" : "new",
+        });
+      }
+      if (!NATIVE_SANDBOX_VALUES.includes(executionOptions.sandbox)) {
+        return createNativeInvocationError("invalid_value", {
+          option: "--sandbox",
+          value: executionOptions.sandbox,
+          allowedValues: NATIVE_SANDBOX_VALUES,
+        });
+      }
+      index += 1;
+      continue;
+    }
+    if (lower === "--ask-for-approval" || token === "-a") {
+      const nextValue = tokens[index + 1];
+      if (!nextValue) {
+        return createNativeInvocationError("missing_value", {
+          option: token,
+          usage: mode === "resume" ? "resume" : "new",
+        });
+      }
+      if (!NATIVE_APPROVAL_VALUES.includes(nextValue)) {
+        return createNativeInvocationError("invalid_value", {
+          option: token,
+          value: nextValue,
+          allowedValues: NATIVE_APPROVAL_VALUES,
+        });
+      }
+      executionOptions.askForApproval = nextValue;
+      index += 2;
+      continue;
+    }
+    if (lower.startsWith("--ask-for-approval=")) {
+      executionOptions.askForApproval = token.slice(token.indexOf("=") + 1);
+      if (!executionOptions.askForApproval) {
+        return createNativeInvocationError("missing_value", {
+          option: "--ask-for-approval",
+          usage: mode === "resume" ? "resume" : "new",
+        });
+      }
+      if (!NATIVE_APPROVAL_VALUES.includes(executionOptions.askForApproval)) {
+        return createNativeInvocationError("invalid_value", {
+          option: "--ask-for-approval",
+          value: executionOptions.askForApproval,
+          allowedValues: NATIVE_APPROVAL_VALUES,
+        });
+      }
+      index += 1;
+      continue;
+    }
+    if (token.startsWith("-")) {
+      return createNativeInvocationError("unknown_option", { option: token });
+    }
+    break;
+  }
+
+  if (mode === "new" && !cwd && Object.keys(executionOptions).length === 0) return null;
+
+  const prompt = tokens.slice(index).join(" ").trim();
+  return {
+    mode,
+    cwd: cwd ? cwd : null,
+    executionOptions: Object.fromEntries(Object.entries(executionOptions).filter(([, value]) => value)),
+    prompt,
+  };
+}
+
+const NATIVE_SANDBOX_VALUES = Object.freeze(["read-only", "workspace-write", "danger-full-access"]);
+const NATIVE_APPROVAL_VALUES = Object.freeze(["untrusted", "on-failure", "on-request", "never"]);
+
+function createNativeInvocationError(kind, detail) {
+  return {
+    error: {
+      kind,
+      ...detail,
+    },
+  };
+}
+
+function splitCommandTokens(input) {
+  const tokens = [];
+  let current = "";
+  let quote = null;
+  for (let index = 0; index < input.length; index += 1) {
+    const char = input[index];
+    if (quote) {
+      if (char === quote) {
+        quote = null;
+      } else if (char === "\\" && index + 1 < input.length) {
+        current += input[index + 1];
+        index += 1;
+      } else {
+        current += char;
+      }
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      quote = char;
+      continue;
+    }
+    if (/\s/.test(char)) {
+      if (current) {
+        tokens.push(current);
+        current = "";
+      }
+      continue;
+    }
+    if (char === "\\" && index + 1 < input.length) {
+      current += input[index + 1];
+      index += 1;
+      continue;
+    }
+    current += char;
+  }
+  if (current) tokens.push(current);
+  return tokens;
 }
 
 function mergeApprovalPrompt(prompt, tail) {
@@ -2420,6 +2636,68 @@ function shouldBypassClaim(text) {
 function normalizeText(value) {
   if (typeof value !== "string") return "";
   return value.trim();
+}
+
+function assessNativeExecutionDecision(executionOptions) {
+  const reasonCodes = [];
+  if (executionOptions?.sandbox === "danger-full-access") {
+    reasonCodes.push("native_dangerous_sandbox_requires_approval");
+  }
+  if (executionOptions?.askForApproval === "never") {
+    reasonCodes.push("native_never_approval_requires_approval");
+  }
+  return {
+    kind: reasonCodes.length > 0 ? POLICY_DECISIONS.APPROVAL_REQUIRED : POLICY_DECISIONS.ALLOWED,
+    reasonCodes,
+  };
+}
+
+function mergePolicyDecisionKinds(primary, secondary) {
+  const primaryReasonCodes = Array.isArray(primary?.reasonCodes) ? primary.reasonCodes : [];
+  const secondaryReasonCodes = Array.isArray(secondary?.reasonCodes) ? secondary.reasonCodes : [];
+  const reasonCodes = Array.from(new Set([...primaryReasonCodes, ...secondaryReasonCodes]));
+
+  if (primary?.kind === POLICY_DECISIONS.DENIED || secondary?.kind === POLICY_DECISIONS.DENIED) {
+    return {
+      kind: POLICY_DECISIONS.DENIED,
+      reasonCodes,
+    };
+  }
+  if (primary?.kind === POLICY_DECISIONS.APPROVAL_REQUIRED || secondary?.kind === POLICY_DECISIONS.APPROVAL_REQUIRED) {
+    return {
+      kind: POLICY_DECISIONS.APPROVAL_REQUIRED,
+      reasonCodes,
+    };
+  }
+  return {
+    kind: POLICY_DECISIONS.ALLOWED,
+    reasonCodes,
+  };
+}
+
+function doctorIdleLabel(locale) {
+  return locale === "zh-CN" ? "空闲" : "idle";
+}
+
+function doctorBridgeOkLabel(locale) {
+  return locale === "zh-CN" ? "正常" : "ok";
+}
+
+function doctorGatewayUnknownLabel(locale) {
+  return locale === "zh-CN" ? "未探测" : "not probed";
+}
+
+function resolveDoctorNextStep(locale, activeTaskStatus) {
+  if (locale === "zh-CN") {
+    if (activeTaskStatus === "running") return "等待当前任务完成。";
+    if (activeTaskStatus === "awaiting_approval") return "先处理当前审批，再继续后续动作。";
+    if (activeTaskStatus === "awaiting_input") return "直接回复下一步给 Codex。";
+    return "直接发送普通消息给 Codex。";
+  }
+  if (activeTaskStatus === "running") return "Wait for the current task to finish.";
+  if (activeTaskStatus === "awaiting_approval") return "Handle the current approval first.";
+  if (activeTaskStatus === "awaiting_input") return "Reply directly with the next step for Codex.";
+  return "Send a plain message to Codex.";
 }
 
 function expandUserPath(input, baseDir) {

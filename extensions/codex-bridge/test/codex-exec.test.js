@@ -47,9 +47,41 @@ test("runtime/exec/resume: resume mode still carries explicit cwd semantics in p
   });
 
   assert.equal(args.includes("-C"), false);
+  assert.equal(args.at(-1).includes("Feishu remote Codex bridge task."), true);
+  assert.equal(args.at(-1).includes("Feishu remote Codex Runner task."), false);
   assert.equal(args.at(-1).includes("Working directory: /repo/worktree"), true);
   assert.equal(
     args.at(-1).includes("Resume cwd semantics: use the working directory above for any new commands in this resumed run."),
     true,
   );
+});
+
+test("runtime/exec/options: native model and execution flags map to codex exec args", () => {
+  const args = buildCodexArgs({
+    task: {
+      mode: "new",
+      cwd: "/repo/worktree",
+      prompt: "summarize README.md",
+      executionOptions: {
+        model: "gpt-5.3-codex",
+        sandbox: "workspace-write",
+        askForApproval: "on-request",
+      },
+    },
+    settings: { locale: "en-US" },
+  });
+
+  assert.equal(args.includes("--full-auto"), false);
+  assert.deepEqual(args.slice(0, 9), [
+    "exec",
+    "--json",
+    "--skip-git-repo-check",
+    "-m",
+    "gpt-5.3-codex",
+    "-s",
+    "workspace-write",
+    "-a",
+    "on-request",
+  ]);
+  assert.equal(args.includes("-C"), true);
 });

@@ -152,12 +152,40 @@ function buildBridgeAction(tempRoot, overrides = {}) {
   });
 }
 
-test("runtime/control-plane/routing: repository-owned service control creates a bridge action instead of a codex task", async () => {
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-control-plane-route-"));
+async function routeOwnedPrompt({ tempPrefix, prompt, executeResult = null }) {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), tempPrefix));
   const { bridge, replies, startedTasks } = await createBridgeHarness(tempRoot);
 
   bridge.ensureExecutionRuntimeReady = async () => {
     throw new Error("bridge action must not depend on codex runtime checks");
+  };
+
+  if (executeResult) {
+    bridge.executeBridgeAction = async () => executeResult;
+  }
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-1",
+    text: prompt,
+  });
+
+  const profile = await bridge.loadProfile("user-1", null);
+  const actionId = profile.activeBridgeActionId ?? profile.lastBridgeActionId;
+  const action = await bridge.readBridgeAction(actionId);
+  return { bridge, replies, startedTasks, profile, action };
+}
+
+async function routeCodexOwnedPrompt({ tempPrefix, prompt }) {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), tempPrefix));
+  const { bridge, replies, startedTasks } = await createBridgeHarness(tempRoot);
+  const queued = [];
+
+  bridge.queueOrStartTask = async (params) => {
+    queued.push(params);
   };
 
   await bridge.routeInbound({
@@ -166,11 +194,18 @@ test("runtime/control-plane/routing: repository-owned service control creates a 
     accountId: "default",
     conversationId: "conv-1",
     messageId: "msg-1",
-    text: "请重启 openclaw-codex-feishu.service",
+    text: prompt,
   });
 
-  const profile = await bridge.loadProfile("user-1", null);
-  const action = await bridge.readBridgeAction(profile.activeBridgeActionId);
+  const bridgeActionFiles = await fs.readdir(bridge.settings.bridgeActionsRoot).catch(() => []);
+  return { bridgeActionFiles, queued, replies, startedTasks };
+}
+
+test("runtime/control-plane/routing: repository-owned service control creates an approval-gated bridge action instead of a codex task", async () => {
+  const { replies, startedTasks, profile, action } = await routeOwnedPrompt({
+    tempPrefix: "codex-bridge-control-plane-route-",
+    prompt: "请重启 openclaw-codex-feishu.service",
+  });
 
   assert.equal(startedTasks.length, 0);
   assert.equal(profile.activeTaskId, undefined);
@@ -179,56 +214,100 @@ test("runtime/control-plane/routing: repository-owned service control creates a 
   assert.match(replies[0], /等待审批|同意|不要执行/);
 });
 
-test("runtime/control-plane/routing: mixed-intent prompts stay codex-owned instead of being hijacked as bridge actions", async () => {
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-control-plane-mixed-"));
-  const { bridge, replies, startedTasks } = await createBridgeHarness(tempRoot);
-  const queued = [];
-  bridge.queueOrStartTask = async (params) => {
-    queued.push(params);
-  };
+test("runtime/control-plane/routing: representative read-only owned prompts execute inside bridge", async () => {
+  const cases = [
+    {
+      label: "owned service status",
+      tempPrefix: "codex-bridge-control-plane-service-status-",
+      prompt: "please report status of openclaw-codex-feishu.service",
+      expectedKind: "service_control",
+      expectedReply: '{"service":"reported"}',
+      executeResult: {
+        exitCode: 0,
+        summary: '{"service":"reported"}',
+        executionTrace: {
+          executor: "systemd_user",
+          command: "systemctl",
+          args: ["--user", "status", "openclaw-codex-feishu.service"],
+          exitCode: 0,
+        },
+      },
+    },
+    {
+      label: "gateway health",
+      tempPrefix: "codex-bridge-control-plane-health-",
+      prompt: "show gateway health details info",
+      expectedKind: "gateway_health",
+      expectedReply: '{"gateway":"details-info"}',
+      executeResult: {
+        exitCode: 0,
+        summary: '{"gateway":"details-info"}',
+        executionTrace: {
+          executor: "isolated_openclaw",
+          command: "bash",
+          args: ["scripts/openclaw-isolated.sh", "health", "--json"],
+          exitCode: 0,
+        },
+      },
+    },
+    {
+      label: "bridge diagnostic",
+      tempPrefix: "codex-bridge-control-plane-diagnostic-",
+      prompt: "show bridge diagnostic details info",
+      expectedKind: "diagnostic",
+      expectedReply: '{"bridge":"diagnostic-info"}',
+      executeResult: {
+        exitCode: 0,
+        summary: '{"bridge":"diagnostic-info"}',
+        executionTrace: {
+          executor: "bootstrap_script",
+          command: "bash",
+          args: ["scripts/bootstrap-codex-feishu.sh", "gateway-status"],
+          exitCode: 0,
+        },
+      },
+    },
+  ];
 
-  await bridge.routeInbound({
-    senderId: "user-1",
-    senderName: "tester",
-    accountId: "default",
-    conversationId: "conv-1",
-    messageId: "msg-1",
-    text: "先检查 docs/roadmap.md，再重启 openclaw-codex-feishu.service",
-  });
+  for (const testCase of cases) {
+    const { replies, startedTasks, profile, action } = await routeOwnedPrompt({
+      tempPrefix: testCase.tempPrefix,
+      prompt: testCase.prompt,
+      executeResult: testCase.executeResult,
+    });
 
-  const bridgeActionFiles = await fs.readdir(bridge.settings.bridgeActionsRoot).catch(() => []);
-
-  assert.equal(startedTasks.length, 0);
-  assert.equal(queued.length, 1);
-  assert.equal(queued[0].prompt, "先检查 docs/roadmap.md，再重启 openclaw-codex-feishu.service");
-  assert.equal(bridgeActionFiles.length, 0);
-  assert.equal(replies.length, 0);
+    assert.equal(startedTasks.length, 0, testCase.label);
+    assert.equal(profile.activeTaskId, undefined, testCase.label);
+    assert.equal(profile.activeBridgeActionId, undefined, testCase.label);
+    assert.equal(action.status, "finished", testCase.label);
+    assert.equal(action.resultStatus, "completed", testCase.label);
+    assert.equal(action.kind, testCase.expectedKind, testCase.label);
+    assert.deepEqual(action.trace?.execution, testCase.executeResult.executionTrace, testCase.label);
+    assert.equal(replies[0], testCase.expectedReply, testCase.label);
+  }
 });
 
-test("runtime/control-plane/routing: shorthand repository viewing after gateway health stays codex-owned", async () => {
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-control-plane-shorthand-mixed-"));
-  const { bridge, replies, startedTasks } = await createBridgeHarness(tempRoot);
-  const queued = [];
-  bridge.queueOrStartTask = async (params) => {
-    queued.push(params);
-  };
+test("runtime/control-plane/routing: representative mixed-intent prompts stay codex-owned", async () => {
+  for (const testCase of [
+    {
+      label: "mixed repository work plus service control",
+      tempPrefix: "codex-bridge-control-plane-mixed-",
+      prompt: "先检查 docs/roadmap.md，再重启 openclaw-codex-feishu.service",
+    },
+    {
+      label: "gateway health plus repository viewing",
+      tempPrefix: "codex-bridge-control-plane-shorthand-mixed-",
+      prompt: "show gateway health details view repository",
+    },
+  ]) {
+    const { bridgeActionFiles, queued, replies, startedTasks } = await routeCodexOwnedPrompt(testCase);
 
-  await bridge.routeInbound({
-    senderId: "user-1",
-    senderName: "tester",
-    accountId: "default",
-    conversationId: "conv-1",
-    messageId: "msg-1",
-    text: "show gateway health details view repository",
-  });
-
-  const bridgeActionFiles = await fs.readdir(bridge.settings.bridgeActionsRoot).catch(() => []);
-
-  assert.equal(startedTasks.length, 0);
-  assert.equal(queued.length, 1);
-  assert.equal(queued[0].prompt, "show gateway health details view repository");
-  assert.equal(bridgeActionFiles.length, 0);
-  assert.equal(replies.length, 0);
+    assert.equal(startedTasks.length, 0, testCase.label);
+    assert.equal(queued.length, 1, testCase.label);
+    assert.equal(queued[0].prompt, testCase.prompt, testCase.label);
+    assert.equal(bridgeActionFiles.length, 0, testCase.label);
+    assert.equal(replies.length, 0, testCase.label);
+  }
 });
 
 test("runtime/control-plane/continuity: bridge action approval does not overwrite the active codex task", async () => {

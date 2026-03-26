@@ -54,12 +54,6 @@ export const POLICY_REASON_CODES = Object.freeze([
   ...POLICY_APPROVAL_REASON_CODES,
 ]);
 
-const ISOLATION_BOUNDARY_PATTERNS = [
-  "/home/neousys/.openclaw",
-  "~/.openclaw",
-  "openclaw gateway install",
-  "codex_feishu_gateway_token",
-];
 const HOST_SECRET_RELATIVE_ROOTS = [
   ".ssh",
   ".gnupg",
@@ -106,7 +100,7 @@ const WRITE_COMMAND_PATTERN =
 const WRITE_INTENT_PATTERN =
   /\b(write|append|create|modify|edit|update|save|rewrite|replace|move|rename|copy|touch|mkdir)\b|写入|追加|创建|修改|编辑|更新|保存|覆盖|移动|重命名|复制/i;
 const BRIDGE_GATEWAY_HEALTH_PATTERN =
-  /(?:(?:检查|查看|确认|帮我检查|帮我看)\s*(?:一下)?\s*)?(?:gateway|runner|bridge)(?:[^\n]{0,18})?(?:health|status|健康|状态)|(?:gateway|runner|bridge)(?:[^\n]{0,18})?(?:health|status|健康|状态)(?:[^\n]{0,12})?(?:检查|查看|确认)?|(?:health|status)(?:[^\n]{0,18})?(?:gateway|runner|bridge)/i;
+  /(?:(?:检查|查看|确认|帮我检查|帮我看)\s*(?:一下)?\s*)?(?:gateway|runner|bridge|网关)(?:[^\n]{0,18})?(?:health|status|健康|状态)|(?:gateway|runner|bridge|网关)(?:[^\n]{0,18})?(?:health|status|健康|状态)(?:[^\n]{0,12})?(?:检查|查看|确认)?|(?:health|status)(?:[^\n]{0,18})?(?:gateway|runner|bridge|网关)/i;
 const BRIDGE_INSTALL_SYSTEMD_PATTERN =
   /\binstall-systemd\b|安装(?:本仓库)?(?:的)?\s*systemd|安装\s*systemd\s*服务|\binstall\b(?:[^\n]{0,18})?\b(?:repo|repository)?(?:[^\n]{0,12})?\bsystemd\b(?:[^\n]{0,12})?\bservice\b/i;
 const BRIDGE_DIAGNOSTIC_PATTERN =
@@ -282,46 +276,64 @@ function createBridgeControlDecision({ kind, operation, target, requiresApproval
 }
 
 function isDedicatedOwnedServiceRequest(prompt, { operation, target }) {
-  const residue = reduceBridgeActionPrompt(prompt, [
+  if (matchesExplicitOwnedServiceRequest(prompt, { operation, target })) {
+    return true;
+  }
+  return hasOnlyBridgeActionResidue(prompt, [
     new RegExp(escapeRegex(target), "ig"),
     serviceOperationPattern(operation),
     /\b(?:systemctl|service|rc-service|invoke-rc\.d|initctl|--user)\b/gi,
     /(?:服务|service|unit)/giu,
   ]);
-  return residue === "";
 }
 
 function isDedicatedGatewayHealthRequest(prompt) {
-  const residue = reduceBridgeActionPrompt(prompt, [
+  if (matchesExplicitGatewayHealthRequest(prompt)) {
+    return true;
+  }
+  return hasOnlyBridgeActionResidue(prompt, [
     /\b(?:gateway|runner|bridge)\b/gi,
-    /(?:gateway|runner|bridge)/giu,
+    /(?:gateway|runner|bridge|网关)/giu,
+    /\bhealth\s+details\s+info\b/gi,
     /\bhealth\s+details\b/gi,
+    /\bhealth\s+info\b/gi,
     /\b(?:health|status|check)\b/gi,
+    /(?:健康信息)/giu,
+    /(?:健康详情信息)/giu,
     /(?:健康详情)/giu,
-    /(?:健康|状态|检查|查看|确认)/giu,
+    /(?:健康|状态|状况|检查|查看|确认|汇报|报告)/giu,
   ]);
-  return residue === "";
 }
 
 function isDedicatedInstallLifecycleRequest(prompt) {
-  const residue = reduceBridgeActionPrompt(prompt, [
+  if (matchesExplicitInstallLifecycleRequest(prompt)) {
+    return true;
+  }
+  return hasOnlyBridgeActionResidue(prompt, [
     /\binstall-systemd\b/gi,
     /\b(?:install|systemd|service)\b/gi,
     /(?:安装|本仓库|的|systemd|服务)/giu,
   ]);
-  return residue === "";
 }
 
 function isDedicatedDiagnosticRequest(prompt) {
-  const residue = reduceBridgeActionPrompt(prompt, [
+  if (matchesExplicitDiagnosticRequest(prompt)) {
+    return true;
+  }
+  return hasOnlyBridgeActionResidue(prompt, [
     /\b(?:gateway-status|runner-status)\b/gi,
     /\b(?:gateway|runner|bridge)\b/gi,
     /(?:gateway|runner|bridge|桥接)/giu,
     /\bdiagnostic\s+info\b/gi,
+    /\bdetails\s+info\b/gi,
     /\b(?:status|diagnostic|diagnostics|details)\b/gi,
-    /(?:状态详情|状态信息|状态|诊断信息|诊断|排障|详情)/giu,
+    /(?:诊断详情信息)/giu,
+    /(?:状态详情|状态信息|状态|诊断信息|诊断|排障|详情|检查|查看|确认|汇报|报告)/giu,
   ]);
-  return residue === "";
+}
+
+function hasOnlyBridgeActionResidue(prompt, replacements = []) {
+  return reduceBridgeActionPrompt(prompt, replacements) === "";
 }
 
 function reduceBridgeActionPrompt(prompt, replacements = []) {
@@ -330,15 +342,103 @@ function reduceBridgeActionPrompt(prompt, replacements = []) {
     rest = rest.replace(pattern, " ");
   }
   rest = rest.replace(
-    /(?:请帮我|帮我|请你|麻烦你|麻烦|请|帮忙|可以帮我|能不能帮我|能否帮我|劳驾|拜托|直接|现在|一下|一下子|看一下|看下|帮我看|帮我检查|帮我确认)/giu,
+    /(?:请帮我|帮我|请你|麻烦你|麻烦|请|帮忙|可以帮我|能不能帮我|能否帮我|劳驾|拜托|直接|现在|一下|一下子|看一下|看下|看看|显示|展示|帮我看|帮我检查|帮我确认)/giu,
     " ",
   );
-  rest = rest.replace(/\b(?:please|kindly|can\s+you|could\s+you|would\s+you|for\s+me|me|just|now)\b/gi, " ");
+  rest = rest.replace(
+    /\b(?:please|kindly|can\s+you|could\s+you|would\s+you|for\s+me|me|just|now|report|confirm|display)\b/gi,
+    " ",
+  );
   rest = rest.replace(/\bwhat\s+is(?:\s+the)?\b/gi, " ");
   rest = rest.replace(/^\s*(?:show|view|check|info)\b/gi, " ");
   rest = rest.replace(/\b(?:the|of)\b/gi, " ");
   rest = rest.replace(/[，,。！？!?;；:：、()[\]{}<>"'`=\s]+/gu, " ");
   return rest.trim();
+}
+
+function normalizeBridgeControlPrompt(prompt) {
+  let normalized = normalizeText(prompt);
+  normalized = normalized.replace(
+    /(?:请帮我|帮我|请你|麻烦你|麻烦|请|帮忙|可以帮我|能不能帮我|能否帮我|劳驾|拜托|直接|现在|一下|一下子|看一下|看下|看看|帮我看|帮我检查|帮我确认)/giu,
+    " ",
+  );
+  normalized = normalized.replace(/\b(?:please|kindly|can\s+you|could\s+you|would\s+you|for\s+me|me|just|now)\b/gi, " ");
+  normalized = normalized.replace(/[，,。！？!?;；:：、()[\]{}<>"'`=]+/gu, " ");
+  normalized = normalized.replace(/\s+/g, " ").trim().toLowerCase();
+  return normalized;
+}
+
+function matchesAnyPattern(prompt, patterns) {
+  return patterns.some((pattern) => pattern.test(prompt));
+}
+
+function matchesExplicitOwnedServiceRequest(prompt, { operation, target }) {
+  const normalized = normalizeBridgeControlPrompt(prompt);
+  const targetPattern = escapeRegex(target.toLowerCase());
+  const operationPattern = explicitOwnedServiceOperationPattern(operation);
+  if (!normalized || !operationPattern) return false;
+  const requestVerbPrefix = String.raw`(?:(?:show|view|check|inspect|report|confirm)\s+)?`;
+
+  return matchesAnyPattern(normalized, [
+    new RegExp(
+      `^(?:what is(?: the)?\\s+)?${requestVerbPrefix}(?:the\\s+)?${operationPattern}(?:\\s+(?:of|for))?\\s+(?:the\\s+)?(?:service\\s+|unit\\s+)?${targetPattern}(?:\\s+(?:service|unit))?$`,
+      "i",
+    ),
+    new RegExp(
+      `^${requestVerbPrefix}(?:the\\s+)?(?:service\\s+|unit\\s+)?${targetPattern}(?:\\s+(?:service|unit))?\\s+${operationPattern}$`,
+      "i",
+    ),
+    new RegExp(`^(?:the\\s+)?(?:service\\s+|unit\\s+)?${targetPattern}(?:\\s+(?:service|unit))?\\s+${operationPattern}$`, "i"),
+  ]);
+}
+
+function matchesExplicitGatewayHealthRequest(prompt) {
+  const normalized = normalizeBridgeControlPrompt(prompt);
+  if (!normalized) return false;
+
+  return matchesAnyPattern(normalized, [
+    /^(?:show|view|check|inspect|report|confirm)\s+(?:the\s+)?(?:health(?:\s+(?:details|info|status))*|health\s+details\s+info)(?:\s+(?:of|for))?\s+(?:gateway|runner|bridge)$/i,
+    /^(?:show|view|check|inspect|report|confirm)\s+(?:gateway|runner|bridge)\s+(?:health(?:\s+(?:details|info|status))*|health\s+details\s+info)$/i,
+    /^(?:gateway|runner|bridge)\s+(?:health(?:\s+(?:details|info|status))*|health\s+details\s+info)$/i,
+  ]);
+}
+
+function matchesExplicitInstallLifecycleRequest(prompt) {
+  const normalized = normalizeBridgeControlPrompt(prompt);
+  if (!normalized) return false;
+
+  return matchesAnyPattern(normalized, [
+    /^(?:install-systemd)$/i,
+    /^(?:install)\s+(?:the\s+)?(?:(?:repo|repository)\s+)?systemd\s+service$/i,
+  ]);
+}
+
+function matchesExplicitDiagnosticRequest(prompt) {
+  const normalized = normalizeBridgeControlPrompt(prompt);
+  if (!normalized) return false;
+
+  return matchesAnyPattern(normalized, [
+    /^(?:show|view|check|inspect|report|confirm)\s+(?:the\s+)?(?:diagnostic(?:s)?(?:\s+(?:info|details))?|status\s+details)\s+(?:of|for)\s+(?:bridge|runner|gateway)$/i,
+    /^(?:show|view|check|inspect|report|confirm)\s+(?:bridge|runner|gateway)\s+(?:diagnostic(?:s)?(?:\s+(?:info|details))?|status\s+details)$/i,
+    /^(?:bridge|runner|gateway)\s+(?:diagnostic(?:s)?(?:\s+(?:info|details))?|status\s+details)$/i,
+  ]);
+}
+
+function explicitOwnedServiceOperationPattern(operation) {
+  switch (operation) {
+    case "restart":
+      return String.raw`(?:restart)`;
+    case "start":
+      return String.raw`(?:start)`;
+    case "stop":
+      return String.raw`(?:stop)`;
+    case "reload":
+      return String.raw`(?:reload)`;
+    case "status":
+      return String.raw`(?:status|health)`;
+    default:
+      return "";
+  }
 }
 
 function serviceOperationPattern(operation) {
@@ -352,7 +452,7 @@ function serviceOperationPattern(operation) {
     case "reload":
       return /(?:重载|reload)/giu;
     case "status":
-      return /(?:状态|status|健康|health|检查|查看|确认)/giu;
+      return /(?:状态信息|状态|status|健康|health|检查|查看|确认|汇报|报告)/giu;
     default:
       return /^$/u;
   }
@@ -362,13 +462,8 @@ function escapeRegex(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function touchesIsolationBoundary(lowerPrompt) {
-  return ISOLATION_BOUNDARY_PATTERNS.some((pattern) => lowerPrompt.includes(pattern));
-}
-
 function createPolicyAssessment(input) {
   const prompt = normalizeText(input?.prompt);
-  const lowerPrompt = prompt.toLowerCase();
   const cwd = normalizeText(input?.cwd);
   const protectedRoots = normalizeRoots(input?.protectedRoots);
   const hostCodexRoot = normalizeText(input?.hostCodexRoot);
@@ -382,6 +477,7 @@ function createPolicyAssessment(input) {
     cwd,
     referencedPaths,
     discussionOnly: intent === "discussion",
+    protectedRoots,
     hostCodexRoot,
     hostSecretRoots,
   });
@@ -389,10 +485,9 @@ function createPolicyAssessment(input) {
     action,
     controlledRoots,
     cwd,
-    discussionOnly: intent === "discussion",
+    isolationBoundaryRoots: getIsolationBoundaryRoots(),
     hostCodexRoot,
     hostSecretRoots,
-    lowerPrompt,
     protectedRoots,
     referencedPaths: boundaryReferencedPaths,
   });
@@ -401,7 +496,6 @@ function createPolicyAssessment(input) {
 
   return {
     prompt,
-    lowerPrompt,
     cwd,
     protectedRoots,
     hostCodexRoot,
@@ -420,10 +514,9 @@ function createExecutionBoundaryAssessment({
   action,
   controlledRoots,
   cwd,
-  discussionOnly,
+  isolationBoundaryRoots,
   hostCodexRoot,
   hostSecretRoots,
-  lowerPrompt,
   protectedRoots,
   referencedPaths,
 }) {
@@ -435,15 +528,15 @@ function createExecutionBoundaryAssessment({
       action === "write" && referencedPaths.some((candidatePath) => !isPathInsideAny(candidatePath, controlledRoots)),
     hostCodex: hostCodexRoot
       ? isPathInsideAny(cwd, [hostCodexRoot]) ||
-        referencesPathInsideAny(referencedPaths, [hostCodexRoot]) ||
-        ((!discussionOnly && lowerPrompt.includes(hostCodexRoot.toLowerCase())) ||
-          (!discussionOnly && lowerPrompt.includes("~/.codex")))
+        referencesPathInsideAny(referencedPaths, [hostCodexRoot])
       : false,
     hostSecret:
       isPathInsideAny(cwd, hostSecretRoots) || referencesPathInsideAny(referencedPaths, hostSecretRoots),
     protectedRoot:
       isPathInsideAny(cwd, protectedRoots) || referencesPathInsideAny(referencedPaths, protectedRoots),
-    isolationBoundary: touchesIsolationBoundary(lowerPrompt),
+    isolationBoundary:
+      isPathInsideAny(cwd, isolationBoundaryRoots) ||
+      referencesPathInsideAny(referencedPaths, isolationBoundaryRoots),
   });
 }
 
@@ -537,6 +630,7 @@ function selectBoundaryReferencedPaths({
   cwd,
   referencedPaths,
   discussionOnly,
+  protectedRoots,
   hostCodexRoot,
   hostSecretRoots,
 }) {
@@ -549,7 +643,8 @@ function selectBoundaryReferencedPaths({
   return referencedPaths.filter((candidatePath) => {
     const touchesHostSecret = isPathInsideAny(candidatePath, hostSecretRoots);
     const touchesHostCodex = hostCodexRoot ? isPathInsideAny(candidatePath, [hostCodexRoot]) : false;
-    if (!touchesHostSecret && !touchesHostCodex) return true;
+    const touchesProtectedRoot = isPathInsideAny(candidatePath, protectedRoots);
+    if (!touchesHostSecret && !touchesHostCodex && !touchesProtectedRoot) return true;
     return !isDocSubjectPathMention(prompt, candidatePath);
   });
 }
@@ -562,9 +657,11 @@ function isDocSubjectPathMention(prompt, candidatePath) {
       new RegExp(`(?:^|\\s)(?:about|on|regarding|for)\\s+${escaped}(?:\\b|$)`, "iu").test(prompt) ||
       new RegExp(`(?:note|notes|section|sections|explanation|explanations)\\s+(?:about|on|regarding|for)\\s+${escaped}(?:\\b|$)`, "iu").test(prompt) ||
       new RegExp(`\\S+\\.(?:md|mdx|txt|rst|adoc)\\s+(?:note|notes|section|sections|explanation|explanations)\\s+(?:about|on|regarding|for)\\s+${escaped}(?:\\b|$)`, "iu").test(prompt) ||
+      new RegExp(`${escaped}\\s+in\\s+\\S+\\.(?:md|mdx|txt|rst|adoc)(?:\\b|$)`, "iu").test(prompt) ||
       new RegExp(`关于\\s*${escaped}(?:\\s*的)?`, "iu").test(prompt) ||
       new RegExp(`${escaped}\\s*(?:的说明|说明)`, "iu").test(prompt) ||
       new RegExp(`${escaped}\\s+(?:note|notes|section|sections|explanation|explanations)\\s+in\\s+\\S+\\.(?:md|mdx|txt|rst|adoc)`, "iu").test(prompt) ||
+      new RegExp(`${escaped}\\s*在\\s*\\S+\\.(?:md|mdx|txt|rst|adoc)\\s*(?:里|中)(?:\\b|$)`, "iu").test(prompt) ||
       new RegExp(`\\S+\\.(?:md|mdx|txt|rst|adoc)\\s*(?:里|中)\\s*怎么说\\s*${escaped}(?:\\b|$)`, "iu").test(prompt) ||
       new RegExp(`${escaped}\\s*在\\s*\\S+\\.(?:md|mdx|txt|rst|adoc)\\s*(?:里|中)(?:的)?(?:说明)?`, "iu").test(prompt)
     );
@@ -598,6 +695,10 @@ function normalizeRoots(value) {
 function getHostSecretRoots() {
   const homeDir = os.homedir();
   return HOST_SECRET_RELATIVE_ROOTS.map((candidate) => path.resolve(homeDir, candidate));
+}
+
+function getIsolationBoundaryRoots() {
+  return [path.resolve(os.homedir(), ".openclaw")];
 }
 
 function referencesPathInsideAny(candidatePaths, roots) {
