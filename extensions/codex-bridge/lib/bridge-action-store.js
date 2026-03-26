@@ -1,8 +1,10 @@
-import { normalizeBridgeActionOwner } from "./bridge-action-model.js";
+import { normalizeBridgeActionContract, normalizeBridgeActionOwner, normalizeBridgeActionTrace } from "./bridge-action-model.js";
 
 export function createBridgeActionRecord(input) {
   const status = input.status ?? "created";
   const createdAt = input.createdAt;
+  const contract = normalizeBridgeActionContract(input.contract ?? input);
+  const trace = normalizeBridgeActionTrace(input.trace);
   return {
     actionId: input.actionId,
     locale: input.locale,
@@ -11,9 +13,11 @@ export function createBridgeActionRecord(input) {
     conversationId: input.conversationId,
     messageId: input.messageId,
     cwd: input.cwd,
-    kind: input.kind,
-    operation: input.operation ?? null,
-    target: input.target ?? null,
+    kind: contract.kind,
+    operation: contract.operation,
+    target: contract.target,
+    contract,
+    trace,
     requestText: input.requestText ?? "",
     status,
     owner: normalizeBridgeActionOwner(input.owner ?? null, status),

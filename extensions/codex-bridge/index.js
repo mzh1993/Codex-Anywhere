@@ -7,6 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { definePluginEntry } from "../../.runtime/openclaw-2026.3.22/node_modules/openclaw/dist/plugin-sdk/plugin-entry.js";
 import { sendMessageFeishu } from "../../.runtime/openclaw-2026.3.22/node_modules/openclaw/dist/extensions/feishu/index.js";
+import { buildBridgeActionExecution } from "./lib/bridge-action-exec.js";
 import { buildCodexArgs, buildCodexEnv } from "./lib/codex-exec.js";
 import {
   createBridgeActionPersistence,
@@ -23,6 +24,7 @@ import { getLocaleText, getUserVisibleStatusHint } from "./lib/locale.js";
 import { ensureIsolatedOpenClawShim } from "./lib/openclaw-shim.js";
 import {
   assessPolicyDecision,
+  assessPolicyRequest,
   classifyOwnedBridgeActionRequest,
   POLICY_DECISIONS,
 } from "./lib/policy.js";
@@ -57,6 +59,8 @@ const BOOTSTRAP_SCRIPT_PATH = fileURLToPath(new URL("../../scripts/bootstrap-cod
 
 const activeTasks = new Map();
 export const __activeTasks = activeTasks;
+const activeBridgeActions = new Map();
+export const __activeBridgeActions = activeBridgeActions;
 
 export default definePluginEntry({
   id: "codex-bridge",
@@ -196,6 +200,10 @@ export class CodexBridge {
       await this.handleBridgeActionApprovalReply(profile, request, activeBridgeAction);
       return;
     }
+    if (activeTask?.status === "awaiting_approval") {
+      await this.handleApprovalReply(profile, request, activeTask);
+      return;
+    }
 
     const ownedBridgeAction = classifyOwnedBridgeActionRequest({
       prompt: request.text,
@@ -208,6 +216,15 @@ export class CodexBridge {
           conversationId: request.conversationId,
           messageId: request.messageId,
           text: this.text.bridgeActionBlockedByRunningTask,
+        });
+        return;
+      }
+      if (activeBridgeAction?.status === "running") {
+        await this.safeReply({
+          accountId: request.accountId,
+          conversationId: request.conversationId,
+          messageId: request.messageId,
+          text: this.text.bridgeActionAlreadyRunning,
         });
         return;
       }
@@ -545,6 +562,7 @@ export class CodexBridge {
       resultStatus: transition.resultStatus,
     });
     await this.saveBridgeAction(action);
+    activeBridgeActions.set(params.profile.senderId, { actionId: action.actionId });
     await this.executeAndFinishBridgeAction(action, params.profile, requestMessageTarget(params));
   }
 
@@ -575,6 +593,9 @@ export class CodexBridge {
         await this.finishBridgeAction(action, profile, {
           resultStatus: "failed",
           error: "approval token expired",
+          recoveryTrace: {
+            reason: "bridge_action_approval_expired",
+          },
         });
       }
       await this.safeReply({
@@ -609,6 +630,7 @@ export class CodexBridge {
       updatedAt: new Date().toISOString(),
     });
     await this.saveBridgeAction(nextAction);
+    activeBridgeActions.set(profile.senderId, { actionId: nextAction.actionId });
     await this.executeAndFinishBridgeAction(nextAction, profile, request);
   }
 
@@ -683,6 +705,20 @@ export class CodexBridge {
   }
 
   async executeAndFinishBridgeAction(action, profile, request) {
+    let plannedExecutionTrace = null;
+    try {
+      const plannedExecution = buildBridgeActionExecution(action, {
+        isolatedOpenClawScriptPath: ISOLATED_OPENCLAW_SCRIPT_PATH,
+        bootstrapScriptPath: BOOTSTRAP_SCRIPT_PATH,
+      });
+      plannedExecutionTrace = {
+        executor: action.contract?.executor ?? null,
+        command: plannedExecution.command,
+        args: plannedExecution.args,
+        exitCode: null,
+      };
+    } catch {}
+
     let result;
     try {
       result = await this.executeBridgeAction(action);
@@ -691,12 +727,21 @@ export class CodexBridge {
         exitCode: 1,
         error: toErrorText(error),
         summary: "",
+        executionTrace: action.trace?.execution ?? plannedExecutionTrace,
       };
     }
     const finished = await this.finishBridgeAction(action, profile, {
       resultStatus: finishBridgeActionFromExecution(result).resultStatus,
       error: result.error ?? null,
       summary: result.summary ?? "",
+      executionTrace:
+        result.executionTrace ??
+        (plannedExecutionTrace
+          ? {
+              ...plannedExecutionTrace,
+              exitCode: result.exitCode ?? plannedExecutionTrace.exitCode,
+            }
+          : null),
     });
     await this.safeReply({
       accountId: request.accountId,
@@ -712,6 +757,7 @@ export class CodexBridge {
 
   async approvePendingRequest(profile, request, token, options = {}) {
     const promptOverride = options.promptOverride ?? null;
+    const promptTail = options.promptTail ?? null;
     const approval = await this.readApproval(token);
     if (!approval) {
       await this.safeReply({
@@ -722,6 +768,7 @@ export class CodexBridge {
       });
       return;
     }
+
     if (approval.senderId !== request.senderId) {
       await this.safeReply({
         accountId: request.accountId,
@@ -751,6 +798,32 @@ export class CodexBridge {
       });
       return;
     }
+    if (approval.approvalGrant?.consumedAtMs != null) {
+      await this.safeReply({
+        accountId: request.accountId,
+        conversationId: request.conversationId,
+        messageId: request.messageId,
+        text: this.text.approvalTokenConsumed(token),
+      });
+      return;
+    }
+
+    await this.writeApproval(approval);
+
+    const promptCheck = this.checkApprovalPromptBoundary({
+      approval,
+      promptOverride,
+      promptTail,
+    });
+    if (!promptCheck.ok) {
+      await this.safeReply({
+        accountId: request.accountId,
+        conversationId: request.conversationId,
+        messageId: request.messageId,
+        text: promptCheck.replyText,
+      });
+      return;
+    }
 
     const runtimeCheck = await this.ensureExecutionRuntimeReady();
     if (!runtimeCheck.ok) {
@@ -763,10 +836,6 @@ export class CodexBridge {
       return;
     }
 
-    await this.deleteApproval(token);
-    if (profile.pendingApprovalToken === token) delete profile.pendingApprovalToken;
-    await this.saveProfile(profile);
-
     const existingTask = approval.taskId ? await this.readTask(approval.taskId) : null;
     const nextRun = startNextRunFromApproval();
 
@@ -776,7 +845,7 @@ export class CodexBridge {
       conversationId: approval.conversationId,
       messageId: approval.messageId,
       mode: approval.sessionId ? "resume" : approval.mode,
-      prompt: promptOverride ?? approval.prompt,
+      prompt: promptCheck.prompt,
       cwd: approval.cwd,
       sessionId: approval.sessionId,
       policyDecision: approval.policyDecision ?? POLICY_DECISIONS.APPROVAL_REQUIRED,
@@ -787,6 +856,15 @@ export class CodexBridge {
       existingTask,
       runtimeCheck,
     });
+
+    approval.approvalGrant = {
+      ...(approval.approvalGrant ?? {}),
+      consumedAtMs: Date.now(),
+    };
+    await this.writeApproval(approval);
+    await this.deleteApproval(token);
+    if (profile.pendingApprovalToken === token) delete profile.pendingApprovalToken;
+    await this.saveProfile(profile);
   }
 
   async handleApprovalReply(profile, request, task) {
@@ -824,6 +902,7 @@ export class CodexBridge {
     if (decision.outcome === "approve_with_tail") {
       await this.approvePendingRequest(profile, request, approval.token, {
         promptOverride: mergeApprovalPrompt(approval.prompt, decision.tail),
+        promptTail: decision.tail,
       });
       return;
     }
@@ -883,6 +962,126 @@ export class CodexBridge {
       messageId: request.messageId,
       text: this.text.approvalDeniedAwaitingReplan,
     });
+  }
+
+  checkApprovalPromptBoundary({ approval, promptOverride, promptTail }) {
+    const approvedPrompt = normalizeText(approval?.prompt);
+    const effectivePrompt = normalizeText(promptOverride) || approvedPrompt;
+    if (!effectivePrompt) {
+      return {
+        ok: true,
+        prompt: effectivePrompt,
+      };
+    }
+
+    const approvedReasonCodes = normalizeReasonCodes(approval?.reasonCodes ?? approval?.riskReasons ?? []);
+    const mergedDecision = assessPolicyDecision({
+      prompt: effectivePrompt,
+      cwd: approval?.cwd,
+      protectedRoots: this.settings.policyProtectedRoots,
+      hostCodexRoot: this.settings.hostCodexRoot,
+    });
+
+    if (mergedDecision.kind === POLICY_DECISIONS.DENIED) {
+      return {
+        ok: false,
+        replyText: [
+          this.text.requestRejected(mergedDecision.reasonCodes ?? []),
+          "",
+          this.text.approvalStillPending({
+            token: approval.token,
+            reasons: approvedReasonCodes,
+          }),
+        ].join("\n"),
+      };
+    }
+
+    const normalizedTail = normalizeText(promptTail);
+    if (promptOverride && normalizedTail) {
+      const tailDecision = assessPolicyDecision({
+        prompt: normalizedTail,
+        cwd: approval?.cwd,
+        protectedRoots: this.settings.policyProtectedRoots,
+        hostCodexRoot: this.settings.hostCodexRoot,
+      });
+      if (tailDecision.kind !== POLICY_DECISIONS.ALLOWED) {
+        return {
+          ok: false,
+          replyText:
+            tailDecision.kind === POLICY_DECISIONS.DENIED
+              ? [
+                  this.text.requestRejected(tailDecision.reasonCodes ?? []),
+                  "",
+                  this.text.approvalStillPending({
+                    token: approval.token,
+                    reasons: approvedReasonCodes,
+                  }),
+                ].join("\n")
+              : this.text.approvalTailScopeChanged({
+                  token: approval.token,
+                  reasons: approvedReasonCodes,
+                }),
+        };
+      }
+
+      const ownedBridgeAction = classifyOwnedBridgeActionRequest({
+        prompt: normalizedTail,
+        bridgeServiceUnitNames: this.settings.bridgeServiceUnitNames,
+      });
+      if (ownedBridgeAction) {
+        return {
+          ok: false,
+          replyText: this.text.approvalTailScopeChanged({
+            token: approval.token,
+            reasons: approvedReasonCodes,
+          }),
+        };
+      }
+    }
+
+    const grantComparisonPrompt = promptOverride && normalizedTail ? approval?.prompt : effectivePrompt;
+    const grantCheck = this.checkApprovalGrantBoundary({
+      approval,
+      prompt: grantComparisonPrompt,
+    });
+    if (!grantCheck.ok) return grantCheck;
+
+    return {
+      ok: true,
+      prompt: effectivePrompt,
+    };
+  }
+
+  checkApprovalGrantBoundary({ approval, prompt }) {
+    const grant = approval?.approvalGrant;
+    if (!grant || !prompt) {
+      return {
+        ok: true,
+      };
+    }
+
+    const currentGrant = buildApprovalGrantSummary({
+      approval: {
+        ...approval,
+        prompt,
+      },
+      settings: this.settings,
+      preserveExistingGrant: false,
+    });
+    if (approvalGrantEquivalent(grant, currentGrant)) {
+      return {
+        ok: true,
+      };
+    }
+
+    const approvedReasonCodes = normalizeReasonCodes(approval?.reasonCodes ?? approval?.riskReasons ?? []);
+    return {
+      ok: false,
+      replyText: this.text.approvalGrantScopeChanged({
+        token: approval.token,
+        reasons: approvedReasonCodes,
+      }),
+    };
   }
 
   async queueOrStartTask(params) {
@@ -1676,19 +1875,20 @@ export class CodexBridge {
   }
 
   async executeBridgeAction(action) {
-    if (action.kind === "service_control") {
-      return runCommandCapture("systemctl", [action.operation, action.target], { cwd: action.cwd });
-    }
-    if (action.kind === "gateway_health") {
-      return runCommandCapture("bash", [ISOLATED_OPENCLAW_SCRIPT_PATH, "health", "--json"], { cwd: action.cwd });
-    }
-    if (action.kind === "install_lifecycle") {
-      return runCommandCapture("bash", [BOOTSTRAP_SCRIPT_PATH, "install-systemd"], { cwd: action.cwd });
-    }
-    if (action.kind === "diagnostic") {
-      return runCommandCapture("bash", [BOOTSTRAP_SCRIPT_PATH, "gateway-status"], { cwd: action.cwd });
-    }
-    throw new Error(`unsupported bridge action kind: ${action.kind}`);
+    const execution = buildBridgeActionExecution(action, {
+      isolatedOpenClawScriptPath: ISOLATED_OPENCLAW_SCRIPT_PATH,
+      bootstrapScriptPath: BOOTSTRAP_SCRIPT_PATH,
+    });
+    const result = await runCommandCapture(execution.command, execution.args, { cwd: action.cwd });
+    return {
+      ...result,
+      executionTrace: {
+        executor: action.contract?.executor ?? null,
+        command: execution.command,
+        args: execution.args,
+        exitCode: result.exitCode ?? null,
+      },
+    };
   }
 
   async ensureCodexHome() {
@@ -1747,23 +1947,33 @@ export class CodexBridge {
   async readApproval(token) {
     const approval = await readJson(this.approvalPath(token), null);
     if (!approval) return null;
-    return {
-      ...approval,
-      replyContract: createApprovalReplyContract(approval.replyContract ?? {}),
-      onDeny: approval.onDeny ?? "await_user_replan",
-    };
+    return this.normalizeApprovalRecord(approval);
   }
 
   async writeApproval(approval) {
-    await writeJson(this.approvalPath(approval.token), {
-      ...approval,
-      replyContract: createApprovalReplyContract(approval.replyContract ?? {}),
-      onDeny: approval.onDeny ?? "await_user_replan",
-    });
+    await writeJson(this.approvalPath(approval.token), this.normalizeApprovalRecord(approval));
   }
 
   async deleteApproval(token) {
     await fsp.rm(this.approvalPath(token), { force: true });
+  }
+
+  normalizeApprovalRecord(approval) {
+    const fallbackGrant = buildApprovalGrantSummary({
+      approval,
+      settings: this.settings,
+      preserveExistingGrant: false,
+    });
+    const normalizedApproval = {
+      ...approval,
+      reasonCodes: normalizeReasonCodes(approval?.reasonCodes ?? approval?.riskReasons ?? []),
+      replyContract: createApprovalReplyContract(approval?.replyContract ?? {}),
+      onDeny: approval?.onDeny ?? "await_user_replan",
+    };
+    return {
+      ...normalizedApproval,
+      approvalGrant: normalizeApprovalGrantSummary(normalizedApproval?.approvalGrant, fallbackGrant),
+    };
   }
 
   async loadActiveTask(senderId, profile = null) {
@@ -1837,6 +2047,19 @@ export class CodexBridge {
       return null;
     }
 
+    if (action.status === "running") {
+      const activeRuntime = activeBridgeActions.get(senderId);
+      if (activeRuntime?.actionId === action.actionId) return action;
+      await this.finishBridgeAction(action, currentProfile, {
+        resultStatus: "failed",
+        error: "bridge action interrupted before completion",
+        recoveryTrace: {
+          reason: "bridge_action_interrupted_before_completion",
+        },
+      });
+      return null;
+    }
+
     if (action.status === "awaiting_approval" && action.approvalToken) {
       const approval = await this.readApproval(action.approvalToken);
       if (!approval || Date.now() > approval.expiresAtMs) {
@@ -1844,6 +2067,9 @@ export class CodexBridge {
         await this.finishBridgeAction(action, currentProfile, {
           resultStatus: "failed",
           error: "approval token expired",
+          recoveryTrace: {
+            reason: "bridge_action_approval_expired",
+          },
         });
         return null;
       }
@@ -1864,11 +2090,19 @@ export class CodexBridge {
       resultStatus: result.resultStatus ?? finishBridgeActionFromExecution({}).resultStatus,
       resultText: result.summary ?? action.resultText ?? null,
       error: result.error ?? null,
+      trace: {
+        execution: result.executionTrace ?? action.trace?.execution ?? null,
+        recovery: result.recoveryTrace ?? action.trace?.recovery ?? null,
+      },
       finishedAt: timestamp,
       updatedAt: timestamp,
     });
     await this.saveBridgeAction(nextAction);
 
+    const activeRuntime = activeBridgeActions.get(action.senderId);
+    if (activeRuntime?.actionId === action.actionId) {
+      activeBridgeActions.delete(action.senderId);
+    }
     const currentProfile = profile ?? (await this.loadProfile(action.senderId, null));
     if (currentProfile) {
       if (currentProfile.activeBridgeActionId === action.actionId) delete currentProfile.activeBridgeActionId;
@@ -2031,6 +2265,116 @@ function mergeApprovalPrompt(prompt, tail) {
   if (!base) return extra ?? "";
   if (!extra) return base;
   return `${base}\n\n补充要求：${extra}`;
+}
+
+function normalizeReasonCodes(reasonCodes) {
+  if (!Array.isArray(reasonCodes)) return [];
+  return Array.from(
+    new Set(
+      reasonCodes
+        .map((reasonCode) => normalizeText(typeof reasonCode === "string" ? reasonCode : ""))
+        .filter(Boolean),
+    ),
+  ).sort();
+}
+
+function buildApprovalGrantSummary({ approval, settings, preserveExistingGrant = true }) {
+  if (!approval?.token) return null;
+  const assessment = assessPolicyRequest({
+    prompt: approval.prompt,
+    cwd: approval.cwd,
+    protectedRoots: settings.policyProtectedRoots,
+    hostCodexRoot: settings.hostCodexRoot,
+  });
+  return {
+    grantType: "codex_task_run",
+    taskId: approval.taskId ?? null,
+    approvalToken: approval.token,
+    decisionKind: approval.policyDecision ?? assessment.decision.kind,
+    action: assessment.action,
+    reasonCodes: normalizeReasonCodes(
+      approval.reasonCodes ?? approval.riskReasons ?? assessment.decision.reasonCodes ?? [],
+    ),
+    intent: assessment.intent,
+    promptDigest: createApprovalPromptDigest(approval.prompt),
+    executionBoundaries: assessment.executionBoundaries,
+    effects: assessment.effects,
+    createdAtMs:
+      preserveExistingGrant && approval.approvalGrant?.createdAtMs != null
+        ? approval.approvalGrant.createdAtMs
+        : approval.createdAtMs ?? Date.now(),
+    expiresAtMs:
+      preserveExistingGrant && Number.isFinite(approval.approvalGrant?.expiresAtMs)
+        ? approval.approvalGrant.expiresAtMs
+        : approval.expiresAtMs ?? null,
+    consumedAtMs: preserveExistingGrant ? approval.approvalGrant?.consumedAtMs ?? null : null,
+  };
+}
+
+function normalizeApprovalGrantSummary(grant, fallbackGrant) {
+  if (!fallbackGrant) return null;
+  if (!grant || typeof grant !== "object") return fallbackGrant;
+  return {
+    grantType:
+      normalizeText(typeof grant.grantType === "string" ? grant.grantType : "") || fallbackGrant.grantType,
+    taskId: normalizeText(typeof grant.taskId === "string" ? grant.taskId : "") || fallbackGrant.taskId,
+    approvalToken:
+      normalizeText(typeof grant.approvalToken === "string" ? grant.approvalToken : "") || fallbackGrant.approvalToken,
+    decisionKind:
+      normalizeText(typeof grant.decisionKind === "string" ? grant.decisionKind : "") || fallbackGrant.decisionKind,
+    action: normalizeText(typeof grant.action === "string" ? grant.action : "") || fallbackGrant.action,
+    reasonCodes: normalizeReasonCodes(grant.reasonCodes ?? fallbackGrant.reasonCodes),
+    intent: normalizeText(typeof grant.intent === "string" ? grant.intent : "") || fallbackGrant.intent,
+    promptDigest:
+      normalizeText(typeof grant.promptDigest === "string" ? grant.promptDigest : "") || fallbackGrant.promptDigest,
+    executionBoundaries: normalizeApprovalGrantObject(grant.executionBoundaries, fallbackGrant.executionBoundaries),
+    effects: normalizeApprovalGrantObject(grant.effects, fallbackGrant.effects),
+    createdAtMs: Number.isFinite(grant.createdAtMs) ? grant.createdAtMs : fallbackGrant.createdAtMs,
+    expiresAtMs: Number.isFinite(grant.expiresAtMs) ? grant.expiresAtMs : fallbackGrant.expiresAtMs,
+    consumedAtMs: Number.isFinite(grant.consumedAtMs) ? grant.consumedAtMs : null,
+  };
+}
+
+function normalizeApprovalGrantObject(value, fallbackValue) {
+  if (!fallbackValue || typeof fallbackValue !== "object") return fallbackValue ?? null;
+  if (!value || typeof value !== "object") return { ...fallbackValue };
+  return Object.fromEntries(
+    Object.keys(fallbackValue).map((key) => {
+      const fallbackEntry = fallbackValue[key];
+      const valueEntry = value[key];
+      if (fallbackEntry && typeof fallbackEntry === "object" && !Array.isArray(fallbackEntry)) {
+        return [key, normalizeApprovalGrantObject(valueEntry, fallbackEntry)];
+      }
+      if (typeof fallbackEntry === "boolean") {
+        return [key, typeof valueEntry === "boolean" ? valueEntry : fallbackEntry];
+      }
+      return [key, valueEntry ?? fallbackEntry];
+    }),
+  );
+}
+
+function approvalGrantEquivalent(left, right) {
+  if (!left || !right) return left === right;
+  return JSON.stringify(approvalGrantValidationSummary(left)) === JSON.stringify(approvalGrantValidationSummary(right));
+}
+
+function approvalGrantValidationSummary(grant) {
+  return {
+    grantType: grant.grantType ?? null,
+    taskId: grant.taskId ?? null,
+    approvalToken: grant.approvalToken ?? null,
+    decisionKind: grant.decisionKind ?? null,
+    action: grant.action ?? null,
+    reasonCodes: normalizeReasonCodes(grant.reasonCodes),
+    intent: grant.intent ?? null,
+    promptDigest: grant.promptDigest ?? null,
+    executionBoundaries: normalizeApprovalGrantObject(grant.executionBoundaries, grant.executionBoundaries ?? {}),
+    effects: normalizeApprovalGrantObject(grant.effects, grant.effects ?? {}),
+  };
+}
+
+function createApprovalPromptDigest(prompt) {
+  return crypto.createHash("sha256").update(normalizeText(prompt)).digest("hex");
 }
 
 function requestMessageTarget(params) {

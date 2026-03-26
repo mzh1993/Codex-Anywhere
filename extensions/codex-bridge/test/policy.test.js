@@ -1,6 +1,18 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { assessPolicyDecision, POLICY_DECISIONS } from "../lib/policy.js";
+import {
+  assessPolicyDecision,
+  assessPolicyRequest,
+  classifyOwnedBridgeActionRequest,
+  POLICY_ACTIONS,
+  POLICY_APPROVAL_REASON_CODES,
+  POLICY_DECISIONS,
+  POLICY_DENY_REASON_CODES,
+  POLICY_EFFECT_KEYS,
+  POLICY_EXECUTION_BOUNDARY_KEYS,
+  POLICY_INTENTS,
+  POLICY_REASON_CODES,
+} from "../lib/policy.js";
 import { isPathInside, isPathInsideAny } from "../lib/fs-utils.js";
 
 test("protocol/decision: values stay stable", () => {
@@ -8,6 +20,125 @@ test("protocol/decision: values stay stable", () => {
     ALLOWED: "allowed",
     APPROVAL_REQUIRED: "approval_required",
     DENIED: "denied",
+  });
+});
+
+test("protocol/assessment/schema: action, intent, boundary, and effect keys stay narrow", () => {
+  assert.deepEqual(POLICY_ACTIONS, ["read", "write", "none"]);
+  assert.deepEqual(POLICY_INTENTS, ["read", "write", "discussion", "unknown"]);
+  assert.deepEqual(POLICY_EXECUTION_BOUNDARY_KEYS, [
+    "insideCwd",
+    "outsideCwdWrite",
+    "hostCodex",
+    "hostSecret",
+    "protectedRoot",
+    "isolationBoundary",
+  ]);
+  assert.deepEqual(POLICY_EFFECT_KEYS, [
+    "serviceControl",
+    "schedulerControl",
+    "processControl",
+    "remoteBoundary",
+    "containerControl",
+    "publicationBoundary",
+    "adminEscalation",
+    "policyBypass",
+    "globalEnvChange",
+    "destructiveChange",
+  ]);
+  assert.deepEqual(POLICY_DENY_REASON_CODES, [
+    "isolation_boundary_denied",
+    "host_secret_boundary_denied",
+    "out_of_scope_admin_denied",
+    "policy_bypass_denied",
+  ]);
+  assert.deepEqual(POLICY_APPROVAL_REASON_CODES, [
+    "scheduler_control_requires_approval",
+    "service_control_requires_approval",
+    "process_control_requires_approval",
+    "remote_boundary_requires_approval",
+    "container_control_requires_approval",
+    "publication_boundary_requires_approval",
+    "global_env_change_requires_approval",
+    "destructive_change_requires_approval",
+    "host_codex_boundary_requires_approval",
+    "outside_cwd_write_requires_approval",
+    "install_lifecycle_requires_approval",
+  ]);
+  assert.deepEqual(POLICY_REASON_CODES, [
+    ...POLICY_DENY_REASON_CODES,
+    ...POLICY_APPROVAL_REASON_CODES,
+  ]);
+});
+
+test("protocol/assessment/object: discussion assessments expose a stable object shape without relaxing hard boundaries", () => {
+  const assessment = assessPolicyRequest({
+    prompt: "what does docs/setup.md say about ~/.ssh/config",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+
+  assert.equal(assessment.action, "read");
+  assert.equal(assessment.intent, "discussion");
+  assert.deepEqual(Object.keys(assessment.executionBoundaries).sort(), [...POLICY_EXECUTION_BOUNDARY_KEYS].sort());
+  assert.deepEqual(Object.keys(assessment.effects).sort(), [...POLICY_EFFECT_KEYS].sort());
+  assert.deepEqual(assessment.executionBoundaries, {
+    insideCwd: false,
+    outsideCwdWrite: false,
+    hostCodex: false,
+    hostSecret: false,
+    protectedRoot: false,
+    isolationBoundary: false,
+  });
+  assert.deepEqual(assessment.effects, {
+    serviceControl: false,
+    schedulerControl: false,
+    processControl: false,
+    remoteBoundary: false,
+    containerControl: false,
+    publicationBoundary: false,
+    adminEscalation: false,
+    policyBypass: false,
+    globalEnvChange: false,
+    destructiveChange: false,
+  });
+  assert.deepEqual(assessment.decision, {
+    kind: "allowed",
+    reasonCodes: [],
+  });
+});
+
+test("protocol/assessment/object: decision reason codes stay narrow, ordered, and deduplicated", () => {
+  const assessment = assessPolicyRequest({
+    prompt: "systemctl restart demo && docker run alpine && npm install -g pnpm",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+
+  assert.deepEqual(assessment.decision, {
+    kind: "approval_required",
+    reasonCodes: [
+      "service_control_requires_approval",
+      "container_control_requires_approval",
+      "global_env_change_requires_approval",
+    ],
+  });
+  assert.equal(assessment.decision.reasonCodes.every((code) => POLICY_REASON_CODES.includes(code)), true);
+});
+
+test("protocol/decision/priority: hard denied boundaries beat approval effects in a single assessment", () => {
+  const decision = assessPolicyDecision({
+    prompt: "show ~/.ssh/config and docker run alpine",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+
+  assert.deepEqual(decision, {
+    kind: "denied",
+    reasonCodes: ["host_secret_boundary_denied"],
   });
 });
 
@@ -53,6 +184,16 @@ test("approval/control/service: service-like unit suffix typo still requires app
   });
   assert.equal(decision.kind, "approval_required");
   assert.deepEqual(decision.reasonCodes, ["service_control_requires_approval"]);
+});
+
+test("protocol/ownership/service: owned bridge action matching requires an exact configured unit name", () => {
+  assert.equal(
+    classifyOwnedBridgeActionRequest({
+      prompt: "请帮我重启 openclaw-codex-feishu.service3",
+      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
+    }),
+    null,
+  );
 });
 
 test("approval/control/service: sysv service command requires approval", () => {
@@ -393,7 +534,7 @@ test("approval/any/host_codex_root: host codex root access requires approval", (
     hostCodexRoot: "/home/neousys/.codex",
   });
   assert.equal(decision.kind, "approval_required");
-  assert.deepEqual(decision.reasonCodes, ["host_mutation_requires_approval"]);
+  assert.deepEqual(decision.reasonCodes, ["host_codex_boundary_requires_approval"]);
 });
 
 test("approval/read/host_codex_root: prompt path access to host codex root requires approval", () => {
@@ -404,7 +545,7 @@ test("approval/read/host_codex_root: prompt path access to host codex root requi
     hostCodexRoot: "/home/neousys/.codex",
   });
   assert.equal(decision.kind, "approval_required");
-  assert.deepEqual(decision.reasonCodes, ["host_mutation_requires_approval"]);
+  assert.deepEqual(decision.reasonCodes, ["host_codex_boundary_requires_approval"]);
 });
 
 test("allow/write/inside_cwd: write inside the controlled cwd stays allowed", () => {
@@ -470,7 +611,7 @@ test("approval/write/outside_cwd: host path outside the controlled cwd requires 
     hostCodexRoot: "/home/neousys/.codex",
   });
   assert.equal(decision.kind, "approval_required");
-  assert.deepEqual(decision.reasonCodes, ["host_mutation_requires_approval"]);
+  assert.deepEqual(decision.reasonCodes, ["outside_cwd_write_requires_approval"]);
 });
 
 test("approval/write/outside_cwd: parent path outside the controlled cwd requires approval", () => {
@@ -481,7 +622,7 @@ test("approval/write/outside_cwd: parent path outside the controlled cwd require
     hostCodexRoot: "/home/neousys/.codex",
   });
   assert.equal(decision.kind, "approval_required");
-  assert.deepEqual(decision.reasonCodes, ["host_mutation_requires_approval"]);
+  assert.deepEqual(decision.reasonCodes, ["outside_cwd_write_requires_approval"]);
 });
 
 test("approval/write/outside_cwd: shell redirection to a host path outside the controlled cwd requires approval", () => {
@@ -492,7 +633,7 @@ test("approval/write/outside_cwd: shell redirection to a host path outside the c
     hostCodexRoot: "/home/neousys/.codex",
   });
   assert.equal(decision.kind, "approval_required");
-  assert.deepEqual(decision.reasonCodes, ["host_mutation_requires_approval"]);
+  assert.deepEqual(decision.reasonCodes, ["outside_cwd_write_requires_approval"]);
 });
 
 test("approval/write/outside_cwd: shell copy to parent path outside the controlled cwd requires approval", () => {
@@ -503,7 +644,7 @@ test("approval/write/outside_cwd: shell copy to parent path outside the controll
     hostCodexRoot: "/home/neousys/.codex",
   });
   assert.equal(decision.kind, "approval_required");
-  assert.deepEqual(decision.reasonCodes, ["host_mutation_requires_approval"]);
+  assert.deepEqual(decision.reasonCodes, ["outside_cwd_write_requires_approval"]);
 });
 
 test("approval/write/outside_cwd: rsync to parent path outside the controlled cwd requires approval", () => {
@@ -514,7 +655,7 @@ test("approval/write/outside_cwd: rsync to parent path outside the controlled cw
     hostCodexRoot: "/home/neousys/.codex",
   });
   assert.equal(decision.kind, "approval_required");
-  assert.deepEqual(decision.reasonCodes, ["host_mutation_requires_approval"]);
+  assert.deepEqual(decision.reasonCodes, ["outside_cwd_write_requires_approval"]);
 });
 
 test("approval/write/outside_cwd: chmod outside the controlled cwd requires approval", () => {
@@ -525,7 +666,7 @@ test("approval/write/outside_cwd: chmod outside the controlled cwd requires appr
     hostCodexRoot: "/home/neousys/.codex",
   });
   assert.equal(decision.kind, "approval_required");
-  assert.deepEqual(decision.reasonCodes, ["host_mutation_requires_approval"]);
+  assert.deepEqual(decision.reasonCodes, ["outside_cwd_write_requires_approval"]);
 });
 
 test("deny/write/protected_root: write to protected host state is denied", () => {
@@ -696,6 +837,215 @@ test("allow/read/discussion: discussing a service-like unit name does not imply 
 test("allow/read/discussion: discussing service command docs does not imply service control", () => {
   const decision = assessPolicyDecision({
     prompt: "summarize the service command usage in ops.md",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "allowed");
+  assert.deepEqual(decision.reasonCodes, []);
+});
+
+test("allow/read/discussion: explaining a systemctl restart flow in docs does not imply service control", () => {
+  const decision = assessPolicyDecision({
+    prompt: "explain how restart systemctl user service works in ops.md",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "allowed");
+  assert.deepEqual(decision.reasonCodes, []);
+});
+
+test("allow/read/discussion: reviewing a restart flow for a unit name in docs does not imply service control", () => {
+  const decision = assessPolicyDecision({
+    prompt: "review how restart openclaw-codex-feishu.service works in docs/ops.md",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "allowed");
+  assert.deepEqual(decision.reasonCodes, []);
+});
+
+test("allow/read/discussion: summarizing a systemctl restart snippet in docs does not imply service control", () => {
+  const decision = assessPolicyDecision({
+    prompt: "summarize restart systemctl user service in ops.md",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "allowed");
+  assert.deepEqual(decision.reasonCodes, []);
+});
+
+test("allow/read/discussion: checking a systemctl restart snippet in docs does not imply service control", () => {
+  const decision = assessPolicyDecision({
+    prompt: "check restart systemctl user service in ops.md",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "allowed");
+  assert.deepEqual(decision.reasonCodes, []);
+});
+
+test("allow/read/discussion: summarizing a systemctl restart snippet from a Chinese doc source does not imply service control", () => {
+  const decision = assessPolicyDecision({
+    prompt: "总结 ops.md 里的 restart systemctl user service",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "allowed");
+  assert.deepEqual(decision.reasonCodes, []);
+});
+
+test("allow/read/discussion: summarizing a destructive snippet from a Chinese doc source does not imply destructive approval", () => {
+  const decision = assessPolicyDecision({
+    prompt: "总结 ops.md 里的 rm -rf /tmp/demo",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "allowed");
+  assert.deepEqual(decision.reasonCodes, []);
+});
+
+test("allow/read/discussion: summarizing a doc section about ssh config does not imply secret-root access", () => {
+  const decision = assessPolicyDecision({
+    prompt: "summarize docs/setup.md section about ~/.ssh/config",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "allowed");
+  assert.deepEqual(decision.reasonCodes, []);
+});
+
+test("allow/read/discussion: explaining a doc note on codex config does not imply host codex access", () => {
+  const decision = assessPolicyDecision({
+    prompt: "explain docs/setup.md note on ~/.codex/config.toml",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "allowed");
+  assert.deepEqual(decision.reasonCodes, []);
+});
+
+test("deny/read/host_secret_root: direct secret-root access remains denied even when another doc path is present", () => {
+  const decision = assessPolicyDecision({
+    prompt: "summarize ~/.ssh/config in docs/setup.md",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "denied");
+  assert.deepEqual(decision.reasonCodes, ["host_secret_boundary_denied"]);
+});
+
+test("deny/read/isolation_boundary: doc discussion does not relax direct isolation-boundary path access", () => {
+  const decision = assessPolicyDecision({
+    prompt: "what does docs/setup.md say about ~/.openclaw/config.json",
+    cwd: "/home/neousys/project",
+    protectedRoots: ["/home/neousys/.openclaw"],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "denied");
+  assert.deepEqual(decision.reasonCodes, ["isolation_boundary_denied"]);
+});
+
+test("deny/read/isolation_boundary: discussing openclaw gateway install docs still hits the isolation boundary", () => {
+  const decision = assessPolicyDecision({
+    prompt: "summarize the openclaw gateway install section in docs/setup.md",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "denied");
+  assert.deepEqual(decision.reasonCodes, ["isolation_boundary_denied"]);
+});
+
+test("allow/read/discussion: summarizing the doc explanation for ssh config in Chinese word order does not imply secret-root access", () => {
+  const decision = assessPolicyDecision({
+    prompt: "总结 ~/.ssh/config 在 docs/setup.md 里的说明",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "allowed");
+  assert.deepEqual(decision.reasonCodes, []);
+});
+
+test("allow/read/discussion: summarizing the doc explanation for codex config in Chinese word order does not imply host codex access", () => {
+  const decision = assessPolicyDecision({
+    prompt: "说明 ~/.codex/config.toml 在 docs/setup.md 里的说明",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "allowed");
+  assert.deepEqual(decision.reasonCodes, []);
+});
+
+test("allow/read/discussion: reviewing a doc explanation for ssh config does not imply secret-root access", () => {
+  const decision = assessPolicyDecision({
+    prompt: "review docs/setup.md explanation for ~/.ssh/config",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "allowed");
+  assert.deepEqual(decision.reasonCodes, []);
+});
+
+test("allow/read/discussion: explaining a doc note for codex config does not imply host codex access", () => {
+  const decision = assessPolicyDecision({
+    prompt: "explain the note for ~/.codex/config.toml in docs/setup.md",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "allowed");
+  assert.deepEqual(decision.reasonCodes, []);
+});
+
+test("allow/read/discussion: summarizing a path explanation in a doc does not imply secret-root access", () => {
+  const decision = assessPolicyDecision({
+    prompt: "summarize ~/.ssh/config explanation in docs/setup.md",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "allowed");
+  assert.deepEqual(decision.reasonCodes, []);
+});
+
+test("allow/read/discussion: asking what a doc says about ssh config does not imply secret-root access", () => {
+  const decision = assessPolicyDecision({
+    prompt: "what does docs/setup.md say about ~/.ssh/config",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "allowed");
+  assert.deepEqual(decision.reasonCodes, []);
+});
+
+test("allow/read/discussion: asking what a doc says about codex config does not imply host codex access", () => {
+  const decision = assessPolicyDecision({
+    prompt: "what does docs/setup.md say about ~/.codex/config.toml",
+    cwd: "/home/neousys/project",
+    protectedRoots: [],
+    hostCodexRoot: "/home/neousys/.codex",
+  });
+  assert.equal(decision.kind, "allowed");
+  assert.deepEqual(decision.reasonCodes, []);
+});
+
+test("allow/read/discussion: asking in Chinese how a doc talks about ssh config does not imply secret-root access", () => {
+  const decision = assessPolicyDecision({
+    prompt: "docs/setup.md 里怎么说 ~/.ssh/config",
     cwd: "/home/neousys/project",
     protectedRoots: [],
     hostCodexRoot: "/home/neousys/.codex",

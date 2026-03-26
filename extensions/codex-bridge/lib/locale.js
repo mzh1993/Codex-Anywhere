@@ -15,7 +15,9 @@ const TASK_STATUS_LABELS = {
 
 const REASON_LABELS = {
   "zh-CN": {
-    host_mutation_requires_approval: "会修改宿主机上的 Codex 状态。",
+    host_codex_boundary_requires_approval: "会触碰宿主机上的 Codex 状态目录。",
+    outside_cwd_write_requires_approval: "会写入当前受控工作目录之外的宿主路径。",
+    install_lifecycle_requires_approval: "会修改桥接器的仓库自有安装或服务配置。",
     service_control_requires_approval: "会控制系统服务。",
     scheduler_control_requires_approval: "会创建或控制计划任务。",
     process_control_requires_approval: "会启动或控制长期运行进程。",
@@ -31,7 +33,9 @@ const REASON_LABELS = {
     out_of_scope_admin_denied: "属于超出范围的管理员操作。",
   },
   "en-US": {
-    host_mutation_requires_approval: "Touches host Codex state.",
+    host_codex_boundary_requires_approval: "Touches the host Codex state directory.",
+    outside_cwd_write_requires_approval: "Writes to a host path outside the current controlled working directory.",
+    install_lifecycle_requires_approval: "Modifies bridge-owned installation or service configuration.",
     service_control_requires_approval: "Controls system services.",
     scheduler_control_requires_approval: "Creates or controls scheduled tasks.",
     process_control_requires_approval: "Starts or controls long-running processes.",
@@ -190,6 +194,7 @@ export function getLocaleText(locale) {
       noActiveTaskToContinue: "当前没有可继续的活动任务。",
       noPendingApproval: "当前没有待审批的活动任务。",
       bridgeActionBlockedByRunningTask: "当前 Codex 任务仍在运行；请等本轮结束后再做这个控制面动作。",
+      bridgeActionAlreadyRunning: "当前已有控制面动作在执行；请等它结束后再试。",
       bridgeActionApprovalNeedsPureApprove: "这一步只接受纯批准。请直接回复“同意”或“不要执行”。",
       bridgeActionDenied: "已取消这次控制面动作。",
       bridgeActionLine: (status) => `控制面动作：${localizeTaskStatus(normalized, status)}`,
@@ -218,8 +223,21 @@ export function getLocaleText(locale) {
         "如需补充要求，也可以回复“同意，并……”。",
         `如需兜底，可使用 \`/codex approve ${token}\`、\`/codex status\` 或 \`/codex abort\`。`,
       ].join("\n"),
+      approvalTailScopeChanged: ({ token, reasons = [] }) => [
+        "补充要求超出了这次审批的边界，原审批仍保持未消费。",
+        ...reasons.map((reason) => formatReasonLine(normalized, reason)),
+        "如需执行补充要求，请单独发新消息，或先纯回复“同意”批准当前这一步。",
+        `如需兜底，可使用 \`/codex approve ${token}\`、\`/codex status\` 或 \`/codex abort\`。`,
+      ].join("\n"),
+      approvalGrantScopeChanged: ({ token, reasons = [] }) => [
+        "这次审批对应的运行边界已变化，原审批仍保持未消费。",
+        ...reasons.map((reason) => formatReasonLine(normalized, reason)),
+        "请重新发起这一步，或先使用 `/codex abort` 取消当前审批后再试。",
+        `如需兜底，可使用 \`/codex approve ${token}\`、\`/codex status\` 或 \`/codex abort\`。`,
+      ].join("\n"),
       approvalDeniedAwaitingReplan: "已拒绝这次高风险动作。任务已回到可继续状态，请给我一个更安全的下一步。",
       approvalDeniedTaskAborted: "已拒绝这次高风险动作。当前任务已终止。",
+      approvalTokenConsumed: (token) => `这个审批令牌已被消费，不能再次使用：${token}`,
       interruptedTaskRequiresContinue: (taskId, hint = "run.interrupted") => [
         `任务 ${taskId} 的上一轮执行已中断。`,
         getUserVisibleStatusHint(normalized, hint),
@@ -350,6 +368,7 @@ export function getLocaleText(locale) {
     noActiveTaskToContinue: "No active task to continue.",
     noPendingApproval: "No active task awaiting approval.",
     bridgeActionBlockedByRunningTask: "The current Codex task is still running. Wait for it to finish before this control-plane action.",
+    bridgeActionAlreadyRunning: "A control-plane action is already running. Wait for it to finish before starting another one.",
     bridgeActionApprovalNeedsPureApprove: "This step accepts only a pure approval reply. Reply with “approve” or “do not run”.",
     bridgeActionDenied: "This control-plane action was canceled.",
     bridgeActionLine: (status) => `control_plane: ${localizeTaskStatus(normalized, status)}`,
@@ -378,8 +397,21 @@ export function getLocaleText(locale) {
       'You can also reply with “approve, …” to add follow-up instructions.',
       `Fallback: \`/codex approve ${token}\`, \`/codex status\`, or \`/codex abort\`.`,
     ].join("\n"),
+    approvalTailScopeChanged: ({ token, reasons = [] }) => [
+      "The follow-up tail exceeds the scope of this approval, so the original approval stays pending.",
+      ...reasons.map((reason) => formatReasonLine(normalized, reason)),
+      "Send the extra request as a new message, or reply with a pure approval for the already-approved step.",
+      `Fallback: \`/codex approve ${token}\`, \`/codex status\`, or \`/codex abort\`.`,
+    ].join("\n"),
+    approvalGrantScopeChanged: ({ token, reasons = [] }) => [
+      "The run boundary tied to this approval has changed, so the original approval stays pending.",
+      ...reasons.map((reason) => formatReasonLine(normalized, reason)),
+      "Please re-send this step, or cancel the current approval with `/codex abort` before retrying.",
+      `Fallback: \`/codex approve ${token}\`, \`/codex status\`, or \`/codex abort\`.`,
+    ].join("\n"),
     approvalDeniedAwaitingReplan: "This high-risk action was denied. The task is back in a safe replanning state.",
     approvalDeniedTaskAborted: "This high-risk action was denied. The current task was aborted.",
+    approvalTokenConsumed: (token) => `This approval token was already consumed and cannot be used again: ${token}`,
     interruptedTaskRequiresContinue: (taskId, hint = "run.interrupted") => [
       `Previous run interrupted for task ${taskId}.`,
       getUserVisibleStatusHint(normalized, hint),

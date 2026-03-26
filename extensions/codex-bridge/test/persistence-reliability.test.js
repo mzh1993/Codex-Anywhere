@@ -187,6 +187,101 @@ test("runtime/persistence/recovery: runtime persistence failure becomes recovera
   assert.match(persistedRun.error, /interrupted|persistence failure/i);
 });
 
+test("runtime/persistence/approval: start failures do not consume the pending approval token", async () => {
+  const { CodexBridge } = await import("../index.js");
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-approval-start-failure-"));
+  const replies = [];
+  const bridge = new CodexBridge(createFakeApi(tempRoot));
+  bridge.safeReply = async (params) => {
+    replies.push(params.text);
+  };
+  bridge.ensureExecutionRuntimeReady = async () => ({ ok: true });
+  bridge.startTask = async () => {
+    throw new Error("simulated start failure");
+  };
+
+  const task = createTaskRecord({
+    taskId: "task-awaiting-approval",
+    locale: "zh-CN",
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-old",
+    cwd: tempRoot,
+    mode: "new",
+    sessionId: null,
+    status: "awaiting_approval",
+    approvalToken: "TOKEN1",
+    currentRunId: null,
+    lastRunId: "run-blocked",
+    prompt: "请重启 nginx",
+    createdAt: "2026-03-25T00:00:00.000Z",
+    updatedAt: "2026-03-25T00:00:00.000Z",
+  });
+  const profile = {
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    defaultCwd: tempRoot,
+    activeTaskId: task.taskId,
+    lastTaskId: task.taskId,
+    pendingApprovalToken: "TOKEN1",
+    updatedAt: "2026-03-25T00:00:00.000Z",
+  };
+  const approval = {
+    token: "TOKEN1",
+    taskId: task.taskId,
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-old",
+    mode: "new",
+    prompt: "请重启 nginx",
+    cwd: tempRoot,
+    sessionId: null,
+    policyDecision: "approval_required",
+    reasonCodes: ["service_control_requires_approval"],
+    replyContract: {
+      kind: "natural_language_approval",
+      allowNumericChoice: false,
+    },
+    onDeny: "await_user_replan",
+    createdAtMs: Date.now(),
+    expiresAtMs: Date.now() + 60_000,
+  };
+
+  await bridge.saveTask(task);
+  await bridge.saveProfile(profile);
+  await bridge.writeApproval(approval);
+
+  await assert.rejects(
+    async () =>
+      bridge.routeInbound({
+        senderId: "user-1",
+        senderName: "tester",
+        accountId: "default",
+        conversationId: "conv-1",
+        messageId: "msg-approve",
+        text: "同意",
+      }),
+    /simulated start failure/,
+  );
+
+  const persistedTask = await bridge.readTask(task.taskId);
+  const persistedProfile = await bridge.loadProfile("user-1", null);
+  const persistedApproval = await bridge.readApproval("TOKEN1");
+
+  assert.equal(persistedTask.status, "awaiting_approval");
+  assert.equal(persistedTask.approvalToken, "TOKEN1");
+  assert.equal(persistedProfile.pendingApprovalToken, "TOKEN1");
+  assert.equal(persistedApproval?.token, "TOKEN1");
+  assert.ok(persistedApproval?.approvalGrant);
+  assert.equal(persistedApproval.approvalGrant.approvalToken, "TOKEN1");
+  assert.equal(persistedApproval.approvalGrant.consumedAtMs, null);
+  assert.deepEqual(persistedApproval.approvalGrant.reasonCodes, ["service_control_requires_approval"]);
+  assert.equal(replies.length, 0);
+});
+
 test("runtime/persistence/progress: internal item events stay silent and do not overwrite user-visible status", async () => {
   const { CodexBridge, __activeTasks } = await import("../index.js");
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-progress-filter-"));

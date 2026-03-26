@@ -1,15 +1,21 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  BRIDGE_ACTION_CONTRACT_KEYS,
+  BRIDGE_ACTION_EXECUTION_TRACE_KEYS,
+  BRIDGE_ACTION_EXECUTORS,
   BRIDGE_ACTION_KINDS,
+  BRIDGE_ACTION_RECOVERY_TRACE_KEYS,
   BRIDGE_ACTION_RESULT_STATUSES,
   BRIDGE_ACTION_STATUSES,
+  BRIDGE_ACTION_TRACE_KEYS,
   canBridgeActionAffectTaskContinuity,
   defaultBridgeActionOwner,
   finishBridgeActionDenied,
   finishBridgeActionFromExecution,
   finishBridgeActionWithApprovalRequired,
   isBridgeActionStatus,
+  normalizeBridgeActionTrace,
   normalizeBridgeActionOwner,
   startBridgeActionExecution,
 } from "../lib/bridge-action-model.js";
@@ -18,8 +24,43 @@ test("protocol/bridge-action/schema: bridge action statuses, kinds, and result s
   assert.deepEqual(BRIDGE_ACTION_STATUSES, ["created", "awaiting_approval", "running", "finished"]);
   assert.deepEqual(BRIDGE_ACTION_KINDS, ["service_control", "gateway_health", "install_lifecycle", "diagnostic"]);
   assert.deepEqual(BRIDGE_ACTION_RESULT_STATUSES, ["completed", "failed", "denied"]);
+  assert.deepEqual(BRIDGE_ACTION_CONTRACT_KEYS, ["kind", "operation", "target", "executor"]);
+  assert.deepEqual(BRIDGE_ACTION_EXECUTORS, ["systemd_user", "isolated_openclaw", "bootstrap_script"]);
+  assert.deepEqual(BRIDGE_ACTION_TRACE_KEYS, ["execution", "recovery"]);
+  assert.deepEqual(BRIDGE_ACTION_EXECUTION_TRACE_KEYS, ["executor", "command", "args", "exitCode"]);
+  assert.deepEqual(BRIDGE_ACTION_RECOVERY_TRACE_KEYS, ["reason"]);
   assert.equal(isBridgeActionStatus("awaiting_approval"), true);
   assert.equal(isBridgeActionStatus("awaiting_input"), false);
+});
+
+test("protocol/bridge-action/schema: trace shape stays narrow and drops unknown fields", () => {
+  assert.deepEqual(
+    normalizeBridgeActionTrace({
+      execution: {
+        executor: "systemd_user",
+        command: "systemctl",
+        args: ["--user", "restart", "openclaw-codex-feishu.service"],
+        exitCode: 0,
+        extra: "ignored",
+      },
+      recovery: {
+        reason: "bridge_action_interrupted_before_completion",
+        extra: "ignored",
+      },
+      extra: "ignored",
+    }),
+    {
+      execution: {
+        executor: "systemd_user",
+        command: "systemctl",
+        args: ["--user", "restart", "openclaw-codex-feishu.service"],
+        exitCode: 0,
+      },
+      recovery: {
+        reason: "bridge_action_interrupted_before_completion",
+      },
+    },
+  );
 });
 
 test("protocol/bridge-action/owner: bridge action ownership stays bridge-only and never consumes task continuity", () => {

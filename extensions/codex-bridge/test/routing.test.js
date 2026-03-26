@@ -99,6 +99,262 @@ test("protocol/input/bridge_action: non-owned host operations are not hijacked b
   );
 });
 
+test("protocol/input/bridge_action: mixed repository-owned control plus normal work falls back to codex", () => {
+  assert.equal(
+    classifyOwnedBridgeActionRequest({
+      prompt: "请帮我重启 openclaw-codex-feishu.service 并总结 README.md",
+      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
+    }),
+    null,
+  );
+});
+
+test("protocol/input/bridge_action: shorthand repository viewing after gateway health falls back to codex", () => {
+  assert.equal(
+    classifyOwnedBridgeActionRequest({
+      prompt: "show gateway health details view repository",
+      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
+    }),
+    null,
+  );
+});
+
+test("protocol/input/bridge_action: shorthand repository viewing after owned service status falls back to codex", () => {
+  assert.equal(
+    classifyOwnedBridgeActionRequest({
+      prompt: "what is the status of openclaw-codex-feishu.service view repo",
+      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
+    }),
+    null,
+  );
+});
+
+test("protocol/input/bridge_action: english natural-language status checks for owned service stay bridge-owned", () => {
+  assert.deepEqual(
+    classifyOwnedBridgeActionRequest({
+      prompt: "what is the status of openclaw-codex-feishu.service",
+      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
+    }),
+    {
+      kind: "service_control",
+      operation: "status",
+      target: "openclaw-codex-feishu.service",
+      requiresApproval: false,
+      reasonCodes: [],
+    },
+  );
+});
+
+test("protocol/input/bridge_action: english natural-language gateway health checks stay bridge-owned", () => {
+  assert.deepEqual(
+    classifyOwnedBridgeActionRequest({
+      prompt: "can you check the health of gateway",
+      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
+    }),
+    {
+      kind: "gateway_health",
+      operation: "check",
+      target: "gateway",
+      requiresApproval: false,
+      reasonCodes: [],
+    },
+  );
+});
+
+test("protocol/input/bridge_action: english natural-language gateway health details stay bridge-owned", () => {
+  assert.deepEqual(
+    classifyOwnedBridgeActionRequest({
+      prompt: "show gateway health details",
+      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
+    }),
+    {
+      kind: "gateway_health",
+      operation: "check",
+      target: "gateway",
+      requiresApproval: false,
+      reasonCodes: [],
+    },
+  );
+});
+
+test("protocol/input/bridge_action: english natural-language diagnostics stay bridge-owned", () => {
+  assert.deepEqual(
+    classifyOwnedBridgeActionRequest({
+      prompt: "please check bridge diagnostic info",
+      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
+    }),
+    {
+      kind: "diagnostic",
+      operation: "gateway-status",
+      target: "bridge",
+      requiresApproval: false,
+      reasonCodes: [],
+    },
+  );
+});
+
+test("protocol/input/bridge_action: english natural-language diagnostic details stay bridge-owned", () => {
+  assert.deepEqual(
+    classifyOwnedBridgeActionRequest({
+      prompt: "show me bridge diagnostic details",
+      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
+    }),
+    {
+      kind: "diagnostic",
+      operation: "gateway-status",
+      target: "bridge",
+      requiresApproval: false,
+      reasonCodes: [],
+    },
+  );
+});
+
+test("protocol/input/bridge_action: reversed english diagnostic details phrasing stays bridge-owned", () => {
+  assert.deepEqual(
+    classifyOwnedBridgeActionRequest({
+      prompt: "show diagnostic details of bridge",
+      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
+    }),
+    {
+      kind: "diagnostic",
+      operation: "gateway-status",
+      target: "bridge",
+      requiresApproval: false,
+      reasonCodes: [],
+    },
+  );
+});
+
+test("protocol/input/bridge_action: ambiguous status info phrasing stays codex-owned", () => {
+  assert.equal(
+    classifyOwnedBridgeActionRequest({
+      prompt: "show status info of bridge",
+      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
+    }),
+    null,
+  );
+  assert.equal(
+    classifyOwnedBridgeActionRequest({
+      prompt: "show status info of gateway",
+      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
+    }),
+    null,
+  );
+  assert.equal(
+    classifyOwnedBridgeActionRequest({
+      prompt: "show status info of runner",
+      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
+    }),
+    null,
+  );
+});
+
+test("protocol/input/bridge_action: english natural-language install lifecycle stays bridge-owned", () => {
+  assert.deepEqual(
+    classifyOwnedBridgeActionRequest({
+      prompt: "can you install the systemd service",
+      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
+    }),
+    {
+      kind: "install_lifecycle",
+      operation: "install-systemd",
+      target: "systemd",
+      requiresApproval: true,
+      reasonCodes: ["install_lifecycle_requires_approval"],
+    },
+  );
+});
+
+test("protocol/input/bridge_action: diagnostic details mixed with normal work still fall back to codex", () => {
+  assert.equal(
+    classifyOwnedBridgeActionRequest({
+      prompt: "show me bridge diagnostic details and summarize README.md",
+      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
+    }),
+    null,
+  );
+});
+
+test("protocol/input/bridge_action: reversed diagnostic details mixed with normal work still fall back to codex", () => {
+  assert.equal(
+    classifyOwnedBridgeActionRequest({
+      prompt: "show diagnostic details of bridge and summarize README.md",
+      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
+    }),
+    null,
+  );
+});
+
+test("protocol/input/bridge_action: gateway health details mixed with normal work still fall back to codex", () => {
+  assert.equal(
+    classifyOwnedBridgeActionRequest({
+      prompt: "show gateway health details and summarize README.md",
+      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
+    }),
+    null,
+  );
+});
+
+test("protocol/input/bridge_action: diagnostic details plus explanation work still fall back to codex", () => {
+  assert.equal(
+    classifyOwnedBridgeActionRequest({
+      prompt: "show bridge diagnostic details and explain README structure",
+      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
+    }),
+    null,
+  );
+});
+
+test("protocol/input/bridge_action: install lifecycle plus docs update still falls back to codex", () => {
+  assert.equal(
+    classifyOwnedBridgeActionRequest({
+      prompt: "install the systemd service and then update docs/roadmap.md",
+      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
+    }),
+    null,
+  );
+});
+
+test("protocol/input/bridge_action: owned service status plus test fixing still falls back to codex", () => {
+  assert.equal(
+    classifyOwnedBridgeActionRequest({
+      prompt: "status of openclaw-codex-feishu.service, then fix the failing test",
+      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
+    }),
+    null,
+  );
+});
+
+test("protocol/input/bridge_action: gateway health with trailing ordinary verb falls back to codex", () => {
+  assert.equal(
+    classifyOwnedBridgeActionRequest({
+      prompt: "show gateway health details view",
+      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
+    }),
+    null,
+  );
+});
+
+test("protocol/input/bridge_action: diagnostic details with trailing ordinary verb falls back to codex", () => {
+  assert.equal(
+    classifyOwnedBridgeActionRequest({
+      prompt: "show bridge diagnostic details info",
+      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
+    }),
+    null,
+  );
+});
+
+test("protocol/input/bridge_action: owned service status with trailing ordinary verb falls back to codex", () => {
+  assert.equal(
+    classifyOwnedBridgeActionRequest({
+      prompt: "what is the status of openclaw-codex-feishu.service check",
+      bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
+    }),
+    null,
+  );
+});
+
 test("protocol/command/continue: continue is rejected when no active task exists", () => {
   const result = routeContinueCommand({ activeTaskStatus: null });
   assert.deepEqual(result, {

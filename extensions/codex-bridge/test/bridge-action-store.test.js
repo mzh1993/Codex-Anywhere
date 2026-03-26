@@ -68,6 +68,20 @@ test("protocol/bridge-action/persistence: bridge action records exclude task con
     target: "openclaw-codex-feishu.service",
     requestText: "请重启 openclaw-codex-feishu.service",
     approvalToken: "TOKEN_ACTION",
+    trace: {
+      execution: {
+        executor: "systemd_user",
+        command: "systemctl",
+        args: ["--user", "restart", "openclaw-codex-feishu.service"],
+        exitCode: 0,
+        extra: "ignored",
+      },
+      recovery: {
+        reason: "bridge_action_interrupted_before_completion",
+        extra: "ignored",
+      },
+      extra: "ignored",
+    },
     createdAt: "2026-03-25T00:00:00.000Z",
   });
 
@@ -77,6 +91,23 @@ test("protocol/bridge-action/persistence: bridge action records exclude task con
   assert.equal("sessionId" in action, false);
   assert.equal("currentRunId" in action, false);
   assert.equal("lastRunId" in action, false);
+  assert.deepEqual(action.contract, {
+    kind: "service_control",
+    operation: "restart",
+    target: "openclaw-codex-feishu.service",
+    executor: "systemd_user",
+  });
+  assert.deepEqual(action.trace, {
+    execution: {
+      executor: "systemd_user",
+      command: "systemctl",
+      args: ["--user", "restart", "openclaw-codex-feishu.service"],
+      exitCode: 0,
+    },
+    recovery: {
+      reason: "bridge_action_interrupted_before_completion",
+    },
+  });
 });
 
 test("protocol/bridge-action/persistence: bridge action approval state persists separately from task approval state", async () => {
@@ -145,4 +176,14 @@ test("protocol/bridge-action/persistence: bridge action approval state persists 
   assert.equal(persistedAction.status, "awaiting_approval");
   assert.equal(persistedAction.kind, "service_control");
   assert.equal(persistedAction.target, "openclaw-codex-feishu.service");
+  assert.deepEqual(persistedAction.contract, {
+    kind: "service_control",
+    operation: "restart",
+    target: "openclaw-codex-feishu.service",
+    executor: "systemd_user",
+  });
+  assert.deepEqual(persistedAction.trace, {
+    execution: null,
+    recovery: null,
+  });
 });

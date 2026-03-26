@@ -44,7 +44,7 @@ function createFakeApi(stateDir) {
 }
 
 function createBridgeHarness(tempRoot) {
-  return import("../index.js").then(({ CodexBridge }) => {
+  return import("../index.js").then(({ CodexBridge, __activeBridgeActions }) => {
     const replies = [];
     const startedTasks = [];
     const bridge = new CodexBridge(createFakeApi(tempRoot));
@@ -56,7 +56,7 @@ function createBridgeHarness(tempRoot) {
     bridge.startTask = async (params) => {
       startedTasks.push(params);
     };
-    return { bridge, replies, startedTasks };
+    return { bridge, replies, startedTasks, activeBridgeActions: __activeBridgeActions };
   });
 }
 
@@ -82,6 +82,53 @@ function buildAwaitingInputTask(tempRoot, overrides = {}) {
     nextSteps: ["继续处理 README"],
     ...overrides,
   });
+}
+
+function buildAwaitingApprovalTask(tempRoot, overrides = {}) {
+  return createTaskRecord({
+    taskId: "task-awaiting-approval",
+    locale: "zh-CN",
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-old",
+    cwd: tempRoot,
+    mode: "new",
+    sessionId: null,
+    status: "awaiting_approval",
+    approvalToken: "TOKEN_TASK",
+    currentRunId: null,
+    lastRunId: "run-blocked",
+    prompt: "请重启 nginx",
+    createdAt: "2026-03-25T00:00:00.000Z",
+    updatedAt: "2026-03-25T00:00:00.000Z",
+    ...overrides,
+  });
+}
+
+function buildTaskApproval(tempRoot, overrides = {}) {
+  return {
+    token: "TOKEN_TASK",
+    taskId: "task-awaiting-approval",
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-old",
+    mode: "new",
+    prompt: "请重启 nginx",
+    cwd: tempRoot,
+    sessionId: null,
+    policyDecision: "approval_required",
+    reasonCodes: ["service_control_requires_approval"],
+    replyContract: {
+      kind: "natural_language_approval",
+      allowNumericChoice: false,
+    },
+    onDeny: "await_user_replan",
+    createdAtMs: Date.now(),
+    expiresAtMs: Date.now() + 60_000,
+    ...overrides,
+  };
 }
 
 function buildBridgeAction(tempRoot, overrides = {}) {
@@ -132,6 +179,58 @@ test("runtime/control-plane/routing: repository-owned service control creates a 
   assert.match(replies[0], /等待审批|同意|不要执行/);
 });
 
+test("runtime/control-plane/routing: mixed-intent prompts stay codex-owned instead of being hijacked as bridge actions", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-control-plane-mixed-"));
+  const { bridge, replies, startedTasks } = await createBridgeHarness(tempRoot);
+  const queued = [];
+  bridge.queueOrStartTask = async (params) => {
+    queued.push(params);
+  };
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-1",
+    text: "先检查 docs/roadmap.md，再重启 openclaw-codex-feishu.service",
+  });
+
+  const bridgeActionFiles = await fs.readdir(bridge.settings.bridgeActionsRoot).catch(() => []);
+
+  assert.equal(startedTasks.length, 0);
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].prompt, "先检查 docs/roadmap.md，再重启 openclaw-codex-feishu.service");
+  assert.equal(bridgeActionFiles.length, 0);
+  assert.equal(replies.length, 0);
+});
+
+test("runtime/control-plane/routing: shorthand repository viewing after gateway health stays codex-owned", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-control-plane-shorthand-mixed-"));
+  const { bridge, replies, startedTasks } = await createBridgeHarness(tempRoot);
+  const queued = [];
+  bridge.queueOrStartTask = async (params) => {
+    queued.push(params);
+  };
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-1",
+    text: "show gateway health details view repository",
+  });
+
+  const bridgeActionFiles = await fs.readdir(bridge.settings.bridgeActionsRoot).catch(() => []);
+
+  assert.equal(startedTasks.length, 0);
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].prompt, "show gateway health details view repository");
+  assert.equal(bridgeActionFiles.length, 0);
+  assert.equal(replies.length, 0);
+});
+
 test("runtime/control-plane/continuity: bridge action approval does not overwrite the active codex task", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-control-plane-continuity-"));
   const { bridge, replies, startedTasks } = await createBridgeHarness(tempRoot);
@@ -170,6 +269,120 @@ test("runtime/control-plane/continuity: bridge action approval does not overwrit
   assert.deepEqual(persistedTask.nextSteps, ["继续处理 README"]);
   assert.equal(action.status, "awaiting_approval");
   assert.match(replies[0], /等待审批|同意|不要执行/);
+});
+
+test("runtime/control-plane/routing: an awaiting-approval task keeps ownership and blocks a new bridge action", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-control-plane-task-approval-"));
+  const { bridge, replies, startedTasks } = await createBridgeHarness(tempRoot);
+  const task = createTaskRecord({
+    taskId: "task-awaiting-approval",
+    locale: "zh-CN",
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-old",
+    cwd: tempRoot,
+    mode: "new",
+    status: "awaiting_approval",
+    approvalToken: "TOKEN_TASK",
+    currentRunId: null,
+    lastRunId: "run-blocked",
+    prompt: "重启服务",
+    createdAt: "2026-03-25T00:00:00.000Z",
+    updatedAt: "2026-03-25T00:00:00.000Z",
+  });
+  const profile = {
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    defaultCwd: tempRoot,
+    activeTaskId: task.taskId,
+    lastTaskId: task.taskId,
+    pendingApprovalToken: "TOKEN_TASK",
+    updatedAt: "2026-03-25T00:00:00.000Z",
+  };
+
+  await bridge.saveTask(task);
+  await bridge.saveProfile(profile);
+  await bridge.writeApproval({
+    token: "TOKEN_TASK",
+    taskId: task.taskId,
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-old",
+    mode: "new",
+    prompt: "重启服务",
+    cwd: tempRoot,
+    sessionId: null,
+    policyDecision: "approval_required",
+    reasonCodes: ["service_control_requires_approval"],
+    createdAtMs: Date.now(),
+    expiresAtMs: Date.now() + 60_000,
+  });
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-1",
+    text: "请重启 openclaw-codex-feishu.service",
+  });
+
+  const persistedProfile = await bridge.loadProfile("user-1", null);
+  const persistedTask = await bridge.readTask(task.taskId);
+  const bridgeActionFiles = await fs.readdir(bridge.settings.bridgeActionsRoot).catch(() => []);
+
+  assert.equal(startedTasks.length, 0);
+  assert.equal(persistedProfile.activeTaskId, task.taskId);
+  assert.equal(persistedProfile.activeBridgeActionId, undefined);
+  assert.equal(persistedTask.approvalToken, "TOKEN_TASK");
+  assert.equal(bridgeActionFiles.length, 0);
+  assert.match(replies[0], /审批|同意|不要执行|\/codex approve/);
+});
+
+test("runtime/control-plane/routing: a running bridge action blocks a second owned bridge action", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-control-plane-active-action-"));
+  const { bridge, replies, startedTasks, activeBridgeActions } = await createBridgeHarness(tempRoot);
+  const action = buildBridgeAction(tempRoot, {
+    status: "running",
+    approvalToken: null,
+    startedAt: "2026-03-25T00:01:00.000Z",
+  });
+  const profile = {
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    defaultCwd: tempRoot,
+    activeBridgeActionId: action.actionId,
+    lastBridgeActionId: action.actionId,
+    updatedAt: "2026-03-25T00:00:00.000Z",
+  };
+
+  await bridge.saveProfile(profile);
+  await bridge.saveBridgeAction(action);
+  activeBridgeActions.set("user-1", { actionId: action.actionId });
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-2",
+    text: "请重启 openclaw-codex-feishu.service",
+  });
+
+  const persistedProfile = await bridge.loadProfile("user-1", null);
+  const bridgeActionFiles = await fs.readdir(bridge.settings.bridgeActionsRoot).catch(() => []);
+  const persistedAction = await bridge.readBridgeAction(action.actionId);
+
+  assert.equal(startedTasks.length, 0);
+  assert.equal(persistedProfile.activeBridgeActionId, action.actionId);
+  assert.equal(bridgeActionFiles.length, 1);
+  assert.equal(persistedAction.status, "running");
+  assert.equal(replies.length, 1);
+  activeBridgeActions.clear();
 });
 
 test("runtime/control-plane/approval: explanation keeps the bridge-action approval gate open", async () => {
@@ -275,7 +488,96 @@ test("runtime/control-plane/approval: pure approval executes directly in bridge 
   assert.equal(persistedTask.summary, "原任务总结");
   assert.equal(persistedAction.status, "finished");
   assert.equal(persistedAction.resultStatus, "completed");
+  assert.deepEqual(persistedAction.trace?.execution, {
+    executor: "systemd_user",
+    command: "systemctl",
+    args: ["--user", "restart", "openclaw-codex-feishu.service"],
+    exitCode: 0,
+  });
   assert.match(replies[0], /已重启|执行完成|完成/);
+});
+
+test("runtime/control-plane/approval: a tail that adds a bridge-owned action does not reuse the original task approval", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-control-plane-tail-owned-"));
+  const { bridge, replies, startedTasks } = await createBridgeHarness(tempRoot);
+  const task = buildAwaitingApprovalTask(tempRoot);
+  bridge.ensureExecutionRuntimeReady = async () => ({ ok: true });
+  const profile = {
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    defaultCwd: tempRoot,
+    activeTaskId: task.taskId,
+    lastTaskId: task.taskId,
+    pendingApprovalToken: "TOKEN_TASK",
+    updatedAt: "2026-03-25T00:00:00.000Z",
+  };
+
+  await bridge.saveTask(task);
+  await bridge.saveProfile(profile);
+  await bridge.writeApproval(buildTaskApproval(tempRoot));
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-2",
+    text: "同意，并重启 openclaw-codex-feishu.service",
+  });
+
+  const persistedTask = await bridge.readTask(task.taskId);
+  const persistedProfile = await bridge.loadProfile("user-1", null);
+  const persistedApproval = await bridge.readApproval("TOKEN_TASK");
+  const bridgeActionFiles = await fs.readdir(bridge.settings.bridgeActionsRoot).catch(() => []);
+
+  assert.equal(startedTasks.length, 0);
+  assert.equal(persistedTask.status, "awaiting_approval");
+  assert.equal(persistedProfile.pendingApprovalToken, "TOKEN_TASK");
+  assert.equal(persistedProfile.activeBridgeActionId, undefined);
+  assert.equal(persistedApproval?.token, "TOKEN_TASK");
+  assert.equal(bridgeActionFiles.length, 0);
+  assert.match(replies[0], /审批|同意|不要执行|补充要求/);
+});
+
+test("runtime/control-plane/approval: a denied tail keeps the original approval pending instead of starting the task", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-control-plane-tail-denied-"));
+  const { bridge, replies, startedTasks } = await createBridgeHarness(tempRoot);
+  const task = buildAwaitingApprovalTask(tempRoot);
+  bridge.ensureExecutionRuntimeReady = async () => ({ ok: true });
+  const profile = {
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    defaultCwd: tempRoot,
+    activeTaskId: task.taskId,
+    lastTaskId: task.taskId,
+    pendingApprovalToken: "TOKEN_TASK",
+    updatedAt: "2026-03-25T00:00:00.000Z",
+  };
+
+  await bridge.saveTask(task);
+  await bridge.saveProfile(profile);
+  await bridge.writeApproval(buildTaskApproval(tempRoot));
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-2",
+    text: "同意，并读取 ~/.ssh/config",
+  });
+
+  const persistedTask = await bridge.readTask(task.taskId);
+  const persistedProfile = await bridge.loadProfile("user-1", null);
+  const persistedApproval = await bridge.readApproval("TOKEN_TASK");
+
+  assert.equal(startedTasks.length, 0);
+  assert.equal(persistedTask.status, "awaiting_approval");
+  assert.equal(persistedProfile.pendingApprovalToken, "TOKEN_TASK");
+  assert.equal(persistedApproval?.token, "TOKEN_TASK");
+  assert.match(replies[0], /拒绝|审批|同意|不要执行/);
 });
 
 test("runtime/control-plane/approval: approval tail is rejected and deny ends only the bridge action", async () => {
@@ -344,4 +646,39 @@ test("runtime/control-plane/approval: approval tail is rejected and deny ends on
   assert.equal(persistedAction.resultStatus, "denied");
   assert.equal(persistedTask.summary, "原任务总结");
   assert.match(replies[0], /已取消|不要执行/);
+});
+
+test("runtime/control-plane/recovery: stale running bridge actions fail closed and clear the active pointer", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-control-plane-stale-action-"));
+  const { bridge } = await createBridgeHarness(tempRoot);
+  const action = buildBridgeAction(tempRoot, {
+    status: "running",
+    approvalToken: null,
+    startedAt: "2026-03-25T00:01:00.000Z",
+  });
+  const profile = {
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    defaultCwd: tempRoot,
+    activeBridgeActionId: action.actionId,
+    lastBridgeActionId: action.actionId,
+    updatedAt: "2026-03-25T00:00:00.000Z",
+  };
+
+  await bridge.saveProfile(profile);
+  await bridge.saveBridgeAction(action);
+
+  const activeAction = await bridge.loadActiveBridgeAction("user-1", null);
+  const persistedProfile = await bridge.loadProfile("user-1", null);
+  const persistedAction = await bridge.readBridgeAction(action.actionId);
+
+  assert.equal(activeAction, null);
+  assert.equal(persistedProfile.activeBridgeActionId, undefined);
+  assert.equal(persistedAction.status, "finished");
+  assert.equal(persistedAction.resultStatus, "failed");
+  assert.match(persistedAction.error ?? "", /stale|interrupted|bridge/i);
+  assert.deepEqual(persistedAction.trace?.recovery, {
+    reason: "bridge_action_interrupted_before_completion",
+  });
 });
