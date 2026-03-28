@@ -1,4 +1,4 @@
-const COMPAT_CODEX_COMMANDS = new Set(["help", "pwd", "cwd", "status", "abort", "approve", "continue"]);
+const COMPAT_CODEX_COMMANDS = new Set(["help", "status", "abort", "approve"]);
 
 export function isCompatCodexCommand(name) {
   return typeof name === "string" && COMPAT_CODEX_COMMANDS.has(name);
@@ -9,59 +9,11 @@ export async function handleCompatCodexCommand({
   parsed,
   request,
   profile,
-  expandUserPath,
-  assertAllowedCwd,
-  statPath,
   routeAbortCommand,
   routeApproveCommand,
-  routeContinueCommand,
 }) {
   if (parsed.name === "help") {
     await bridge.sendHelp(request, profile);
-    return;
-  }
-
-  if (parsed.name === "pwd") {
-    await bridge.safeReply({
-      accountId: request.accountId,
-      conversationId: request.conversationId,
-      messageId: request.messageId,
-      text: bridge.text.currentCwd(profile.defaultCwd || bridge.settings.defaultCwd),
-    });
-    return;
-  }
-
-  if (parsed.name === "cwd") {
-    if (!parsed.args) {
-      await bridge.safeReply({
-        accountId: request.accountId,
-        conversationId: request.conversationId,
-        messageId: request.messageId,
-        text: bridge.text.usageCwd,
-      });
-      return;
-    }
-    const nextCwd = expandUserPath(parsed.args, profile.defaultCwd || bridge.settings.defaultCwd);
-    await assertAllowedCwd(nextCwd, bridge.settings);
-    const stat = await statPath(nextCwd);
-    if (!stat?.isDirectory()) {
-      await bridge.safeReply({
-        accountId: request.accountId,
-        conversationId: request.conversationId,
-        messageId: request.messageId,
-        text: bridge.text.directoryNotFound(nextCwd),
-      });
-      return;
-    }
-    profile.defaultCwd = nextCwd;
-    profile.updatedAt = new Date().toISOString();
-    await bridge.saveProfile(profile);
-    await bridge.safeReply({
-      accountId: request.accountId,
-      conversationId: request.conversationId,
-      messageId: request.messageId,
-      text: bridge.text.defaultCwdUpdated(nextCwd),
-    });
     return;
   }
 
@@ -148,55 +100,6 @@ export async function handleCompatCodexCommand({
       return;
     }
     await bridge.approvePendingRequest(profile, request, approvalToken);
-    return;
-  }
-
-  if (parsed.name === "continue") {
-    if (!parsed.args) {
-      await bridge.safeReply({
-        accountId: request.accountId,
-        conversationId: request.conversationId,
-        messageId: request.messageId,
-        text: bridge.text.usageContinue,
-      });
-      return;
-    }
-    const activeTask = await bridge.loadActiveTask(profile.senderId, profile);
-    const continueRoute = routeContinueCommand({ activeTaskStatus: activeTask?.status ?? null });
-    if (!continueRoute.accepted) {
-      if (activeTask) {
-        await bridge.safeReply({
-          accountId: request.accountId,
-          conversationId: request.conversationId,
-          messageId: request.messageId,
-          text: bridge.text.taskAlreadyRunning({
-            taskId: activeTask.taskId,
-            status: activeTask.status,
-            code: continueRoute.code,
-            suggestedCommand: continueRoute.suggestedCommand,
-          }),
-        });
-        return;
-      }
-      await bridge.safeReply({
-        accountId: request.accountId,
-        conversationId: request.conversationId,
-        messageId: request.messageId,
-        text: bridge.text.noActiveTaskToContinue,
-      });
-      return;
-    }
-    await bridge.queueOrStartTask({
-      profile,
-      accountId: request.accountId,
-      conversationId: request.conversationId,
-      messageId: request.messageId,
-      mode: bridge.getNextRunMode(activeTask),
-      prompt: parsed.args,
-      cwd: activeTask.cwd,
-      senderName: request.senderName,
-      existingTask: activeTask,
-    });
   }
 }
 

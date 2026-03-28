@@ -163,7 +163,7 @@ test("runtime/compat/fail_closed: new task start fails closed before creating ta
   assert.match(replies[0], /bubblewrap|基础设施|执行环境/);
 });
 
-test("runtime/compat/fail_closed: explicit continue start fails closed without mutating the awaiting_input task", async () => {
+test("runtime/compat/fail_closed: explicit resume start fails closed without mutating the awaiting_input task", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-runtime-continue-"));
   const { bridge, replies } = await createBridgeHarness(tempRoot);
 
@@ -1082,7 +1082,7 @@ test("runtime/protocol/approval_input: ambiguous replies keep the approval gate 
   assert.doesNotMatch(replies[0], /active_task_exists|请先使用 `\/codex approve/);
 });
 
-test("runtime/protocol/input: interrupted awaiting_input tasks accept plain text as the default continue path", async () => {
+test("runtime/protocol/input: interrupted awaiting_input tasks accept plain text as the default resume path", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-natural-continue-"));
   const { bridge, replies } = await createBridgeHarness(tempRoot);
   const queued = [];
@@ -1221,7 +1221,7 @@ test("runtime/protocol/status: bridge self-restart recovery uses a specific inte
   assert.doesNotMatch(text, /上一轮执行中断，请直接说明要继续做什么/);
 });
 
-test("runtime/protocol/command_compat/cwd: legacy cwd changes future default only and does not hot-switch the active task cwd", async () => {
+test("runtime/protocol/command_surface/cwd: legacy cwd no longer mutates bridge state and falls back to the native-first unknown-command hint", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-cwd-default-"));
   const activeCwd = path.join(tempRoot, "active");
   const nextDefaultCwd = path.join(tempRoot, "next-default");
@@ -1229,10 +1229,6 @@ test("runtime/protocol/command_compat/cwd: legacy cwd changes future default onl
   await fs.mkdir(nextDefaultCwd, { recursive: true });
 
   const { bridge, replies } = await createBridgeHarness(tempRoot);
-  const queued = [];
-  bridge.queueOrStartTask = async (params) => {
-    queued.push({ cwd: params.cwd, mode: params.mode, prompt: params.prompt });
-  };
 
   const task = createTaskRecord({
     taskId: "task-awaiting-input",
@@ -1273,8 +1269,11 @@ test("runtime/protocol/command_compat/cwd: legacy cwd changes future default onl
   });
 
   const persistedProfile = await bridge.loadProfile("user-1", null);
-  assert.equal(persistedProfile.defaultCwd, nextDefaultCwd);
-  assert.match(replies[0], /默认工作目录已更新为/);
+  assert.equal(persistedProfile.defaultCwd, activeCwd);
+  assert.equal(replies.length, 1);
+  assert.match(replies[0], /暂不支持 `\/codex cwd`/);
+  assert.match(replies[0], /`\/codex --cd <path> <prompt>`/);
+  assert.doesNotMatch(replies[0], /`\/codex doctor`/);
 
   await bridge.routeInbound({
     senderId: "user-1",
@@ -1285,9 +1284,10 @@ test("runtime/protocol/command_compat/cwd: legacy cwd changes future default onl
     text: "/codex continue 继续",
   });
 
-  assert.equal(queued.length, 1);
-  assert.equal(queued[0].cwd, activeCwd);
-  assert.equal(queued[0].prompt, "继续");
+  assert.equal(replies.length, 2);
+  assert.match(replies[1], /暂不支持 `\/codex continue`/);
+  assert.match(replies[1], /`\/codex resume <prompt>`/);
+  assert.doesNotMatch(replies[1], /`\/codex doctor`/);
 });
 
 test("runtime/protocol/command_compat/abort: legacy abort terminates the whole task while awaiting approval", async () => {
@@ -1446,7 +1446,7 @@ test("runtime/protocol/command_compat/status: legacy status without an active ta
   assert.match(replies[0], /工作目录：/);
 });
 
-test("runtime/protocol/command_compat/pwd: legacy pwd reports the future default cwd even when the active task uses a different cwd", async () => {
+test("runtime/protocol/command_surface/pwd: legacy pwd no longer exposes bridge-managed cwd state and falls back to the native-first unknown-command hint", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-pwd-default-"));
   const activeCwd = path.join(tempRoot, "active");
   const defaultCwd = path.join(tempRoot, "default");
@@ -1493,7 +1493,11 @@ test("runtime/protocol/command_compat/pwd: legacy pwd reports the future default
     text: "/codex pwd",
   });
 
-  assert.match(replies[0], new RegExp(defaultCwd.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.equal(replies.length, 1);
+  assert.match(replies[0], /暂不支持 `\/codex pwd`/);
+  assert.match(replies[0], /`\/codex --cd <path> <prompt>`/);
+  assert.doesNotMatch(replies[0], /`\/codex doctor`/);
+  assert.doesNotMatch(replies[0], new RegExp(defaultCwd.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   assert.doesNotMatch(replies[0], new RegExp(activeCwd.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 });
 
@@ -1533,6 +1537,7 @@ test("runtime/protocol/command_surface/help: help no longer exposes the legacy r
 
   assert.equal(replies.length, 1);
   assert.doesNotMatch(replies[0], /Codex Runner 命令/);
+  assert.doesNotMatch(replies[0], /bridge/i);
   assert.match(replies[0], /`\/codex doctor`/);
   assert.match(replies[0], /`\/codex --cd <path> --model <model> <prompt>`/);
   assert.doesNotMatch(replies[0], /兼容/);
@@ -1555,13 +1560,15 @@ test("runtime/protocol/command_surface/unknown: unknown /codex subcommands retur
   assert.equal(replies.length, 1);
   assert.match(replies[0], /暂不支持 `\/codex new`/);
   assert.match(replies[0], /`\/codex --cd <path> <prompt>`/);
-  assert.match(replies[0], /`\/codex doctor`/);
+  assert.doesNotMatch(replies[0], /`\/codex doctor`/);
+  assert.doesNotMatch(replies[0], /bridge/i);
   assert.doesNotMatch(replies[0], /Codex Runner 命令/);
 });
 
 test("runtime/protocol/command_surface/doctor: doctor returns a minimal health summary", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-doctor-"));
   const { bridge, replies } = await createBridgeHarness(tempRoot);
+  bridge.probeGatewayHealthForDoctor = async () => "正常";
 
   await bridge.routeInbound({
     senderId: "user-1",
@@ -1576,12 +1583,15 @@ test("runtime/protocol/command_surface/doctor: doctor returns a minimal health s
   assert.match(replies[0], /健康摘要/);
   assert.match(replies[0], /Codex：/);
   assert.match(replies[0], /Bridge：/);
+  assert.match(replies[0], /Gateway：正常/);
   assert.match(replies[0], /下一步：/);
+  assert.doesNotMatch(replies[0], /未探测/);
 });
 
 test("runtime/protocol/command_surface/doctor: running-task doctor advice stays short and does not expose status fallback by default", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-doctor-running-"));
   const { bridge, replies } = await createBridgeHarness(tempRoot);
+  bridge.probeGatewayHealthForDoctor = async () => "正常";
   const task = createTaskRecord({
     taskId: "task-running",
     locale: "zh-CN",
@@ -1613,6 +1623,32 @@ test("runtime/protocol/command_surface/doctor: running-task doctor advice stays 
   assert.equal(replies.length, 1);
   assert.match(replies[0], /下一步：等待当前任务完成/);
   assert.doesNotMatch(replies[0], /\/codex status/);
+});
+
+test("runtime/protocol/native_entry/protected_root: explicit native cwd into ~/.openclaw requires approval instead of direct denial", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-native-protected-cwd-"));
+  const { bridge, replies } = await createBridgeHarness(tempRoot);
+  bridge.startTask = async () => {
+    throw new Error("protected-root native entry must not start directly");
+  };
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-native-openclaw",
+    text: "/codex --cd ~/.openclaw summarize README.md",
+  });
+
+  const profile = await bridge.loadProfile("user-1", null);
+  const task = await bridge.readTask(profile.activeTaskId);
+
+  assert.equal(replies.length, 1);
+  assert.match(replies[0], /审批|同意|不要执行/);
+  assert.match(replies[0], /protected_root_requires_approval/);
+  assert.equal(task.status, "awaiting_approval");
+  assert.equal(task.cwd, path.join(os.homedir(), ".openclaw"));
 });
 
 test("runtime/protocol/native_entry/new: native flags start a new task with parsed cwd and execution options", async () => {

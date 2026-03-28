@@ -37,7 +37,7 @@ import {
   routeAbortCommand,
   routeApproveCommand,
   isActiveTaskStatus,
-  routeContinueCommand,
+  routeResumeCommand,
   routeIncomingPlainText,
   startNextRunFromApproval,
 } from "./lib/task-model.js";
@@ -331,12 +331,8 @@ export class CodexBridge {
         parsed,
         request,
         profile,
-        expandUserPath,
-        assertAllowedCwd,
-        statPath: async (target) => fsp.stat(target).catch(() => null),
         routeAbortCommand,
         routeApproveCommand,
-        routeContinueCommand,
       });
       return;
     }
@@ -356,8 +352,8 @@ export class CodexBridge {
         return;
       }
       const activeTask = await this.loadActiveTask(profile.senderId, profile);
-      const continueRoute = routeContinueCommand({ activeTaskStatus: activeTask?.status ?? null });
-      if (!continueRoute.accepted) {
+      const resumeRoute = routeResumeCommand({ activeTaskStatus: activeTask?.status ?? null });
+      if (!resumeRoute.accepted) {
         if (activeTask) {
           await this.safeReply({
             accountId: request.accountId,
@@ -366,8 +362,8 @@ export class CodexBridge {
             text: this.text.taskAlreadyRunning({
               taskId: activeTask.taskId,
               status: activeTask.status,
-              code: continueRoute.code,
-              suggestedCommand: continueRoute.suggestedCommand,
+              code: resumeRoute.code,
+              suggestedCommand: resumeRoute.suggestedCommand,
             }),
           });
           return;
@@ -953,6 +949,7 @@ export class CodexBridge {
       prompt: effectivePrompt,
       cwd: approval?.cwd,
       protectedRoots: this.settings.policyProtectedRoots,
+      isolationBoundaryRoots: this.settings.isolationBoundaryRoots,
       hostCodexRoot: this.settings.hostCodexRoot,
     });
 
@@ -976,6 +973,7 @@ export class CodexBridge {
         prompt: normalizedTail,
         cwd: approval?.cwd,
         protectedRoots: this.settings.policyProtectedRoots,
+        isolationBoundaryRoots: this.settings.isolationBoundaryRoots,
         hostCodexRoot: this.settings.hostCodexRoot,
       });
       if (tailDecision.kind !== POLICY_DECISIONS.ALLOWED) {
@@ -1065,6 +1063,7 @@ export class CodexBridge {
       prompt: params.prompt,
       cwd,
       protectedRoots: this.settings.policyProtectedRoots,
+      isolationBoundaryRoots: this.settings.isolationBoundaryRoots,
       hostCodexRoot: this.settings.hostCodexRoot,
     });
     const nativeDecision = assessNativeExecutionDecision(params.executionOptions);
@@ -1835,7 +1834,7 @@ export class CodexBridge {
       activeBridgeAction?.status != null
         ? localizeTaskStatus(this.settings.locale, activeBridgeAction.status)
         : doctorBridgeOkLabel(this.settings.locale);
-    const gateway = doctorGatewayUnknownLabel(this.settings.locale);
+    const gateway = await this.probeGatewayHealthForDoctor(profileFallback);
     const nextStep = resolveDoctorNextStep(this.settings.locale, activeTask?.status ?? null);
 
     return this.text.doctorSummary({
@@ -1844,6 +1843,24 @@ export class CodexBridge {
       gateway,
       nextStep,
     });
+  }
+
+  async probeGatewayHealthForDoctor(profileFallback = null) {
+    try {
+      const profile = profileFallback ?? null;
+      const result = await this.executeBridgeAction({
+        kind: "gateway_health",
+        operation: "check",
+        target: "gateway",
+        cwd: profile?.defaultCwd || this.settings.defaultCwd,
+      });
+      if (!result?.error && (result?.exitCode ?? 0) === 0) {
+        return doctorGatewayOkLabel(this.settings.locale);
+      }
+      return doctorGatewayErrorLabel(this.settings.locale);
+    } catch {
+      return doctorGatewayErrorLabel(this.settings.locale);
+    }
   }
 
   async isSenderPaired(accountId, senderId) {
@@ -2500,6 +2517,7 @@ function buildApprovalGrantSummary({ approval, settings, preserveExistingGrant =
     prompt: approval.prompt,
     cwd: approval.cwd,
     protectedRoots: settings.policyProtectedRoots,
+    isolationBoundaryRoots: settings.isolationBoundaryRoots,
     hostCodexRoot: settings.hostCodexRoot,
   });
   return {
@@ -2683,8 +2701,12 @@ function doctorBridgeOkLabel(locale) {
   return locale === "zh-CN" ? "正常" : "ok";
 }
 
-function doctorGatewayUnknownLabel(locale) {
-  return locale === "zh-CN" ? "未探测" : "not probed";
+function doctorGatewayOkLabel(locale) {
+  return locale === "zh-CN" ? "正常" : "ok";
+}
+
+function doctorGatewayErrorLabel(locale) {
+  return locale === "zh-CN" ? "异常" : "unhealthy";
 }
 
 function resolveDoctorNextStep(locale, activeTaskStatus) {
@@ -2709,7 +2731,7 @@ function expandUserPath(input, baseDir) {
 }
 
 async function assertAllowedCwd(cwd, settings) {
-  if (isPathInsideAny(cwd, settings.policyProtectedRoots)) {
+  if (isPathInsideAny(cwd, settings.isolationBoundaryRoots)) {
     throw new Error(getLocaleText(settings.locale).cwdBlocked(cwd));
   }
 }

@@ -233,7 +233,7 @@ test("protocol/persistence/approval: approval-blocked tasks keep only lastRunId 
   assert.equal(task.lastRunId, "run_approval");
 });
 
-test("protocol/recovery/stale_task: stale running tasks recover to awaiting_input and require explicit continue", () => {
+test("protocol/recovery/stale_task: stale running tasks recover to awaiting_input and require explicit resume", () => {
   const timestamp = "2026-03-24T00:15:00.000Z";
   const { task, run } = recoverStaleRunningTask({
     task: buildTask({

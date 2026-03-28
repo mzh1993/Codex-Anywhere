@@ -13,7 +13,7 @@ Feishu is the first channel. OpenClaw is the current transport shell.
 - Linux 主机的 `/usr/bin/bwrap >= 0.9.0`
 - `codex-cli 0.116.0` 是当前验证基线；当前版本会直接调用系统 `/usr/bin/bwrap`
 - `bootstrap` / `preflight` 会额外执行一次 `codex sandbox linux -- /bin/true` 实探
-- 如果执行环境不满足最低要求，runner 会在任务启动前直接拒绝，而不是进入假运行态
+- 如果执行环境不满足最低要求，bridge 会在任务启动前直接拒绝，而不是进入假运行态
 
 ## 快速开始
 
@@ -44,12 +44,12 @@ export CODEX_FEISHU_APP_SECRET='xxx'
 - `scripts/feishu-app-audit.sh`：审计 Feishu 应用发布、事件订阅和可见范围
 - `extensions/codex-bridge/`：远程 Codex bridge，负责消息路由、审批、恢复和调用本机 `codex exec`
 - `config/openclaw.codex-feishu.json5`：隔离实例配置模板
-- `docs/feishu-codex-runner-v1.md`：当前 V1 协议与运行边界
+- `docs/feishu-codex-bridge-v1.md`：当前 V1 bridge 协议与运行边界
 
 ## 继续阅读
 
 - `SECURITY_MODEL.md`：安全边界与隔离模型
-- `docs/feishu-codex-runner-v1.md`：当前 Feishu Runner V1 协议
+- `docs/feishu-codex-bridge-v1.md`：当前 Feishu Bridge V1 协议
 - `docs/product-north-star.md`：产品北极星与第一原则
 - `docs/product-decision-baseline.md`：内部决策基线
 - `docs/roadmap.md`：能力缺口优先级路线图

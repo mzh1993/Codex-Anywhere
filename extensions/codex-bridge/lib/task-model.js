@@ -111,7 +111,7 @@ export function finishRunFromExecution(result = {}) {
   return finishRunWithResult("completed");
 }
 
-export function routeContinueCommand({ activeTaskStatus }) {
+export function routeResumeCommand({ activeTaskStatus }) {
   if (!activeTaskStatus) {
     return {
       accepted: false,

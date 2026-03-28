@@ -45,6 +45,7 @@ export const POLICY_APPROVAL_REASON_CODES = Object.freeze([
   "publication_boundary_requires_approval",
   "global_env_change_requires_approval",
   "destructive_change_requires_approval",
+  "protected_root_requires_approval",
   "host_codex_boundary_requires_approval",
   "outside_cwd_write_requires_approval",
   "install_lifecycle_requires_approval",
@@ -466,6 +467,7 @@ function createPolicyAssessment(input) {
   const prompt = normalizeText(input?.prompt);
   const cwd = normalizeText(input?.cwd);
   const protectedRoots = normalizeRoots(input?.protectedRoots);
+  const isolationBoundaryRoots = normalizeRoots(input?.isolationBoundaryRoots);
   const hostCodexRoot = normalizeText(input?.hostCodexRoot);
   const hostSecretRoots = getHostSecretRoots();
   const controlledRoots = cwd ? [cwd] : [];
@@ -485,7 +487,7 @@ function createPolicyAssessment(input) {
     action,
     controlledRoots,
     cwd,
-    isolationBoundaryRoots: getIsolationBoundaryRoots(),
+    isolationBoundaryRoots,
     hostCodexRoot,
     hostSecretRoots,
     protectedRoots,
@@ -498,6 +500,7 @@ function createPolicyAssessment(input) {
     prompt,
     cwd,
     protectedRoots,
+    isolationBoundaryRoots,
     hostCodexRoot,
     hostSecretRoots,
     controlledRoots,
@@ -564,7 +567,7 @@ function createEffectAssessment(prompt) {
 }
 
 function createDecisionAssessment({ intent, executionBoundaries, effects }) {
-  if (executionBoundaries.isolationBoundary || executionBoundaries.protectedRoot) {
+  if (executionBoundaries.isolationBoundary) {
     return deny("isolation_boundary_denied");
   }
   if (executionBoundaries.hostSecret) {
@@ -606,6 +609,9 @@ function createDecisionAssessment({ intent, executionBoundaries, effects }) {
   }
   if (executionBoundaries.hostCodex) {
     reasonCodes.push("host_codex_boundary_requires_approval");
+  }
+  if (executionBoundaries.protectedRoot) {
+    reasonCodes.push("protected_root_requires_approval");
   }
   if (executionBoundaries.outsideCwdWrite) {
     reasonCodes.push("outside_cwd_write_requires_approval");
@@ -695,10 +701,6 @@ function normalizeRoots(value) {
 function getHostSecretRoots() {
   const homeDir = os.homedir();
   return HOST_SECRET_RELATIVE_ROOTS.map((candidate) => path.resolve(homeDir, candidate));
-}
-
-function getIsolationBoundaryRoots() {
-  return [path.resolve(os.homedir(), ".openclaw")];
 }
 
 function referencesPathInsideAny(candidatePaths, roots) {

@@ -27,6 +27,7 @@ const REASON_LABELS = {
     host_secret_boundary_denied: "会触碰宿主机上的凭证或秘密材料。",
     global_env_change_requires_approval: "会变更全局环境。",
     destructive_change_requires_approval: "包含破坏性修改。",
+    protected_root_requires_approval: "会进入受保护的宿主机边界。",
     native_dangerous_sandbox_requires_approval: "显式请求了危险的原生沙箱模式。",
     native_never_approval_requires_approval: "显式请求了不再询问审批的原生模式。",
     isolation_boundary_denied: "会突破隔离运行边界。",
@@ -47,6 +48,7 @@ const REASON_LABELS = {
     host_secret_boundary_denied: "Touches host credential or secret material.",
     global_env_change_requires_approval: "Changes the global environment.",
     destructive_change_requires_approval: "Includes destructive changes.",
+    protected_root_requires_approval: "Enters a protected host boundary.",
     native_dangerous_sandbox_requires_approval: "Explicitly requests a dangerous native sandbox mode.",
     native_never_approval_requires_approval: "Explicitly requests a native no-approval mode.",
     isolation_boundary_denied: "Crosses the isolated bridge boundary.",
@@ -181,9 +183,7 @@ export function getLocaleText(locale) {
   if (normalized === "zh-CN") {
     return {
       locale: normalized,
-      usageCwd: "用法：`/codex cwd <path>`",
       usageApprove: "用法：`/codex approve <token>`",
-      usageContinue: "用法：`/codex continue <prompt>`",
       usageNativeNew: "用法：`/codex [--cd <path>] [--model <model>] [--sandbox <mode>] [--ask-for-approval <policy>] <prompt>`",
       usageNativeResume: "用法：`/codex resume [--model <model>] [--sandbox <mode>] [--ask-for-approval <policy>] <prompt>`",
       noRunningTaskToAbort: "当前没有可终止的任务。",
@@ -253,9 +253,7 @@ export function getLocaleText(locale) {
         "执行环境不兼容，任务未启动。",
         `原因：${errorText}`,
       ].join("\n"),
-      currentCwd: (cwd) => `当前工作目录：\`${cwd}\``,
       directoryNotFound: (cwd) => `目录不存在：\`${cwd}\``,
-      defaultCwdUpdated: (cwd) => `默认工作目录已更新为 \`${cwd}\``,
       abortRequested: (taskId) => `已请求终止任务 ${taskId}。`,
       approvalTokenNotFound: (token) => `未找到审批令牌：${token}`,
       approvalTokenExpired: (token) => `审批令牌已过期：${token}`,
@@ -267,7 +265,7 @@ export function getLocaleText(locale) {
       help: (cwd) => [
         "这是远程 Codex 入口。",
         "默认请直接发送普通消息给 Codex。",
-        "`/codex doctor` 查看 bridge 最小健康摘要",
+        "`/codex doctor` 查看健康摘要",
         "显式新任务示例：`/codex --cd <path> --model <model> <prompt>`",
         "显式续写示例：`/codex resume --model <model> <prompt>`",
         "",
@@ -277,7 +275,6 @@ export function getLocaleText(locale) {
         `暂不支持 \`${command}\`。`,
         "当前 `/codex` 优先保持原生 Codex 心智；普通任务请直接发送自然语言。",
         "显式新任务请直接使用 `/codex --cd <path> <prompt>`；显式续写请使用 `/codex resume <prompt>`。",
-        "如需 bridge 健康摘要，请使用 `/codex doctor`。",
       ].join("\n"),
       doctorSummary: ({ codex, bridge, gateway, nextStep }) => [
         "健康摘要",
@@ -369,9 +366,7 @@ export function getLocaleText(locale) {
 
   return {
     locale: normalized,
-    usageCwd: "Usage: `/codex cwd <path>`",
     usageApprove: "Usage: `/codex approve <token>`",
-    usageContinue: "Usage: `/codex continue <prompt>`",
     usageNativeNew:
       "Usage: `/codex [--cd <path>] [--model <model>] [--sandbox <mode>] [--ask-for-approval <policy>] <prompt>`",
     usageNativeResume:
@@ -443,9 +438,7 @@ export function getLocaleText(locale) {
       "Execution runtime incompatible; task not started.",
       `Reason: ${errorText}`,
     ].join("\n"),
-    currentCwd: (cwd) => `Current cwd: \`${cwd}\``,
     directoryNotFound: (cwd) => `Directory not found: \`${cwd}\``,
-    defaultCwdUpdated: (cwd) => `Default cwd updated to \`${cwd}\``,
     abortRequested: (taskId) => `Abort requested for ${taskId}.`,
     approvalTokenNotFound: (token) => `Approval token not found: ${token}`,
     approvalTokenExpired: (token) => `Approval token expired: ${token}`,
@@ -457,7 +450,7 @@ export function getLocaleText(locale) {
     help: (cwd) => [
       "This is a remote Codex entrypoint.",
       "For normal work, just send a plain message to Codex.",
-      "`/codex doctor` shows the bridge's minimal health summary.",
+      "`/codex doctor` shows the health summary.",
       "Explicit new-task example: `/codex --cd <path> --model <model> <prompt>`",
       "Explicit resume example: `/codex resume --model <model> <prompt>`",
       "",
@@ -467,7 +460,6 @@ export function getLocaleText(locale) {
       `\`${command}\` is not supported here yet.`,
       "This `/codex` surface stays native-first; send ordinary work as plain language.",
       "For an explicit new task, use `/codex --cd <path> <prompt>`; for an explicit resume, use `/codex resume <prompt>`.",
-      "For a bridge health summary, use `/codex doctor`.",
     ].join("\n"),
     doctorSummary: ({ codex, bridge, gateway, nextStep }) => [
       "Health Summary",

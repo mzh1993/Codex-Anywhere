@@ -5,7 +5,7 @@ import {
   finishApprovalTransition,
   routeApproveCommand,
   routeAbortCommand,
-  routeContinueCommand,
+  routeResumeCommand,
   routeIncomingPlainText,
   routePlainTextWithActiveTask,
   startNextRunFromApproval,
@@ -166,24 +166,24 @@ test("protocol/input/bridge_action: non-owned, mixed-intent, and ambiguous promp
   }
 });
 
-test("protocol/command_compat/continue: legacy continue is rejected when no active task exists", () => {
-  const result = routeContinueCommand({ activeTaskStatus: null });
+test("protocol/resume_gate: explicit resume is rejected when no active task exists", () => {
+  const result = routeResumeCommand({ activeTaskStatus: null });
   assert.deepEqual(result, {
     accepted: false,
     code: "no_active_task",
   });
 });
 
-test("protocol/command_compat/continue: legacy continue still requires the task to be waiting for input", () => {
-  assert.deepEqual(routeContinueCommand({ activeTaskStatus: "awaiting_input" }), {
+test("protocol/resume_gate: explicit resume still requires the task to be waiting for input", () => {
+  assert.deepEqual(routeResumeCommand({ activeTaskStatus: "awaiting_input" }), {
     accepted: true,
     action: "create_next_run",
   });
-  assert.deepEqual(routeContinueCommand({ activeTaskStatus: "running" }), {
+  assert.deepEqual(routeResumeCommand({ activeTaskStatus: "running" }), {
     accepted: false,
     code: "task_not_waiting_input",
   });
-  assert.deepEqual(routeContinueCommand({ activeTaskStatus: "awaiting_approval" }), {
+  assert.deepEqual(routeResumeCommand({ activeTaskStatus: "awaiting_approval" }), {
     accepted: false,
     code: "task_not_waiting_input",
   });
@@ -210,7 +210,7 @@ test("protocol/locale/recovery: interruption guidance keeps natural language as 
   assert.doesNotMatch(en.interruptedTaskRequiresContinue("task-1"), /^Use `\/codex resume <prompt>`/m);
 });
 
-test("protocol/locale/status: running-task guidance does not mislabel status as a continue command", () => {
+test("protocol/locale/status: running-task guidance does not mislabel status as a resume command", () => {
   const zh = getLocaleText("zh-CN");
   const text = zh.taskAlreadyRunning({
     taskId: "task-1",
@@ -336,12 +336,14 @@ test("constitution/command/help: help should present doctor first and compatibil
   const en = getLocaleText("en-US");
 
   assert.doesNotMatch(zh.help("/tmp"), /Codex Runner 命令/);
+  assert.doesNotMatch(zh.help("/tmp"), /bridge/i);
   assert.match(zh.help("/tmp"), /`\/codex doctor`/);
   assert.match(zh.help("/tmp"), /`\/codex --cd <path> --model <model> <prompt>`/);
   assert.doesNotMatch(zh.help("/tmp"), /兼容/);
   assert.doesNotMatch(zh.help("/tmp"), /`\/codex cwd <path>`|`\/codex pwd`|`\/codex continue <prompt>`/);
 
   assert.doesNotMatch(en.help("/tmp"), /Codex Runner commands/);
+  assert.doesNotMatch(en.help("/tmp"), /bridge/i);
   assert.match(en.help("/tmp"), /`\/codex doctor`/);
   assert.match(en.help("/tmp"), /`\/codex --cd <path> --model <model> <prompt>`/);
   assert.doesNotMatch(en.help("/tmp"), /Compatibility/);

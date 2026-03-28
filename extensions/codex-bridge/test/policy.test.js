@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import os from "node:os";
+import path from "node:path";
 import {
   assessPolicyDecision,
   assessPolicyRequest,
@@ -14,6 +16,12 @@ import {
   POLICY_REASON_CODES,
 } from "../lib/policy.js";
 import { isPathInside, isPathInsideAny } from "../lib/fs-utils.js";
+
+const HOME_DIR = os.homedir();
+const PROJECT_ROOT = path.join(HOME_DIR, "project");
+const HOST_CODEX_ROOT = path.join(HOME_DIR, ".codex");
+const HOST_OPENCLAW_ROOT = path.join(HOME_DIR, ".openclaw");
+const HOME_DESKTOP_ROOT = path.join(HOME_DIR, "Desktop");
 
 test("protocol/decision: values stay stable", () => {
   assert.deepEqual(POLICY_DECISIONS, {
@@ -61,6 +69,7 @@ test("protocol/assessment/schema: action, intent, boundary, and effect keys stay
     "publication_boundary_requires_approval",
     "global_env_change_requires_approval",
     "destructive_change_requires_approval",
+    "protected_root_requires_approval",
     "host_codex_boundary_requires_approval",
     "outside_cwd_write_requires_approval",
     "install_lifecycle_requires_approval",
@@ -74,9 +83,9 @@ test("protocol/assessment/schema: action, intent, boundary, and effect keys stay
 test("protocol/assessment/object: discussion assessments expose a stable object shape without relaxing hard boundaries", () => {
   const assessment = assessPolicyRequest({
     prompt: "what does docs/setup.md say about ~/.ssh/config",
-    cwd: "/home/neousys/project",
+    cwd: PROJECT_ROOT,
     protectedRoots: [],
-    hostCodexRoot: "/home/neousys/.codex",
+    hostCodexRoot: HOST_CODEX_ROOT,
   });
 
   assert.equal(assessment.action, "read");
@@ -112,9 +121,9 @@ test("protocol/assessment/object: discussion assessments expose a stable object 
 test("protocol/assessment/object: decision reason codes stay narrow, ordered, and deduplicated", () => {
   const assessment = assessPolicyRequest({
     prompt: "systemctl restart demo && docker run alpine && npm install -g pnpm",
-    cwd: "/home/neousys/project",
+    cwd: PROJECT_ROOT,
     protectedRoots: [],
-    hostCodexRoot: "/home/neousys/.codex",
+    hostCodexRoot: HOST_CODEX_ROOT,
   });
 
   assert.deepEqual(assessment.decision, {
@@ -131,9 +140,9 @@ test("protocol/assessment/object: decision reason codes stay narrow, ordered, an
 test("protocol/decision/priority: hard denied boundaries beat approval effects in a single assessment", () => {
   const decision = assessPolicyDecision({
     prompt: "show ~/.ssh/config and docker run alpine",
-    cwd: "/home/neousys/project",
+    cwd: PROJECT_ROOT,
     protectedRoots: [],
-    hostCodexRoot: "/home/neousys/.codex",
+    hostCodexRoot: HOST_CODEX_ROOT,
   });
 
   assert.deepEqual(decision, {
@@ -146,17 +155,19 @@ test("deny/any/protected_root: protected runner state returns denied with a stab
   const decision = assessPolicyDecision({
     prompt: "inspect logs",
     cwd: "/repo/.isolated/codex-feishu/state/codex-bridge",
-    protectedRoots: ["/repo/.isolated/codex-feishu/state/codex-bridge"],
-    hostCodexRoot: "/home/neousys/.codex",
+    protectedRoots: [],
+    isolationBoundaryRoots: ["/repo/.isolated/codex-feishu/state/codex-bridge"],
+    hostCodexRoot: HOST_CODEX_ROOT,
   });
   assert.equal(decision.kind, "denied");
   assert.deepEqual(decision.reasonCodes, ["isolation_boundary_denied"]);
 });
 
 const BASE_POLICY_INPUT = {
-  cwd: "/home/neousys/project",
+  cwd: PROJECT_ROOT,
   protectedRoots: [],
-  hostCodexRoot: "/home/neousys/.codex",
+  isolationBoundaryRoots: [],
+  hostCodexRoot: HOST_CODEX_ROOT,
 };
 
 function assess(prompt, overrides = {}) {
@@ -304,7 +315,7 @@ test("approval/host_codex: cwd or prompt access to host codex root requires appr
       kind: "approval_required",
       reasonCodes: ["host_codex_boundary_requires_approval"],
     },
-    { cwd: "/home/neousys/.codex/sessions" },
+    { cwd: path.join(HOST_CODEX_ROOT, "sessions") },
   );
   assertDecision("summarize ~/.codex/config.toml in three lines", {
     kind: "approval_required",
@@ -328,8 +339,8 @@ test("allow/write/inside_cwd: representative writes inside cwd stay allowed", ()
 });
 
 test("approval/write/outside_cwd: representative writes outside cwd require approval", () => {
-  const worktreeOverrides = { cwd: "/home/neousys/project/worktree" };
-  assertDecision("write summary to /home/neousys/Desktop/today.md", {
+  const worktreeOverrides = { cwd: path.join(PROJECT_ROOT, "worktree") };
+  assertDecision(`write summary to ${path.join(HOME_DESKTOP_ROOT, "today.md")}`, {
     kind: "approval_required",
     reasonCodes: ["outside_cwd_write_requires_approval"],
   });
@@ -348,34 +359,47 @@ test("approval/write/outside_cwd: representative writes outside cwd require appr
       worktreeOverrides,
     );
   }
-  assertDecision("echo done > /home/neousys/Desktop/out.txt", {
+  assertDecision(`echo done > ${path.join(HOME_DESKTOP_ROOT, "out.txt")}`, {
     kind: "approval_required",
     reasonCodes: ["outside_cwd_write_requires_approval"],
   });
 });
 
-test("deny/protected_root: representative protected host state access remains denied", () => {
-  const protectedRoots = ["/home/neousys/.openclaw", "/repo/.isolated/codex-feishu/state/codex-bridge"];
+test("approval/protected_root: explicit access to user-protected roots requires approval", () => {
+  const protectedRoots = [HOST_OPENCLAW_ROOT];
   assertDecision(
     "请修改 ~/.openclaw/config.json",
     {
-      kind: "denied",
-      reasonCodes: ["isolation_boundary_denied"],
+      kind: "approval_required",
+      reasonCodes: ["protected_root_requires_approval", "outside_cwd_write_requires_approval"],
     },
     { protectedRoots },
   );
+  assertDecision(
+    "show ~/.openclaw/config.json",
+    {
+      kind: "approval_required",
+      reasonCodes: ["protected_root_requires_approval"],
+    },
+    { protectedRoots },
+  );
+});
+
+test("deny/isolation_boundary: bridge-owned isolated state remains denied", () => {
+  const protectedRoots = [HOST_OPENCLAW_ROOT];
+  const isolationBoundaryRoots = ["/repo/.isolated/codex-feishu/state/codex-bridge"];
   assertDecision(
     "show /repo/.isolated/codex-feishu/state/codex-bridge/tasks/task.json",
     {
       kind: "denied",
       reasonCodes: ["isolation_boundary_denied"],
     },
-    { protectedRoots },
+    { protectedRoots, isolationBoundaryRoots },
   );
 });
 
 test("allow/read/outside_cwd: representative read-only host-path prompts stay allowed", () => {
-  assertDecision("summarize /home/neousys/Desktop/today.md in three sentences", {
+  assertDecision(`summarize ${path.join(HOME_DESKTOP_ROOT, "today.md")} in three sentences`, {
     kind: "allowed",
     reasonCodes: [],
   });
@@ -385,7 +409,7 @@ test("allow/read/outside_cwd: representative read-only host-path prompts stay al
       kind: "allowed",
       reasonCodes: [],
     },
-    { cwd: "/home/neousys/project/worktree" },
+    { cwd: path.join(PROJECT_ROOT, "worktree") },
   );
 });
 
@@ -450,7 +474,7 @@ test("allow/read/discussion: mentioning protected topics or protected-looking pa
         kind: "allowed",
         reasonCodes: [],
       },
-      { protectedRoots: ["/home/neousys/.openclaw"] },
+      { protectedRoots: [HOST_OPENCLAW_ROOT] },
     );
   }
 });
@@ -461,12 +485,15 @@ test("deny/read/boundary_mentions: direct boundary access requests stay denied",
     reasonCodes: ["host_secret_boundary_denied"],
   });
   assertDecision(
-    "show ~/.openclaw/config.json",
+    "show /repo/.isolated/codex-feishu/state/codex-bridge/tasks/task.json",
     {
       kind: "denied",
       reasonCodes: ["isolation_boundary_denied"],
     },
-    { protectedRoots: ["/home/neousys/.openclaw"] },
+    {
+      protectedRoots: [HOST_OPENCLAW_ROOT],
+      isolationBoundaryRoots: ["/repo/.isolated/codex-feishu/state/codex-bridge"],
+    },
   );
 });
 

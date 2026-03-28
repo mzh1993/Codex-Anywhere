@@ -1,6 +1,6 @@
-# Feishu Codex Runner V1
+# Feishu Codex Bridge V1
 
-> Current V1 protocol reference. This file records the current Feishu runner behavior, not product vision.
+> Current V1 protocol reference. This file records the current Feishu bridge behavior, not product vision.
 
 ## 定位
 
@@ -9,7 +9,7 @@
 - `codex-bridge`：当前任务路由、审批、恢复、状态持久化实现
 - Codex CLI：唯一任务执行器
 
-V1 当前默认以自然语言作为主交互；slash 命令只作为 bridge 控制面兜底入口。
+V1 当前默认以自然语言作为主交互；显式 `/codex` 只在需要控制时出现，并优先贴近原生 `Codex CLI`。
 
 ## 代码入口
 
@@ -30,7 +30,7 @@ V1 当前默认以自然语言作为主交互；slash 命令只作为 bridge 控
 
 ## 语言配置
 
-- `plugins.entries."codex-bridge".config.locale` 控制 Runner 对外语言
+- `plugins.entries."codex-bridge".config.locale` 控制 bridge 对外语言
 - 当前支持：
   - `zh-CN`
   - `en-US`
@@ -56,13 +56,14 @@ V1 当前默认以自然语言作为主交互；slash 命令只作为 bridge 控
 - 新消息且无活动 task：创建新 task
 - 新消息且活动 task 为 `awaiting_input`：默认续到同一 task 的下一次 run
 - 若该 task 来自“上一轮执行中断”的恢复态，普通文本仍是默认续写路径
-- `/codex continue <prompt>`：仅作为兜底显式续写入口；当活动 task 为 `awaiting_input` 时可继续使用
+- 显式续写优先贴近原生：`/codex resume <prompt>`
 - 获批后不会恢复旧 run，而是为同一 task 创建新的获批 run
 - 仓库自有控制面请求（如 `openclaw-codex-feishu.service`、gateway 健康检查）优先进入独立的 `bridge action`，不占用 task continuity
 - 仓库自有 service control 由 bridge 固定 handler 执行；当前仓库实例的 service unit 走 `systemctl --user`
 - 纯 repo-owned control-plane 按风险治理：只读查询可直接执行，变更类动作先审批后执行；当前 V1 对应为 `status / health / diagnostic` 直执，`service control / install lifecycle` 审批
 - 新任务默认 `cwd` 取自 bridge 默认工作目录配置
-- 若用户先执行 `/codex cwd <path>`，后续任务改用新目录
+- 显式新任务优先贴近原生：`/codex --cd <path> <prompt>`
+- 旧兼容命令当前仍可被实现层识别，但不属于本文件定义的主交互契约
 
 ## 状态协议
 
@@ -77,7 +78,7 @@ V1 当前默认以自然语言作为主交互；slash 命令只作为 bridge 控
   - `recovery`：`reason`
 - bridge 内部维护一个不对用户暴露的 reply owner：
   - `owner=codex`：普通文本直接归 Codex 会话语义
-  - `owner=bridge_approval`：下一条普通文本先归 bridge 审批语义
+  - `owner=bridge_approval`：下一条普通文本仅在当前审批闭环里先归 bridge 审批语义
   - `owner=bridge_action`：当前由 bridge 自己拥有控制面动作闭环
 - 普通 run 完成或失败后，task 默认回到 `awaiting_input`
 - denied 不会落成 task 终态；默认会记录一次 `blocked` run，并把 task 放回 `awaiting_input`
@@ -108,6 +109,7 @@ V1 当前默认以自然语言作为主交互；slash 命令只作为 bridge 控
 当前最小 typed 审批原因码：
 
 - `host_codex_boundary_requires_approval`：触碰宿主 `~/.codex` 边界
+- `protected_root_requires_approval`：进入受保护的宿主机边界（如 `~/.openclaw`）
 - `outside_cwd_write_requires_approval`：写入当前受控工作目录之外的宿主路径
 - `install_lifecycle_requires_approval`：修改 bridge 自有 install lifecycle
 - `service_control_requires_approval`
@@ -121,7 +123,6 @@ V1 当前默认以自然语言作为主交互；slash 命令只作为 bridge 控
 
 ### 直接拒绝
 
-- 触碰 `~/.openclaw`
 - 触碰 bridge 自身隔离状态目录
 - 触碰宿主凭证/秘密材料（如 `~/.ssh`、`~/.aws`、`~/.kube`、`~/.gnupg`）
 - 直接提权或切换用户（如 `sudo`、`su`、`doas`）
@@ -140,7 +141,7 @@ V1 当前默认以自然语言作为主交互；slash 命令只作为 bridge 控
 | 读/查看/总结 | `cwd` 外普通宿主路径 | 允许 | V1 允许只读检查，但不因此放宽写入边界。 |
 | 写/改/建/移动/重命名/权限调整 | `cwd` 外普通宿主路径 | 审批 | 当前按“离开受控根”的宿主变更处理。 |
 | 任意动作 | `~/.codex` | 审批 | 属于宿主 Codex 状态边界。 |
-| 任意动作 | `~/.openclaw` | 拒绝 | 属于宿主 OpenClaw 边界，不允许任务触碰。 |
+| 任意动作 | `~/.openclaw` | 审批 | 属于受保护的宿主边界；这里的“审批”仅指显式 bridge 执行入口下、真正启动前的最薄 gate，不意味着 bridge 接管普通发给 Codex 的内容语义。 |
 | 任意动作 | bridge 隔离状态目录 | 拒绝 | 不允许任务回写自身运行状态。 |
 | 任意动作 | 宿主凭证 / 秘密材料 | 拒绝 | 如 `~/.ssh`、`~/.aws`、`~/.kube`、`~/.gnupg`。 |
 | 直接提权 / 切换用户 | 宿主管理员边界 | 拒绝 | 如 `sudo`、`su`、`doas`。 |
@@ -160,7 +161,8 @@ V1 当前默认以自然语言作为主交互；slash 命令只作为 bridge 控
 - 当前 `cwd` 内默认允许常规工作，是因为它被视为当前 task 的受控执行范围。
 - 当前 `cwd` 外写入默认进入审批，是因为它意味着任务开始触碰宿主其它区域；当前内部 reason code 已收口为 `outside_cwd_write_requires_approval`。
 - 当前 `~/.codex` 访问默认进入审批，是因为它触碰宿主 Codex 状态边界；当前内部 reason code 已收口为 `host_codex_boundary_requires_approval`。
-- 当前 `~/.openclaw` 与 bridge 隔离状态目录直接拒绝，是因为它们会破坏运行边界本身。
+- 当前 `~/.openclaw` 默认进入审批，是因为它属于受保护的宿主边界；这里的“审批”仅限定为显式 bridge 执行入口下、真正启动前的最薄 gate，当前内部 reason code 已收口为 `protected_root_requires_approval`。
+- 当前 bridge 隔离状态目录直接拒绝，是因为它会破坏运行边界本身。
 - 当前对 `move / rename / copy` 等词已做最小去歧义：讨论计划不等于执行动作。
 - 当前 bridge 自有 install lifecycle 仍走 bridge action 审批闭环；对应内部 reason code 为 `install_lifecycle_requires_approval`。
 
@@ -189,22 +191,32 @@ V1 当前默认以自然语言作为主交互；slash 命令只作为 bridge 控
   - `discussion`
 - 当前约定：每补一条策略矩阵，都应至少补一条同语义前缀的回归测试。
 
-## Feishu 命令
+## `/codex` 命令面
+
+### V1 contract
+
+- 普通文本默认直接进入 `Codex` task 路径；bridge 不要求用户先学习单独的一套桥接命令。
+- 显式 `/codex` 模式优先贴近原生 `Codex CLI` 的概念与参数名。
+- bridge 只在显式 `/codex ...` 或自有审批 / 控制面闭环里做最薄 gate，不接管普通发给 Codex 的内容语义。
+- bridge 原则上唯一新增并长期保留的用户主命令是 `/codex doctor`。
+- 未知 `/codex <subcommand>` 返回简短、native-first 的提示，不再回退到旧帮助页。
+- 当前文档明确对外的显式入口只有：
 
 ```text
-/codex cwd <path>
-/codex pwd
-/codex continue <prompt>
-/codex status
-/codex abort
-/codex approve <token>
-/codex help
+/codex --cd <path> --model <model> <prompt>
+/codex resume --model <model> <prompt>
+/codex doctor
 ```
+
+- 当前仍保留的 compat 命令仅有 `help / status / abort / approve`；它们用于迁移、恢复或显式兜底，但不再作为主文案和主教程的一部分。
+- `cwd / pwd / continue` 已退出 compat claim；用户表面统一回到 native-first 提示。
+
+### V1 当前行为
 
 - 普通文本在 `awaiting_input` 时默认续任务，包括恢复后的 `awaiting_input`
 - `running` 时，普通文本仍不能插队
-- `awaiting_approval` 时，普通文本不再当普通任务执行，而是先进入 bridge 审批判定
-- `/codex approve <token>` 可作为当前待审批对象的兜底批准入口；task 与 bridge action 都优先走自然语言审批
+- `awaiting_approval` 时，普通文本不再当普通任务执行，而是仅在当前显式审批闭环里先进入 bridge 审批判定
+- 自然语言审批始终是主路径；旧的 token 命令仅属于实现层兼容残留
 - `item.completed`、`turn.started` 这类内部事件不会直接回传给用户
 
 ## 输入协议矩阵
@@ -212,68 +224,44 @@ V1 当前默认以自然语言作为主交互；slash 命令只作为 bridge 控
 ### `no_task`
 
 - 普通文本：允许，创建新 task
-- `/codex continue <prompt>`：拒绝，当前没有可继续任务
-- `/codex approve <token>`：拒绝，当前没有待审批任务
-- `/codex abort`：拒绝，当前没有活动任务
-- `/codex status`：允许，只查询当前状态
-- `/codex cwd <path>`、`/codex pwd`：允许
+- `/codex doctor`：目标命令；用于 bridge 最小健康摘要
 
 ### `awaiting_input`
 
 - 普通文本：允许，续到同一 task 的下一次 run
 - 若该 task 带“上一轮执行中断”语义：普通文本仍允许，默认按自然语言继续
-- `/codex continue <prompt>`：允许，作为兜底显式续写路径
-- `/codex approve <token>`：拒绝，当前不在审批态
-- `/codex abort`：允许，终止整个 task
-- `/codex status`：允许，只查询当前状态
-- `/codex cwd <path>`、`/codex pwd`：允许
+- `/codex doctor`：目标命令；用于 bridge 最小健康摘要
 
 ### `running`
 
 - 普通文本：拒绝，不能插队，不得隐式继续
-- `/codex continue <prompt>`：拒绝，当前不在等待输入
-- `/codex approve <token>`：拒绝，当前不在审批态
-- `/codex abort`：允许，终止整个 task
-- `/codex status`：允许，只查询当前状态
-- `/codex pwd`：允许
-- `/codex cwd <path>`：允许修改未来默认值，但不影响当前 running task
+- `/codex doctor`：目标命令；用于 bridge 最小健康摘要
 
 ### `awaiting_approval`
 
-- 普通文本：由 bridge 先按审批 contract 处理，而不是直接透传给 Codex
+- 普通文本：由 bridge 先按当前审批 contract 处理；这是显式审批闭环内的最薄 gate，而不是 bridge 接管普通 Codex 内容语义
 - `同意`：允许，创建同一 task 的新的获批 run
 - `同意，并……`：条件允许；只有当尾部补充要求不放大已批准边界时，才会一并带入新的获批 run；若尾部新引入 bridge-owned 控制面或 deny 边界，则保持原审批未消费并提示重新发起
 - `不要执行`：允许，拒绝这次高风险动作，并回到安全的 `awaiting_input`
 - `为什么要审批？`、`你看着办`、`1`（未显式给编号选项时）：不授权，保持审批态继续解释
-- `/codex continue <prompt>`：拒绝，当前不在等待输入
-- `/codex approve <token>`：允许，为同一 task 创建新的获批 run
-- `/codex abort`：允许，终止整个 task
-- `/codex status`：允许，只查询当前状态
-- `/codex pwd`：允许
-- `/codex cwd <path>`：允许修改未来默认值，但不影响当前待审批 task
+- `/codex doctor`：目标命令；用于 bridge 最小健康摘要
 
 ### `bridge_action.awaiting_approval`
 
-- 普通文本：由 bridge 先按控制面审批处理
+- 普通文本：由 bridge 先按当前控制面审批处理；这是控制面闭环内的最薄 gate，不意味着 bridge 接管普通 Codex 内容语义
 - `同意`：允许，由 bridge 直接执行当前已拥有的控制面动作
 - `同意，并……`：拒绝追加尾巴；V1 只接受纯批准
 - `不要执行`：允许，安全结束本次 bridge action，不终止原有 task
 - `为什么要审批？`、`你看着办`、`1`（未显式给编号选项时）：不授权，保持审批态继续解释
-- `/codex approve <token>`：允许，作为 bridge action 的兜底批准入口
-- `/codex status`：允许，只暴露最小 bridge action 状态
 
 ## 关键规则
 
-- `/codex status` 在所有状态下都合法，但只负责查询，不推进状态
-- `/codex continue <prompt>` 只在 `awaiting_input` 合法，但它是兜底入口，不是默认主路径
-- `/codex approve <token>` 只在 `awaiting_approval` 合法，但它是审批兜底入口，不是默认主路径
+- `/codex doctor` 是 bridge 原则上唯一新增的主命令
 - 高风险审批默认是单次、run-scoped 的：它批准的是“下一次获批 run”，不是把后续整段会话永久放开
 - 当前待审批记录会持久化一个最薄 typed `approvalGrant`；当前只服务 `codex task` 的下一次获批 run。真正启动前会复核 `taskId / approvalToken / action / intent / promptDigest / executionBoundaries / effects`，若 grant 与当前 run 不一致，则保持原审批未消费
 - 若审批后的 run 在真正启动前失败，原 approval token 不应被提前吞掉
 - 若同一 approval token 已成功启动过一次 run，即使审批文件删除滞后，也不得再次启动第二次 run
-- `/codex abort` 在 `awaiting_input`、`running`、`awaiting_approval` 下都表示终止整个 task
-- `/codex cwd <path>` 只修改未来默认工作目录，不热切换当前活动 task
-- 默认自然语言优先；`awaiting_approval` 的普通文本也允许继续对话，但由 bridge 守住审批边界
+- 默认自然语言优先；`awaiting_approval` 的普通文本也允许继续对话，但 bridge 只在当前显式审批闭环里守住最薄审批边界
 - 当 task 已处于 `awaiting_approval` 时，新输入仍先走原 task 的审批语义，不并行新建 `bridge action`
 - 当已有 `bridge action` 处于 `running` 时，不并行启动第二个仓库自有控制面动作
 - bridge 只劫持“纯”的仓库自有控制面动作；若同一句话同时带有普通工作语义与仓库控制面语义，默认回落给 Codex task 路径
@@ -312,7 +300,7 @@ V1 当前默认以自然语言作为主交互；slash 命令只作为 bridge 控
 ## 当前已知限制
 
 - `codex exec --json` 的事件聚合做的是宽松兼容解析；当前会过滤低信号内部事件，只保留用户可感知的状态提示
-- 高风险审批仍是文本协议，不依赖卡片；token 只作为兜底控制面
+- 高风险审批仍是文本协议，不依赖卡片；兼容 token 入口仍保留，但不再作为默认教学表面
 - 若 bridge 重启后发现持久化里仍有旧的 `running bridge action`，当前会 fail-closed 回收到 `status=finished, resultStatus=failed`，而不是尝试恢复该控制面动作
 - 非 `/codex` 的 slash 命令不会被 bridge claim
 - `plugins.allow` 目前保持为空，因此 OpenClaw 会提示本地非 bundled 插件被显式发现；这不影响运行
