@@ -12,7 +12,7 @@
 - `codex-bridge` 已形成可回归的基础测试面；当前桥接测试基线为 `node --test extensions/codex-bridge/test/*.test.js`。
 - `/codex` 用户表面已完成一轮 native-first 收口：普通消息默认直达 `Codex`，显式入口优先支持 `/codex --cd ... <prompt>`、`/codex resume ...` 与 `/codex doctor`。
 - 未知 `/codex <subcommand>` 已不再回落旧帮助页，而是返回简短的 native-first 指引。
-- 旧 compat 命令已从帮助主文案、审批主文案与运行中提示中退居次级，不再继续充当产品主命令面。
+- 历史 slash 命令 `help / status / abort / approve / cwd / pwd / continue` 已全部退出执行面，只保留 unknown / native-first 提示。
 - 受控执行已有最小 allow / approval / deny 边界与测试。
 - 任务状态机已有 `no_task / awaiting_input / running / awaiting_approval` 的基本协议。
 - 高风险审批已具备单次、run-scoped、启动前复核、失败不吞 token 的基础语义。
@@ -29,7 +29,7 @@
 - 渠道解耦 contract 尚未真正抽稳，当前核心语义仍主要长在 Feishu + OpenClaw 接线内。
 - 协作体验层基本尚未展开，低噪音状态表达、结构化结果、图片/渲染结果仍在后面。
 - `doctor` 已有最小入口与真实 gateway 探测，但仍未成为可信的运维健康摘要。
-- 旧 compat 命令已收口到独立 command fallback router 里的单一 compat handoff，但尚未真正下沉为完全独立的 compat layer。
+- 历史 compat slash 命令虽已关闭执行，但相关实现残影、文案残影与测试命名仍需继续收口。
 - 测试面对新宪法的保护权重仍不足；虽然 `routing` 与 `runtime-control-plane` 已开始收向 lane contract，但整体仍有不少 regex 识别和旧兼容实现保护残留。
 
 ## 当前风险
@@ -51,8 +51,8 @@
 - 显式 `/codex` 模式已优先贴近原生 `Codex CLI`：当前主入口已收口到原生参数名与原生显式入口。
 - bridge 原则上唯一应新增并长期保留的用户主命令仍是 `/codex doctor`。
 - `/codex new` 不应再被当作正确主路径；当前用户可见表面已不再把它当主路径教学。
-- `status / abort / approve / help` 仍可作为远程壳阶段性兼容控制面保留，但应降级为兼容入口，不再作为产品主命令面继续放大。
-- `cwd / pwd / continue` 代表旧命令面时期的补丁式设计；应从帮助主文案与后续产品叙事中退出，只保留短期兼容或迁移兜底。
+- `status / abort / approve / help / cwd / pwd / continue` 这组历史命令已不再作为可执行入口保留。
+- 用户表面现只保留原生显式入口与 `/codex doctor`；其余旧命令统一回到 unknown / native-first 提示。
 - 未知 `/codex <subcommand>` 当前已返回简短、面向新约定的指引，不再把用户重新拉回旧帮助心智。
 
 ## 测试面对齐现状
@@ -61,12 +61,12 @@
 - 已完成：围绕“普通消息默认透传 `Codex`、显式 `/codex` 优先贴近原生、`doctor` 为唯一桥新增主命令、未知子命令不再喷旧帮助”的最小执行验收测试已补上。
 - 已开始：`routing` 与 `runtime-control-plane` 已把一部分保护重点切到 lane contract、fallback contract 与 continuity contract。
 - 仍需保留但降权：bridge-owned control-plane 与“混合语义默认回落 `Codex`”这类边界测试；它们仍有价值，但不再等价于产品体验已对齐。
-- 下一步重写重点：所有仍把 compat 命令实现细节当成主契约的断言，以及仍只断言最终 decision 而不看 capability / routing 的测试。
+- 下一步重写重点：所有仍把历史 compat 命令残影当成主契约的断言，以及仍只断言最终 decision 而不看 capability / routing 的测试。
 - 下一步收缩重点：剩余大量按措辞穷举的 prompt/regex 变体测试，只保留 owned / mixed / ambiguous / non-owned 四类代表性样本；避免旧表面匹配测试继续绑架新设计。
 
 ## 下一步最小推进项
 
-- 先继续把现有 command fallback router 内的 compat handoff 下沉为明确的 compat layer，进一步消除实现结构上的旧命令中心性。
+- 先继续清掉剩余 compat 残影与旧命令时代测试命名，彻底消除实现结构上的旧命令中心性。
 - 再继续重排测试权重：把剩余 runtime / protocol 测试进一步切到 lane contract、fallback contract 与 continuity contract。
 - 然后继续收口 `P0 / 受控执行能力`，优先把当前 bridge-owned control-plane assessment 骨架推进成更稳定的 action-boundary model。
 

@@ -34,8 +34,6 @@ import { resolveSettings } from "./lib/settings.js";
 import {
   classifyApprovalReply,
   createApprovalReplyContract,
-  routeAbortCommand,
-  routeApproveCommand,
   isActiveTaskStatus,
   routeResumeCommand,
   routeIncomingPlainText,
@@ -319,8 +317,6 @@ export class CodexBridge {
       profile,
       request,
       parsed,
-      routeAbortCommand,
-      routeApproveCommand,
     });
   }
 

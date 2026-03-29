@@ -1,12 +1,8 @@
-import { handleCompatCodexCommand } from "./compat-command-router.js";
-
 export async function handleCommandFallback({
   bridge,
   profile,
   request,
   parsed,
-  routeAbortCommand,
-  routeApproveCommand,
 }) {
   if (parsed.name === "doctor") {
     const doctorText = await bridge.formatDoctor(profile.senderId, profile);
@@ -16,18 +12,6 @@ export async function handleCommandFallback({
       messageId: request.messageId,
       text: doctorText,
     });
-    return true;
-  }
-
-  const handledCompatCommand = await handleCompatCodexCommand({
-    bridge,
-    parsed,
-    request,
-    profile,
-    routeAbortCommand,
-    routeApproveCommand,
-  });
-  if (handledCompatCommand) {
     return true;
   }
 

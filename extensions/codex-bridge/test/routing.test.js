@@ -3,8 +3,6 @@ import assert from "node:assert/strict";
 import { getLocaleText } from "../lib/locale.js";
 import {
   finishApprovalTransition,
-  routeApproveCommand,
-  routeAbortCommand,
   routeResumeCommand,
   routeIncomingPlainText,
   routePlainTextWithActiveTask,
@@ -267,45 +265,6 @@ test("protocol/transition/approval: approval starts the next run instead of resu
   assert.deepEqual(startNextRunFromApproval(), {
     taskStatus: "running",
     action: "create_next_run",
-  });
-});
-
-test("protocol/command_compat/approve: legacy approve requires the task to be waiting for approval", () => {
-  assert.deepEqual(routeApproveCommand({ activeTaskStatus: "awaiting_approval" }), {
-    accepted: true,
-    action: "approve_pending_request",
-  });
-  assert.deepEqual(routeApproveCommand({ activeTaskStatus: null }), {
-    accepted: false,
-    code: "no_pending_approval",
-  });
-  assert.deepEqual(routeApproveCommand({ activeTaskStatus: "awaiting_input" }), {
-    accepted: false,
-    code: "task_not_waiting_approval",
-    suggestedCommand: "/codex resume <prompt>",
-  });
-  assert.deepEqual(routeApproveCommand({ activeTaskStatus: "running" }), {
-    accepted: false,
-    code: "task_not_waiting_approval",
-  });
-});
-
-test("protocol/command_compat/abort: legacy abort is allowed for any active task and rejected without one", () => {
-  assert.deepEqual(routeAbortCommand({ activeTaskStatus: null }), {
-    accepted: false,
-    code: "no_active_task",
-  });
-  assert.deepEqual(routeAbortCommand({ activeTaskStatus: "awaiting_input" }), {
-    accepted: true,
-    action: "abort_task",
-  });
-  assert.deepEqual(routeAbortCommand({ activeTaskStatus: "running" }), {
-    accepted: true,
-    action: "abort_task",
-  });
-  assert.deepEqual(routeAbortCommand({ activeTaskStatus: "awaiting_approval" }), {
-    accepted: true,
-    action: "abort_task",
   });
 });
 

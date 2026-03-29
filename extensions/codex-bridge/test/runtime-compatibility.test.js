@@ -343,7 +343,7 @@ test("runtime/protocol/approval: queued approvals persist a run-scoped approval 
   }
 });
 
-test("runtime/protocol/approve: approve command ignores trailing text after the token", async () => {
+test("runtime/protocol/command_surface/approve: legacy approve with trailing text is closed and leaves approval state untouched", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-approve-token-"));
   const { bridge, replies } = await createBridgeHarness(tempRoot);
 
@@ -410,12 +410,18 @@ test("runtime/protocol/approve: approve command ignores trailing text after the 
     text: "/codex approve TOKEN1 批准执行",
   });
 
+  const persistedTask = await bridge.readTask(task.taskId);
+  const persistedProfile = await bridge.loadProfile("user-1", null);
+  const persistedApproval = await bridge.readApproval("TOKEN1");
   assert.equal(replies.length, 1);
-  assert.doesNotMatch(replies[0], /未找到审批令牌/);
-  assert.match(replies[0], /执行环境|bubblewrap|基础设施/);
+  assert.equal(persistedTask.status, "awaiting_approval");
+  assert.equal(persistedProfile.pendingApprovalToken, "TOKEN1");
+  assert.notEqual(persistedApproval, null);
+  assert.match(replies[0], /暂不支持 `\/codex approve`/);
+  assert.doesNotMatch(replies[0], /未找到审批令牌|执行环境|bubblewrap|基础设施/);
 });
 
-test("runtime/protocol/approve: approve command is rejected when the active task is not awaiting approval", async () => {
+test("runtime/protocol/command_surface/approve: legacy approve is closed even when the active task is not awaiting approval", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-approve-state-"));
   const { bridge, replies } = await createBridgeHarness(tempRoot);
 
@@ -458,10 +464,10 @@ test("runtime/protocol/approve: approve command is rejected when the active task
   });
 
   assert.equal(replies.length, 1);
-  assert.match(replies[0], /task_not_waiting_approval|等待输入/);
+  assert.match(replies[0], /暂不支持 `\/codex approve`/);
   assert.match(replies[0], /`\/codex resume <prompt>`/);
   assert.doesNotMatch(replies[0], /`\/codex continue <prompt>`/);
-  assert.doesNotMatch(replies[0], /未找到审批令牌/);
+  assert.doesNotMatch(replies[0], /未找到审批令牌|task_not_waiting_approval|等待输入/);
 });
 
 test("runtime/protocol/approval_input: natural-language approve is handled by bridge approval ownership", async () => {
@@ -1290,7 +1296,7 @@ test("runtime/protocol/command_surface/cwd: legacy cwd no longer mutates bridge 
   assert.doesNotMatch(replies[1], /`\/codex doctor`/);
 });
 
-test("runtime/protocol/command_compat/abort: legacy abort terminates the whole task while awaiting approval", async () => {
+test("runtime/protocol/command_surface/abort: legacy abort is closed and falls back to the native-first unknown-command hint", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-abort-approval-"));
   const { bridge, replies } = await createBridgeHarness(tempRoot);
 
@@ -1354,14 +1360,15 @@ test("runtime/protocol/command_compat/abort: legacy abort terminates the whole t
   const persistedTask = await bridge.readTask(task.taskId);
   const persistedProfile = await bridge.loadProfile("user-1", null);
   const persistedApproval = await bridge.readApproval("TOKEN1");
-  assert.equal(persistedTask.status, "aborted");
-  assert.equal(persistedProfile.activeTaskId, undefined);
-  assert.equal(persistedProfile.pendingApprovalToken, undefined);
-  assert.equal(persistedApproval, null);
-  assert.match(replies[0], /已请求终止任务/);
+  assert.equal(persistedTask.status, "awaiting_approval");
+  assert.equal(persistedProfile.activeTaskId, task.taskId);
+  assert.equal(persistedProfile.pendingApprovalToken, "TOKEN1");
+  assert.notEqual(persistedApproval, null);
+  assert.match(replies[0], /暂不支持 `\/codex abort`/);
+  assert.match(replies[0], /`\/codex --cd <path> <prompt>`/);
 });
 
-test("runtime/protocol/command_compat/status: legacy status remains available while awaiting approval", async () => {
+test("runtime/protocol/command_surface/status: legacy status is closed and falls back to the native-first unknown-command hint while awaiting approval", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-status-approval-"));
   const { bridge, replies } = await createBridgeHarness(tempRoot);
 
@@ -1424,12 +1431,13 @@ test("runtime/protocol/command_compat/status: legacy status remains available wh
     text: "/codex status",
   });
 
-  assert.match(replies[0], /活动任务：task-awaiting-approval/);
-  assert.match(replies[0], /状态：等待审批/);
-  assert.match(replies[0], /待审批令牌：TOKEN1/);
+  assert.match(replies[0], /暂不支持 `\/codex status`/);
+  assert.match(replies[0], /`\/codex --cd <path> <prompt>`/);
+  assert.doesNotMatch(replies[0], /活动任务：task-awaiting-approval/);
+  assert.doesNotMatch(replies[0], /待审批令牌：TOKEN1/);
 });
 
-test("runtime/protocol/command_compat/status: legacy status without an active task reports default cwd", async () => {
+test("runtime/protocol/command_surface/status: legacy status is closed and falls back to the native-first unknown-command hint without an active task", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-status-idle-"));
   const { bridge, replies } = await createBridgeHarness(tempRoot);
 
@@ -1442,8 +1450,10 @@ test("runtime/protocol/command_compat/status: legacy status without an active ta
     text: "/codex status",
   });
 
-  assert.match(replies[0], /当前没有活动任务|这个私聊还没有记录/);
-  assert.match(replies[0], /工作目录：/);
+  assert.match(replies[0], /暂不支持 `\/codex status`/);
+  assert.match(replies[0], /`\/codex --cd <path> <prompt>`/);
+  assert.doesNotMatch(replies[0], /当前没有活动任务|这个私聊还没有记录/);
+  assert.doesNotMatch(replies[0], /工作目录：/);
 });
 
 test("runtime/protocol/command_surface/pwd: legacy pwd no longer exposes bridge-managed cwd state and falls back to the native-first unknown-command hint", async () => {
@@ -1522,7 +1532,7 @@ test("runtime/protocol/command_parse: malformed codex command prefix is rejected
   assert.equal((await fs.readdir(bridge.settings.runsRoot).catch(() => [])).length, 0);
 });
 
-test("runtime/protocol/command_surface/help: help no longer exposes the legacy runner command page as the primary surface", async () => {
+test("runtime/protocol/command_surface/help: legacy help is closed and falls back to the native-first unknown-command hint", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-help-surface-"));
   const { bridge, replies } = await createBridgeHarness(tempRoot);
 
@@ -1536,12 +1546,81 @@ test("runtime/protocol/command_surface/help: help no longer exposes the legacy r
   });
 
   assert.equal(replies.length, 1);
-  assert.doesNotMatch(replies[0], /Codex Runner 命令/);
-  assert.doesNotMatch(replies[0], /bridge/i);
-  assert.match(replies[0], /`\/codex doctor`/);
-  assert.match(replies[0], /`\/codex --cd <path> --model <model> <prompt>`/);
-  assert.doesNotMatch(replies[0], /兼容/);
-  assert.doesNotMatch(replies[0], /`\/codex cwd <path>`|`\/codex pwd`|`\/codex continue <prompt>`/);
+  assert.match(replies[0], /暂不支持 `\/codex help`/);
+  assert.match(replies[0], /`\/codex --cd <path> <prompt>`/);
+  assert.doesNotMatch(replies[0], /`\/codex doctor`/);
+  assert.doesNotMatch(replies[0], /Codex Runner 命令|bridge|兼容/);
+});
+
+test("runtime/protocol/command_surface/approve: legacy approve is closed and does not consume pending approvals", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-approve-closed-"));
+  const { bridge, replies } = await createBridgeHarness(tempRoot);
+
+  const task = createTaskRecord({
+    taskId: "task-awaiting-approval",
+    locale: "zh-CN",
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-old",
+    cwd: tempRoot,
+    mode: "new",
+    status: "awaiting_approval",
+    currentRunId: null,
+    lastRunId: "run-blocked",
+    approvalToken: "TOKEN1",
+    prompt: "重启服务",
+    createdAt: "2026-03-24T08:00:00.000Z",
+    updatedAt: "2026-03-24T08:00:00.000Z",
+  });
+  const profile = {
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    defaultCwd: tempRoot,
+    activeTaskId: task.taskId,
+    lastTaskId: task.taskId,
+    pendingApprovalToken: "TOKEN1",
+    updatedAt: "2026-03-24T08:00:00.000Z",
+  };
+  const approval = {
+    token: "TOKEN1",
+    taskId: task.taskId,
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-old",
+    mode: "new",
+    prompt: "重启服务",
+    cwd: tempRoot,
+    sessionId: null,
+    policyDecision: "approval_required",
+    reasonCodes: ["service_control_requires_approval"],
+    createdAtMs: Date.now(),
+    expiresAtMs: Date.now() + 60_000,
+  };
+
+  await bridge.saveTask(task);
+  await bridge.saveProfile(profile);
+  await bridge.writeApproval(approval);
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-approve",
+    text: "/codex approve TOKEN1",
+  });
+
+  const persistedTask = await bridge.readTask(task.taskId);
+  const persistedProfile = await bridge.loadProfile("user-1", null);
+  const persistedApproval = await bridge.readApproval("TOKEN1");
+  assert.equal(persistedTask.status, "awaiting_approval");
+  assert.equal(persistedProfile.pendingApprovalToken, "TOKEN1");
+  assert.notEqual(persistedApproval, null);
+  assert.match(replies[0], /暂不支持 `\/codex approve`/);
+  assert.match(replies[0], /`\/codex resume <prompt>`/);
 });
 
 test("runtime/protocol/command_surface/unknown: unknown /codex subcommands return a short native-first hint instead of the full legacy help page", async () => {

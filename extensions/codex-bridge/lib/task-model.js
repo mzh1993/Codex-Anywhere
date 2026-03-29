@@ -130,39 +130,6 @@ export function routeResumeCommand({ activeTaskStatus }) {
   };
 }
 
-export function routeApproveCommand({ activeTaskStatus }) {
-  if (!activeTaskStatus) {
-    return {
-      accepted: false,
-      code: "no_pending_approval",
-    };
-  }
-  if (activeTaskStatus !== "awaiting_approval") {
-    return {
-      accepted: false,
-      code: "task_not_waiting_approval",
-      ...(activeTaskStatus === "awaiting_input" ? { suggestedCommand: "/codex resume <prompt>" } : {}),
-    };
-  }
-  return {
-    accepted: true,
-    action: "approve_pending_request",
-  };
-}
-
-export function routeAbortCommand({ activeTaskStatus }) {
-  if (!activeTaskStatus) {
-    return {
-      accepted: false,
-      code: "no_active_task",
-    };
-  }
-  return {
-    accepted: true,
-    action: "abort_task",
-  };
-}
-
 export function routeIncomingPlainText({ activeTaskStatus, activeTaskOwner = null, requiresExplicitContinue = false }) {
   if (!activeTaskStatus) {
     return {
