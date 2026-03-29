@@ -165,7 +165,7 @@ test("protocol/resume_gate: explicit resume still requires the task to be waitin
   });
 });
 
-test("protocol/input/compat_running: plain text with an active task does not implicitly continue", () => {
+test("protocol/input/existing_task: plain text with an active task does not implicitly continue", () => {
   const result = routePlainTextWithActiveTask({ activeTaskStatus: "running" });
   assert.deepEqual(result, {
     accepted: false,
@@ -239,7 +239,7 @@ test("protocol/locale/approval: keep-gate-open text explains approval without au
   assert.doesNotMatch(text, /\/codex approve|\/codex status|\/codex abort/);
 });
 
-test("protocol/locale/approval: bridge-action approval text also keeps compatibility commands hidden by default", () => {
+test("protocol/locale/approval: bridge-action approval text also keeps closed legacy slash commands hidden by default", () => {
   const zh = getLocaleText("zh-CN");
   const queued = zh.bridgeActionApprovalQueued({
     token: "TOKEN1",
@@ -268,7 +268,7 @@ test("protocol/transition/approval: approval starts the next run instead of resu
   });
 });
 
-test("constitution/command/help: help should present doctor first and compatibility commands as secondary", () => {
+test("constitution/command/help: help stays native-first and excludes closed legacy slash commands", () => {
   const zh = getLocaleText("zh-CN");
   const en = getLocaleText("en-US");
 

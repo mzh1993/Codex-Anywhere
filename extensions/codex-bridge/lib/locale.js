@@ -183,10 +183,8 @@ export function getLocaleText(locale) {
   if (normalized === "zh-CN") {
     return {
       locale: normalized,
-      usageApprove: "用法：`/codex approve <token>`",
       usageNativeNew: "用法：`/codex [--cd <path>] [--model <model>] [--sandbox <mode>] [--ask-for-approval <policy>] <prompt>`",
       usageNativeResume: "用法：`/codex resume [--model <model>] [--sandbox <mode>] [--ask-for-approval <policy>] <prompt>`",
-      noRunningTaskToAbort: "当前没有可终止的任务。",
       noPreviousSession: "当前没有可继续的活动任务。",
       noActiveTaskToContinue: "当前没有可继续的活动任务。",
       noPendingApproval: "当前没有待审批的活动任务。",
@@ -254,7 +252,6 @@ export function getLocaleText(locale) {
         `原因：${errorText}`,
       ].join("\n"),
       directoryNotFound: (cwd) => `目录不存在：\`${cwd}\``,
-      abortRequested: (taskId) => `已请求终止任务 ${taskId}。`,
       approvalTokenNotFound: (token) => `未找到审批令牌：${token}`,
       approvalTokenExpired: (token) => `审批令牌已过期：${token}`,
       cwdBlocked: (cwd) => `工作目录被 bridge 策略阻止：${cwd}`,
@@ -366,12 +363,10 @@ export function getLocaleText(locale) {
 
   return {
     locale: normalized,
-    usageApprove: "Usage: `/codex approve <token>`",
     usageNativeNew:
       "Usage: `/codex [--cd <path>] [--model <model>] [--sandbox <mode>] [--ask-for-approval <policy>] <prompt>`",
     usageNativeResume:
       "Usage: `/codex resume [--model <model>] [--sandbox <mode>] [--ask-for-approval <policy>] <prompt>`",
-    noRunningTaskToAbort: "No active task to abort.",
     noPreviousSession: "No active task to continue.",
     noActiveTaskToContinue: "No active task to continue.",
     noPendingApproval: "No active task awaiting approval.",
@@ -439,7 +434,6 @@ export function getLocaleText(locale) {
       `Reason: ${errorText}`,
     ].join("\n"),
     directoryNotFound: (cwd) => `Directory not found: \`${cwd}\``,
-    abortRequested: (taskId) => `Abort requested for ${taskId}.`,
     approvalTokenNotFound: (token) => `Approval token not found: ${token}`,
     approvalTokenExpired: (token) => `Approval token expired: ${token}`,
     cwdBlocked: (cwd) => `cwd is blocked by bridge policy: ${cwd}`,

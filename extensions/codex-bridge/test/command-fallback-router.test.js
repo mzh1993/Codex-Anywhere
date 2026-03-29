@@ -27,12 +27,6 @@ test("constitution/command_fallback/doctor: doctor is handled before unknown fal
       messageId: "msg-1",
     },
     parsed: { name: "doctor", args: "" },
-    routeAbortCommand() {
-      throw new Error("should not be called");
-    },
-    routeApproveCommand() {
-      throw new Error("should not be called");
-    },
   });
 
   assert.equal(handled, true);
@@ -65,12 +59,6 @@ test("constitution/command_fallback/unknown: legacy and unknown subcommands all 
         messageId: "msg-1",
       },
       parsed: { name, args: "TOKEN1" },
-      routeAbortCommand() {
-        throw new Error("should not be called");
-      },
-      routeApproveCommand() {
-        throw new Error("should not be called");
-      },
     });
 
     assert.equal(handled, true);
