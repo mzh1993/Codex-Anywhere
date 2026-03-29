@@ -121,6 +121,29 @@ export function classifyOwnedBridgeActionRequest(input) {
   return assessment?.decision ?? null;
 }
 
+export function assessOwnedBridgeActionRequest(input) {
+  const assessment = createBridgeControlAssessment(input);
+  if (!assessment) {
+    return {
+      capability: "unknown",
+      effectKind: null,
+      routing: {
+        dedicatedRequest: false,
+        ambiguousCapability: false,
+        mixedIntent: false,
+      },
+      decision: null,
+    };
+  }
+
+  return {
+    capability: assessment.capability,
+    effectKind: assessment.effectKind,
+    routing: assessment.routing,
+    decision: assessment.decision,
+  };
+}
+
 function createBridgeControlAssessment(input) {
   const prompt = normalizeText(input?.prompt);
   if (!prompt) return null;
@@ -134,22 +157,25 @@ function createBridgeControlAssessment(input) {
       )
     : [];
 
-  const intent = createBridgeControlIntentAssessment({ prompt, bridgeServiceUnitNames });
+  const capability = createBridgeControlCapabilityAssessment({ prompt, bridgeServiceUnitNames });
   const effects = createBridgeControlEffectAssessment({ prompt, bridgeServiceUnitNames });
-  const routingBoundaries = createBridgeControlRoutingBoundaryAssessment({ intent, effects });
-  const decision = createBridgeControlDecisionAssessment({ intent, routingBoundaries, effects });
+  const effectSignals = collectBridgeControlEffectSignals({ prompt, bridgeServiceUnitNames });
+  const effectKind = resolveBridgeControlEffectKind(effects, effectSignals);
+  const routing = createBridgeControlRoutingBoundaryAssessment({ capability, effectKind, effects, effectSignals });
+  const decision = createBridgeControlDecisionAssessment({ capability, routing, effects });
 
   return {
     prompt,
     bridgeServiceUnitNames,
-    intent,
-    routingBoundaries,
+    capability,
+    effectKind,
+    routing,
     effects,
     decision,
   };
 }
 
-function createBridgeControlIntentAssessment({ prompt, bridgeServiceUnitNames }) {
+function createBridgeControlCapabilityAssessment({ prompt, bridgeServiceUnitNames }) {
   if (findOwnedServiceTarget(prompt, bridgeServiceUnitNames)) return "bridge_control";
   if (BRIDGE_GATEWAY_HEALTH_PATTERN.test(prompt)) return "bridge_control";
   if (BRIDGE_INSTALL_SYSTEMD_PATTERN.test(prompt)) return "bridge_control";
@@ -166,21 +192,46 @@ function createBridgeControlEffectAssessment({ prompt, bridgeServiceUnitNames })
   };
 }
 
-function createBridgeControlRoutingBoundaryAssessment({ intent, effects }) {
+function collectBridgeControlEffectSignals({ prompt, bridgeServiceUnitNames }) {
+  const signals = [];
+  if (findOwnedServiceTarget(prompt, bridgeServiceUnitNames) && matchOwnedServiceOperation(prompt)) {
+    signals.push("service_control");
+  }
+  if (BRIDGE_GATEWAY_HEALTH_PATTERN.test(prompt)) {
+    signals.push("gateway_health");
+  }
+  if (BRIDGE_INSTALL_SYSTEMD_PATTERN.test(prompt)) {
+    signals.push("install_lifecycle");
+  }
+  if (BRIDGE_DIAGNOSTIC_PATTERN.test(prompt)) {
+    signals.push("diagnostic");
+  }
+  return Array.from(new Set(signals));
+}
+
+function resolveBridgeControlEffectKind(effects, effectSignals = []) {
+  if (effects.serviceControl) return "service_control";
+  if (effects.gatewayHealth) return "gateway_health";
+  if (effects.installLifecycle) return "install_lifecycle";
+  if (effects.diagnostic) return "diagnostic";
+  return effectSignals[0] ?? null;
+}
+
+function createBridgeControlRoutingBoundaryAssessment({ capability, effectKind, effects, effectSignals = [] }) {
   const matchedEffects = Object.values(effects).filter(Boolean);
   return {
     dedicatedRequest: matchedEffects.length === 1,
-    ambiguousIntent: matchedEffects.length > 1,
-    mixedIntent: intent === "bridge_control" && matchedEffects.length === 0,
+    ambiguousCapability: effectSignals.length > 1 || matchedEffects.length > 1,
+    mixedIntent: capability === "bridge_control" && effectKind != null && matchedEffects.length !== 1,
   };
 }
 
-function createBridgeControlDecisionAssessment({ intent, routingBoundaries, effects }) {
-  if (intent !== "bridge_control") return null;
+function createBridgeControlDecisionAssessment({ capability, routing, effects }) {
+  if (capability !== "bridge_control") return null;
   if (
-    !routingBoundaries.dedicatedRequest ||
-    routingBoundaries.ambiguousIntent ||
-    routingBoundaries.mixedIntent
+    !routing.dedicatedRequest ||
+    routing.ambiguousCapability ||
+    routing.mixedIntent
   ) {
     return null;
   }

@@ -201,20 +201,38 @@ async function routeCodexOwnedPrompt({ tempPrefix, prompt }) {
   return { bridgeActionFiles, queued, replies, startedTasks };
 }
 
+function assertBridgeOwnedLane({ startedTasks, profile, action, replies, expectedKind }) {
+  assert.equal(startedTasks.length, 0);
+  assert.equal(profile.activeTaskId, undefined);
+  assert.equal(action.kind, expectedKind);
+  assert.match(replies[0], /等待审批|同意|不要执行/);
+}
+
+function assertCodexFallbackLane({ startedTasks, queued, bridgeActionFiles, replies, prompt, label }) {
+  assert.equal(startedTasks.length, 0, label);
+  assert.equal(queued.length, 1, label);
+  assert.equal(queued[0].prompt, prompt, label);
+  assert.equal(bridgeActionFiles.length, 0, label);
+  assert.equal(replies.length, 0, label);
+}
+
 test("runtime/control-plane/routing: repository-owned service control creates an approval-gated bridge action instead of a codex task", async () => {
   const { replies, startedTasks, profile, action } = await routeOwnedPrompt({
     tempPrefix: "codex-bridge-control-plane-route-",
     prompt: "请重启 openclaw-codex-feishu.service",
   });
 
-  assert.equal(startedTasks.length, 0);
-  assert.equal(profile.activeTaskId, undefined);
+  assertBridgeOwnedLane({
+    startedTasks,
+    profile,
+    action,
+    replies,
+    expectedKind: "service_control",
+  });
   assert.equal(action.status, "awaiting_approval");
-  assert.equal(action.kind, "service_control");
-  assert.match(replies[0], /等待审批|同意|不要执行/);
 });
 
-test("runtime/control-plane/routing: representative read-only owned prompts execute inside bridge", async () => {
+test("runtime/control-plane/routing: dedicated read-only control-plane prompts execute inside bridge", async () => {
   const cases = [
     {
       label: "owned service status",
@@ -246,23 +264,6 @@ test("runtime/control-plane/routing: representative read-only owned prompts exec
           executor: "isolated_openclaw",
           command: "bash",
           args: ["scripts/openclaw-isolated.sh", "health", "--json"],
-          exitCode: 0,
-        },
-      },
-    },
-    {
-      label: "bridge diagnostic",
-      tempPrefix: "codex-bridge-control-plane-diagnostic-",
-      prompt: "show bridge diagnostic details info",
-      expectedKind: "diagnostic",
-      expectedReply: '{"bridge":"diagnostic-info"}',
-      executeResult: {
-        exitCode: 0,
-        summary: '{"bridge":"diagnostic-info"}',
-        executionTrace: {
-          executor: "bootstrap_script",
-          command: "bash",
-          args: ["scripts/bootstrap-codex-feishu.sh", "gateway-status"],
           exitCode: 0,
         },
       },
@@ -301,13 +302,33 @@ test("runtime/control-plane/routing: representative mixed-intent prompts stay co
     },
   ]) {
     const { bridgeActionFiles, queued, replies, startedTasks } = await routeCodexOwnedPrompt(testCase);
-
-    assert.equal(startedTasks.length, 0, testCase.label);
-    assert.equal(queued.length, 1, testCase.label);
-    assert.equal(queued[0].prompt, testCase.prompt, testCase.label);
-    assert.equal(bridgeActionFiles.length, 0, testCase.label);
-    assert.equal(replies.length, 0, testCase.label);
+    assertCodexFallbackLane({
+      startedTasks,
+      queued,
+      bridgeActionFiles,
+      replies,
+      prompt: testCase.prompt,
+      label: testCase.label,
+    });
   }
+});
+
+test("runtime/control-plane/routing: ambiguous control-plane prompts also stay codex-owned", async () => {
+  const testCase = {
+    label: "ambiguous bridge status wording",
+    tempPrefix: "codex-bridge-control-plane-ambiguous-",
+    prompt: "show status info of bridge",
+  };
+
+  const { bridgeActionFiles, queued, replies, startedTasks } = await routeCodexOwnedPrompt(testCase);
+  assertCodexFallbackLane({
+    startedTasks,
+    queued,
+    bridgeActionFiles,
+    replies,
+    prompt: testCase.prompt,
+    label: testCase.label,
+  });
 });
 
 test("runtime/control-plane/continuity: bridge action approval does not overwrite the active codex task", async () => {

@@ -5,6 +5,7 @@ import path from "node:path";
 import {
   assessPolicyDecision,
   assessPolicyRequest,
+  assessOwnedBridgeActionRequest,
   classifyOwnedBridgeActionRequest,
   POLICY_ACTIONS,
   POLICY_APPROVAL_REASON_CODES,
@@ -29,6 +30,34 @@ test("protocol/decision: values stay stable", () => {
     APPROVAL_REQUIRED: "approval_required",
     DENIED: "denied",
   });
+});
+
+test("protocol/ownership/assessment: bridge-owned control assessment exposes capability, effect, and routing layers", () => {
+  const serviceAssessment = assessOwnedBridgeActionRequest({
+    prompt: "please report status of openclaw-codex-feishu.service",
+    bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
+  });
+  assert.equal(serviceAssessment.capability, "bridge_control");
+  assert.equal(serviceAssessment.effectKind, "service_control");
+  assert.equal(serviceAssessment.routing.dedicatedRequest, true);
+  assert.equal(serviceAssessment.routing.ambiguousCapability, false);
+  assert.deepEqual(serviceAssessment.decision, {
+    kind: "service_control",
+    operation: "status",
+    target: "openclaw-codex-feishu.service",
+    requiresApproval: false,
+    reasonCodes: [],
+  });
+
+  const mixedAssessment = assessOwnedBridgeActionRequest({
+    prompt: "show gateway health details view repository",
+    bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
+  });
+  assert.equal(mixedAssessment.capability, "bridge_control");
+  assert.equal(mixedAssessment.effectKind, "gateway_health");
+  assert.equal(mixedAssessment.routing.dedicatedRequest, false);
+  assert.equal(mixedAssessment.routing.mixedIntent, true);
+  assert.equal(mixedAssessment.decision, null);
 });
 
 test("protocol/assessment/schema: action, intent, boundary, and effect keys stay narrow", () => {

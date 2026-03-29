@@ -10,7 +10,7 @@ import {
   routePlainTextWithActiveTask,
   startNextRunFromApproval,
 } from "../lib/task-model.js";
-import { classifyOwnedBridgeActionRequest } from "../lib/policy.js";
+import { assessOwnedBridgeActionRequest, classifyOwnedBridgeActionRequest } from "../lib/policy.js";
 
 const BRIDGE_SERVICE_UNIT_NAMES = ["openclaw-codex-feishu.service"];
 
@@ -61,6 +61,13 @@ function classifyBridgeAction(prompt) {
   });
 }
 
+function assessBridgeAction(prompt) {
+  return assessOwnedBridgeActionRequest({
+    prompt,
+    bridgeServiceUnitNames: BRIDGE_SERVICE_UNIT_NAMES,
+  });
+}
+
 test("protocol/input/no_task: plain text starts a new task when there is no active task", () => {
   assert.deepEqual(routeIncomingPlainText({ activeTaskStatus: null }), {
     action: "create_task",
@@ -98,72 +105,43 @@ test("protocol/input/approval_owner: bridge-owned approval replies are routed to
   );
 });
 
-test("protocol/input/bridge_action: representative repository-owned service control stays bridge-owned", () => {
-  assert.deepEqual(classifyBridgeAction("请重启 openclaw-codex-feishu.service"), RESTART_OWNED_SERVICE);
+test("protocol/lane_contract/service_control: dedicated owned service prompts stay bridge-owned", () => {
+  const restart = assessBridgeAction("请重启 openclaw-codex-feishu.service");
+  assert.equal(restart.capability, "bridge_control");
+  assert.equal(restart.effectKind, "service_control");
+  assert.equal(restart.routing.dedicatedRequest, true);
+  assert.equal(restart.routing.ambiguousCapability, false);
+  assert.equal(restart.routing.mixedIntent, false);
+  assert.deepEqual(restart.decision, RESTART_OWNED_SERVICE);
 
-  for (const prompt of [
-    "what is the status of openclaw-codex-feishu.service",
-    "请汇报一下 openclaw-codex-feishu.service 状态",
-    "please report status of openclaw-codex-feishu.service",
-    "please check status for openclaw-codex-feishu.service",
-  ]) {
-    assert.deepEqual(classifyBridgeAction(prompt), READ_ONLY_OWNED_SERVICE_STATUS, prompt);
-  }
+  const status = assessBridgeAction("please report status of openclaw-codex-feishu.service");
+  assert.equal(status.capability, "bridge_control");
+  assert.equal(status.effectKind, "service_control");
+  assert.equal(status.routing.dedicatedRequest, true);
+  assert.deepEqual(status.decision, READ_ONLY_OWNED_SERVICE_STATUS);
 });
 
-test("protocol/input/bridge_action: representative gateway health prompts stay bridge-owned", () => {
-  for (const prompt of [
-    "请帮我检查 gateway 健康状态",
-    "汇报一下gateway健康状况",
-    "show gateway health details info",
-    "请查看网关健康详情信息",
-    "show health info for gateway",
-  ]) {
-    assert.deepEqual(classifyBridgeAction(prompt), READ_ONLY_GATEWAY_HEALTH, prompt);
-  }
+test("protocol/lane_contract/control_plane_reads: representative dedicated control-plane reads stay bridge-owned", () => {
+  assert.deepEqual(classifyBridgeAction("show gateway health details info"), READ_ONLY_GATEWAY_HEALTH);
+  assert.deepEqual(classifyBridgeAction("show bridge diagnostic details info"), READ_ONLY_BRIDGE_DIAGNOSTIC);
+  assert.deepEqual(classifyBridgeAction("install the repo systemd service"), INSTALL_SYSTEMD_SERVICE);
 });
 
-test("protocol/input/bridge_action: representative diagnostic prompts stay bridge-owned", () => {
-  for (const prompt of [
-    "please check bridge diagnostic info",
-    "show diagnostic details of bridge",
-    "show diagnostic info for bridge",
-    "show diagnostics for bridge",
-    "请检查桥接状态详情",
-    "show bridge diagnostic details info",
-  ]) {
-    assert.deepEqual(classifyBridgeAction(prompt), READ_ONLY_BRIDGE_DIAGNOSTIC, prompt);
-  }
-});
+test("protocol/lane_contract/fallback: non-owned, mixed-intent, and ambiguous prompts fall back to codex", () => {
+  assert.equal(classifyBridgeAction("请重启 nginx"), null);
+  assert.equal(classifyBridgeAction("请帮我重启 openclaw-codex-feishu.service 并总结 README.md"), null);
 
-test("protocol/input/bridge_action: representative install lifecycle prompts stay bridge-owned", () => {
-  for (const prompt of [
-    "can you install the systemd service",
-    "install the repo systemd service",
-  ]) {
-    assert.deepEqual(classifyBridgeAction(prompt), INSTALL_SYSTEMD_SERVICE, prompt);
-  }
-});
+  const mixed = assessBridgeAction("show gateway health details view repository");
+  assert.equal(mixed.capability, "bridge_control");
+  assert.equal(mixed.effectKind, "gateway_health");
+  assert.equal(mixed.routing.dedicatedRequest, false);
+  assert.equal(mixed.routing.mixedIntent, true);
+  assert.equal(mixed.decision, null);
 
-test("protocol/input/bridge_action: non-owned, mixed-intent, and ambiguous prompts fall back to codex", () => {
-  for (const prompt of [
-    "请重启 nginx",
-    "请 docker restart xxx",
-    "请帮我重启 openclaw-codex-feishu.service 并总结 README.md",
-    "show gateway health details view repository",
-    "what is the status of openclaw-codex-feishu.service view repo",
-    "show me bridge diagnostic details and summarize README.md",
-    "show bridge diagnostic details and explain README structure",
-    "install the systemd service and then update docs/roadmap.md",
-    "status of openclaw-codex-feishu.service, then fix the failing test",
-    "show gateway health details view",
-    "what is the status of openclaw-codex-feishu.service check",
-    "show status info of bridge",
-    "show status info of gateway",
-    "show status info of runner",
-  ]) {
-    assert.equal(classifyBridgeAction(prompt), null, prompt);
-  }
+  const ambiguous = assessBridgeAction("show status info of bridge");
+  assert.equal(ambiguous.capability, "bridge_control");
+  assert.equal(ambiguous.routing.ambiguousCapability, true);
+  assert.equal(ambiguous.decision, null);
 });
 
 test("protocol/resume_gate: explicit resume is rejected when no active task exists", () => {

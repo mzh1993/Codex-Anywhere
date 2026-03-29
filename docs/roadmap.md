@@ -19,16 +19,18 @@
 - bridge 自有控制面已形成最小闭环：独立对象、独立审批 lane、独立持久化、独立恢复。
 - 入口层对普通任务的误劫持已完成一轮收口，混合语义默认回落 `Codex`。
 - 恢复与审计已有最小底座：task / run / approval / bridge action 已分开持久化，并有 fail-closed recovery。
+- bridge-owned control-plane 归属已补出最小 `capability / effect / routing / decision` assessment 骨架，不再只剩最终 decision。
+- `routing` 与 `runtime-control-plane` 测试已开始从 prompt 变体穷举，收向 lane contract 与 fallback contract 的主保护。
 
 ## 未落地
 
-- 执行边界模型仍未完全从 prompt / regex 信号升级为更稳定的 action-boundary / capability 模型。
+- 执行边界模型仍未完全从 prompt / regex 信号升级为更稳定的 action-boundary / capability 模型；当前只是在 bridge-owned control-plane 归属上补出了最小骨架。
 - 真实链路下的控制面归属仍未完全收稳，尤其是纯 control-plane 场景的一致性仍需继续验证。
 - 渠道解耦 contract 尚未真正抽稳，当前核心语义仍主要长在 Feishu + OpenClaw 接线内。
 - 协作体验层基本尚未展开，低噪音状态表达、结构化结果、图片/渲染结果仍在后面。
-- `doctor` 已有最小入口与摘要格式，但 gateway 仍是占位探测，尚未成为可信健康摘要。
-- 旧 compat 命令仍以内部分支形式留在主 dispatcher 中，尚未真正下沉为 compat layer。
-- 测试面对新宪法的保护权重仍不足；当前大量测试仍在保护 regex 识别和旧兼容实现，而不是优先保护新的命令面与单主角体验。
+- `doctor` 已有最小入口与真实 gateway 探测，但仍未成为可信的运维健康摘要。
+- 旧 compat 命令已收口到独立 command fallback router 里的单一 compat handoff，但尚未真正下沉为完全独立的 compat layer。
+- 测试面对新宪法的保护权重仍不足；虽然 `routing` 与 `runtime-control-plane` 已开始收向 lane contract，但整体仍有不少 regex 识别和旧兼容实现保护残留。
 
 ## 当前风险
 
@@ -57,15 +59,16 @@
 
 - 保留：任务状态机、审批 token、task / run / bridge action 持久化、fail-closed recovery、bridge 与 `codex task` 边界分离这类协议型测试。
 - 已完成：围绕“普通消息默认透传 `Codex`、显式 `/codex` 优先贴近原生、`doctor` 为唯一桥新增主命令、未知子命令不再喷旧帮助”的最小执行验收测试已补上。
+- 已开始：`routing` 与 `runtime-control-plane` 已把一部分保护重点切到 lane contract、fallback contract 与 continuity contract。
 - 仍需保留但降权：bridge-owned control-plane 与“混合语义默认回落 `Codex`”这类边界测试；它们仍有价值，但不再等价于产品体验已对齐。
-- 下一步重写重点：所有仍把 compat 命令实现细节当成主契约的断言。
-- 下一步收缩重点：大量按措辞穷举的 prompt/regex 变体测试，只保留 owned / mixed / ambiguous / non-owned 四类代表性样本；避免旧表面匹配测试继续绑架新设计。
+- 下一步重写重点：所有仍把 compat 命令实现细节当成主契约的断言，以及仍只断言最终 decision 而不看 capability / routing 的测试。
+- 下一步收缩重点：剩余大量按措辞穷举的 prompt/regex 变体测试，只保留 owned / mixed / ambiguous / non-owned 四类代表性样本；避免旧表面匹配测试继续绑架新设计。
 
 ## 下一步最小推进项
 
-- 先把旧 compat 命令从主 dispatcher 中下沉为明确的 compat layer，消除实现结构上的旧命令中心性。
-- 再重排测试权重：提高新命令面与单主角体验的主保护级别，降低 regex 变体穷举的权重。
-- 然后继续收口 `P0 / 受控执行能力`，优先稳固 action-boundary model 与 control-plane 一致性。
+- 先继续把现有 command fallback router 内的 compat handoff 下沉为明确的 compat layer，进一步消除实现结构上的旧命令中心性。
+- 再继续重排测试权重：把剩余 runtime / protocol 测试进一步切到 lane contract、fallback contract 与 continuity contract。
+- 然后继续收口 `P0 / 受控执行能力`，优先把当前 bridge-owned control-plane assessment 骨架推进成更稳定的 action-boundary model。
 
 ## 暂不推进项
 

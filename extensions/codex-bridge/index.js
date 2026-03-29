@@ -19,7 +19,7 @@ import {
   finishBridgeActionWithApprovalRequired,
   startBridgeActionExecution,
 } from "./lib/bridge-action-model.js";
-import { handleCompatCodexCommand, isCompatCodexCommand } from "./lib/compat-command-router.js";
+import { handleCommandFallback } from "./lib/command-fallback-router.js";
 import { isPathInsideAny } from "./lib/fs-utils.js";
 import { getLocaleText, getUserVisibleStatusHint, localizeTaskStatus } from "./lib/locale.js";
 import { ensureIsolatedOpenClawShim } from "./lib/openclaw-shim.js";
@@ -314,30 +314,14 @@ export class CodexBridge {
       return;
     }
 
-    if (parsed.name === "doctor") {
-      const doctorText = await this.formatDoctor(profile.senderId, profile);
-      await this.safeReply({
-        accountId: request.accountId,
-        conversationId: request.conversationId,
-        messageId: request.messageId,
-        text: doctorText,
-      });
-      return;
-    }
-
-    if (isCompatCodexCommand(parsed.name)) {
-      await handleCompatCodexCommand({
-        bridge: this,
-        parsed,
-        request,
-        profile,
-        routeAbortCommand,
-        routeApproveCommand,
-      });
-      return;
-    }
-
-    await this.sendUnknownCommand(request, parsed.name);
+    await handleCommandFallback({
+      bridge: this,
+      profile,
+      request,
+      parsed,
+      routeAbortCommand,
+      routeApproveCommand,
+    });
   }
 
   async handleNativeCodexInvocation(profile, request, invocation) {

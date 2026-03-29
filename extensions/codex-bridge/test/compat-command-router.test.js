@@ -18,3 +18,22 @@ test("constitution/compat_layer/surface: compat layer only claims legacy slash c
   assert.equal(isCompatCodexCommand("foo"), false);
   assert.equal(isCompatCodexCommand(""), false);
 });
+
+test("constitution/compat_layer/fallback: compat router declines unknown slash commands", async () => {
+  const { handleCompatCodexCommand } = await import("../lib/compat-command-router.js");
+
+  const handled = await handleCompatCodexCommand({
+    bridge: {},
+    parsed: { name: "new", args: "" },
+    request: {},
+    profile: {},
+    routeAbortCommand() {
+      throw new Error("should not be called");
+    },
+    routeApproveCommand() {
+      throw new Error("should not be called");
+    },
+  });
+
+  assert.equal(handled, false);
+});

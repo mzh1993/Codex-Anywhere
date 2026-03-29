@@ -12,9 +12,13 @@ export async function handleCompatCodexCommand({
   routeAbortCommand,
   routeApproveCommand,
 }) {
+  if (!isCompatCodexCommand(parsed.name)) {
+    return false;
+  }
+
   if (parsed.name === "help") {
     await bridge.sendHelp(request, profile);
-    return;
+    return true;
   }
 
   if (parsed.name === "status") {
@@ -25,7 +29,7 @@ export async function handleCompatCodexCommand({
       messageId: request.messageId,
       text: statusText,
     });
-    return;
+    return true;
   }
 
   if (parsed.name === "abort") {
@@ -38,7 +42,7 @@ export async function handleCompatCodexCommand({
         messageId: request.messageId,
         text: bridge.text.noRunningTaskToAbort,
       });
-      return;
+      return true;
     }
     if (bridge.getActiveTask(profile.senderId)?.taskId === activeTask.taskId) {
       await bridge.stopTask(activeTask, "aborted by user");
@@ -54,7 +58,7 @@ export async function handleCompatCodexCommand({
       messageId: request.messageId,
       text: bridge.text.abortRequested(activeTask.taskId),
     });
-    return;
+    return true;
   }
 
   if (parsed.name === "approve") {
@@ -66,12 +70,12 @@ export async function handleCompatCodexCommand({
         messageId: request.messageId,
         text: bridge.text.usageApprove,
       });
-      return;
+      return true;
     }
     const activeBridgeAction = await bridge.loadActiveBridgeAction(profile.senderId, profile);
     if (activeBridgeAction?.status === "awaiting_approval") {
       await bridge.approvePendingBridgeActionRequest(profile, request, approvalToken);
-      return;
+      return true;
     }
 
     const activeTask = await bridge.loadActiveTask(profile.senderId, profile);
@@ -89,7 +93,7 @@ export async function handleCompatCodexCommand({
             suggestedCommand: approveRoute.suggestedCommand,
           }),
         });
-        return;
+        return true;
       }
       await bridge.safeReply({
         accountId: request.accountId,
@@ -97,10 +101,13 @@ export async function handleCompatCodexCommand({
         messageId: request.messageId,
         text: bridge.text.noPendingApproval,
       });
-      return;
+      return true;
     }
     await bridge.approvePendingRequest(profile, request, approvalToken);
+    return true;
   }
+
+  return false;
 }
 
 function extractFirstArgToken(args) {
