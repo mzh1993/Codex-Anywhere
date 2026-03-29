@@ -183,8 +183,8 @@ export function getLocaleText(locale) {
   if (normalized === "zh-CN") {
     return {
       locale: normalized,
-      usageNativeNew: "用法：`/codex [--cd <path>] [--model <model>] [--sandbox <mode>] [--ask-for-approval <policy>] <prompt>`",
-      usageNativeResume: "用法：`/codex resume [--model <model>] [--sandbox <mode>] [--ask-for-approval <policy>] <prompt>`",
+      usageNativeNew: "用法：`/codex [--cd <path>] [--model <model>] [--reasoning <level>] <prompt>`",
+      usageNativeResume: "用法：`/codex resume [--model <model>] [--reasoning <level>] <prompt>`",
       noPreviousSession: "当前没有可继续的活动任务。",
       noActiveTaskToContinue: "当前没有可继续的活动任务。",
       noPendingApproval: "当前没有待审批的活动任务。",
@@ -195,7 +195,7 @@ export function getLocaleText(locale) {
       ].join("\n"),
       nativeUnknownOption: (option) => [
         `暂不支持这个原生命令参数：\`${option}\`。`,
-        "当前 `/codex` 仅透传最小必需的原生参数：`--cd`、`--model`、`--sandbox`、`--ask-for-approval`。",
+        "当前 `/codex` 仅透传最小必需的显式启动参数：`--cd`、`--model`、`--reasoning`。",
       ].join("\n"),
       bridgeActionBlockedByRunningTask: "当前 Codex 任务仍在运行；请等本轮结束后再做这个控制面动作。",
       bridgeActionAlreadyRunning: "当前已有控制面动作在执行；请等它结束后再试。",
@@ -263,21 +263,26 @@ export function getLocaleText(locale) {
         "这是远程 Codex 入口。",
         "默认请直接发送普通消息给 Codex。",
         "`/codex doctor` 查看健康摘要",
-        "显式新任务示例：`/codex --cd <path> --model <model> <prompt>`",
-        "显式续写示例：`/codex resume --model <model> <prompt>`",
+        "显式新任务示例：`/codex --cd <path> --model <model> --reasoning <level> <prompt>`",
+        "显式续写示例：`/codex resume --model <model> --reasoning <level> <prompt>`",
         "",
         `默认工作目录：\`${cwd}\``,
       ].join("\n"),
       unknownCommand: (command) => [
         `暂不支持 \`${command}\`。`,
         "当前 `/codex` 优先保持原生 Codex 心智；普通任务请直接发送自然语言。",
-        "显式新任务请直接使用 `/codex --cd <path> <prompt>`；显式续写请使用 `/codex resume <prompt>`。",
+        "显式新任务请直接使用 `/codex --cd <path> [--model <model>] [--reasoning <level>] <prompt>`；显式续写请使用 `/codex resume [--model <model>] [--reasoning <level>] <prompt>`。",
       ].join("\n"),
-      doctorSummary: ({ codex, bridge, gateway, nextStep }) => [
+      doctorSummary: ({ codex, bridge, runtime, codexVersion, bwrapVersion, feishu, gateway, runtimeMessage, nextStep }) => [
         "健康摘要",
         `Codex：${codex}`,
         `Bridge：${bridge}`,
+        `运行时：${runtime}`,
+        `Codex CLI：${codexVersion}`,
+        `bwrap：${bwrapVersion}`,
+        `Feishu 凭据：${feishu}`,
         `Gateway：${gateway}`,
+        ...(runtimeMessage ? [`原因：${runtimeMessage}`] : []),
         `下一步：${nextStep}`,
       ].join("\n"),
       taskAlreadyRunning: (input, status) => {
@@ -364,9 +369,9 @@ export function getLocaleText(locale) {
   return {
     locale: normalized,
     usageNativeNew:
-      "Usage: `/codex [--cd <path>] [--model <model>] [--sandbox <mode>] [--ask-for-approval <policy>] <prompt>`",
+      "Usage: `/codex [--cd <path>] [--model <model>] [--reasoning <level>] <prompt>`",
     usageNativeResume:
-      "Usage: `/codex resume [--model <model>] [--sandbox <mode>] [--ask-for-approval <policy>] <prompt>`",
+      "Usage: `/codex resume [--model <model>] [--reasoning <level>] <prompt>`",
     noPreviousSession: "No active task to continue.",
     noActiveTaskToContinue: "No active task to continue.",
     noPendingApproval: "No active task awaiting approval.",
@@ -377,7 +382,7 @@ export function getLocaleText(locale) {
     ].join("\n"),
     nativeUnknownOption: (option) => [
       `This native-style option is not supported here yet: \`${option}\`.`,
-      "This `/codex` bridge currently forwards only the minimal native flags: `--cd`, `--model`, `--sandbox`, and `--ask-for-approval`.",
+      "This `/codex` bridge currently forwards only the minimal explicit start flags: `--cd`, `--model`, and `--reasoning`.",
     ].join("\n"),
     bridgeActionBlockedByRunningTask: "The current Codex task is still running. Wait for it to finish before this control-plane action.",
     bridgeActionAlreadyRunning: "A control-plane action is already running. Wait for it to finish before starting another one.",
@@ -445,21 +450,26 @@ export function getLocaleText(locale) {
       "This is a remote Codex entrypoint.",
       "For normal work, just send a plain message to Codex.",
       "`/codex doctor` shows the health summary.",
-      "Explicit new-task example: `/codex --cd <path> --model <model> <prompt>`",
-      "Explicit resume example: `/codex resume --model <model> <prompt>`",
+      "Explicit new-task example: `/codex --cd <path> --model <model> --reasoning <level> <prompt>`",
+      "Explicit resume example: `/codex resume --model <model> --reasoning <level> <prompt>`",
       "",
       `Default cwd: \`${cwd}\``,
     ].join("\n"),
     unknownCommand: (command) => [
       `\`${command}\` is not supported here yet.`,
       "This `/codex` surface stays native-first; send ordinary work as plain language.",
-      "For an explicit new task, use `/codex --cd <path> <prompt>`; for an explicit resume, use `/codex resume <prompt>`.",
+      "For an explicit new task, use `/codex --cd <path> [--model <model>] [--reasoning <level>] <prompt>`; for an explicit resume, use `/codex resume [--model <model>] [--reasoning <level>] <prompt>`.",
     ].join("\n"),
-    doctorSummary: ({ codex, bridge, gateway, nextStep }) => [
+    doctorSummary: ({ codex, bridge, runtime, codexVersion, bwrapVersion, feishu, gateway, runtimeMessage, nextStep }) => [
       "Health Summary",
       `Codex: ${codex}`,
       `Bridge: ${bridge}`,
+      `Runtime: ${runtime}`,
+      `Codex CLI: ${codexVersion}`,
+      `bwrap: ${bwrapVersion}`,
+      `Feishu credentials: ${feishu}`,
       `Gateway: ${gateway}`,
+      ...(runtimeMessage ? [`Reason: ${runtimeMessage}`] : []),
       `Next: ${nextStep}`,
     ].join("\n"),
     taskAlreadyRunning: (input, status) => {

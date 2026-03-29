@@ -302,7 +302,7 @@ test("runtime/compat/fail_closed: approved start fails closed without consuming 
   assert.doesNotMatch(replies[0], /任务已启动/);
 });
 
-test("runtime/protocol/approval: queued approvals persist a run-scoped approval grant summary", async () => {
+test("runtime/protocol/approval: explicit native starts still persist a run-scoped approval grant summary", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-approval-grant-queue-"));
   const { bridge, replies } = await createBridgeHarness(tempRoot);
   const { __activeTasks } = await import("../index.js");
@@ -316,7 +316,7 @@ test("runtime/protocol/approval: queued approvals persist a run-scoped approval 
       accountId: "default",
       conversationId: "conv-1",
       messageId: "msg-risky",
-      text: "systemctl restart nginx",
+      text: `/codex --cd ${tempRoot} systemctl restart nginx`,
     });
 
     const persistedProfile = await bridge.loadProfile("user-1", null);
@@ -465,7 +465,7 @@ test("runtime/protocol/command_surface/approve: legacy approve is closed even wh
 
   assert.equal(replies.length, 1);
   assert.match(replies[0], /暂不支持 `\/codex approve`/);
-  assert.match(replies[0], /`\/codex resume <prompt>`/);
+  assert.match(replies[0], /`\/codex resume \[--model <model>\] \[--reasoning <level>\] <prompt>`/);
   assert.doesNotMatch(replies[0], /`\/codex continue <prompt>`/);
   assert.doesNotMatch(replies[0], /未找到审批令牌|task_not_waiting_approval|等待输入/);
 });
@@ -1278,7 +1278,7 @@ test("runtime/protocol/command_surface/cwd: legacy cwd no longer mutates bridge 
   assert.equal(persistedProfile.defaultCwd, activeCwd);
   assert.equal(replies.length, 1);
   assert.match(replies[0], /暂不支持 `\/codex cwd`/);
-  assert.match(replies[0], /`\/codex --cd <path> <prompt>`/);
+  assert.match(replies[0], /`\/codex --cd <path> \[--model <model>\] \[--reasoning <level>\] <prompt>`/);
   assert.doesNotMatch(replies[0], /`\/codex doctor`/);
 
   await bridge.routeInbound({
@@ -1292,7 +1292,7 @@ test("runtime/protocol/command_surface/cwd: legacy cwd no longer mutates bridge 
 
   assert.equal(replies.length, 2);
   assert.match(replies[1], /暂不支持 `\/codex continue`/);
-  assert.match(replies[1], /`\/codex resume <prompt>`/);
+  assert.match(replies[1], /`\/codex resume \[--model <model>\] \[--reasoning <level>\] <prompt>`/);
   assert.doesNotMatch(replies[1], /`\/codex doctor`/);
 });
 
@@ -1365,7 +1365,7 @@ test("runtime/protocol/command_surface/abort: legacy abort is closed and falls b
   assert.equal(persistedProfile.pendingApprovalToken, "TOKEN1");
   assert.notEqual(persistedApproval, null);
   assert.match(replies[0], /暂不支持 `\/codex abort`/);
-  assert.match(replies[0], /`\/codex --cd <path> <prompt>`/);
+  assert.match(replies[0], /`\/codex --cd <path> \[--model <model>\] \[--reasoning <level>\] <prompt>`/);
 });
 
 test("runtime/protocol/command_surface/status: legacy status is closed and falls back to the native-first unknown-command hint while awaiting approval", async () => {
@@ -1432,7 +1432,7 @@ test("runtime/protocol/command_surface/status: legacy status is closed and falls
   });
 
   assert.match(replies[0], /暂不支持 `\/codex status`/);
-  assert.match(replies[0], /`\/codex --cd <path> <prompt>`/);
+  assert.match(replies[0], /`\/codex --cd <path> \[--model <model>\] \[--reasoning <level>\] <prompt>`/);
   assert.doesNotMatch(replies[0], /活动任务：task-awaiting-approval/);
   assert.doesNotMatch(replies[0], /待审批令牌：TOKEN1/);
 });
@@ -1451,7 +1451,7 @@ test("runtime/protocol/command_surface/status: legacy status is closed and falls
   });
 
   assert.match(replies[0], /暂不支持 `\/codex status`/);
-  assert.match(replies[0], /`\/codex --cd <path> <prompt>`/);
+  assert.match(replies[0], /`\/codex --cd <path> \[--model <model>\] \[--reasoning <level>\] <prompt>`/);
   assert.doesNotMatch(replies[0], /当前没有活动任务|这个私聊还没有记录/);
   assert.doesNotMatch(replies[0], /工作目录：/);
 });
@@ -1505,7 +1505,7 @@ test("runtime/protocol/command_surface/pwd: legacy pwd no longer exposes bridge-
 
   assert.equal(replies.length, 1);
   assert.match(replies[0], /暂不支持 `\/codex pwd`/);
-  assert.match(replies[0], /`\/codex --cd <path> <prompt>`/);
+  assert.match(replies[0], /`\/codex --cd <path> \[--model <model>\] \[--reasoning <level>\] <prompt>`/);
   assert.doesNotMatch(replies[0], /`\/codex doctor`/);
   assert.doesNotMatch(replies[0], new RegExp(defaultCwd.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   assert.doesNotMatch(replies[0], new RegExp(activeCwd.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
@@ -1547,7 +1547,7 @@ test("runtime/protocol/command_surface/help: legacy help is closed and falls bac
 
   assert.equal(replies.length, 1);
   assert.match(replies[0], /暂不支持 `\/codex help`/);
-  assert.match(replies[0], /`\/codex --cd <path> <prompt>`/);
+  assert.match(replies[0], /`\/codex --cd <path> \[--model <model>\] \[--reasoning <level>\] <prompt>`/);
   assert.doesNotMatch(replies[0], /`\/codex doctor`/);
   assert.doesNotMatch(replies[0], /Codex Runner 命令|bridge|兼容/);
 });
@@ -1620,7 +1620,7 @@ test("runtime/protocol/command_surface/approve: legacy approve is closed and doe
   assert.equal(persistedProfile.pendingApprovalToken, "TOKEN1");
   assert.notEqual(persistedApproval, null);
   assert.match(replies[0], /暂不支持 `\/codex approve`/);
-  assert.match(replies[0], /`\/codex resume <prompt>`/);
+  assert.match(replies[0], /`\/codex resume \[--model <model>\] \[--reasoning <level>\] <prompt>`/);
 });
 
 test("runtime/protocol/command_surface/unknown: unknown /codex subcommands return a short native-first hint instead of the full legacy help page", async () => {
@@ -1638,7 +1638,7 @@ test("runtime/protocol/command_surface/unknown: unknown /codex subcommands retur
 
   assert.equal(replies.length, 1);
   assert.match(replies[0], /暂不支持 `\/codex new`/);
-  assert.match(replies[0], /`\/codex --cd <path> <prompt>`/);
+  assert.match(replies[0], /`\/codex --cd <path> \[--model <model>\] \[--reasoning <level>\] <prompt>`/);
   assert.doesNotMatch(replies[0], /`\/codex doctor`/);
   assert.doesNotMatch(replies[0], /bridge/i);
   assert.doesNotMatch(replies[0], /Codex Runner 命令/);
@@ -1647,7 +1647,16 @@ test("runtime/protocol/command_surface/unknown: unknown /codex subcommands retur
 test("runtime/protocol/command_surface/doctor: doctor returns a minimal health summary", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-doctor-"));
   const { bridge, replies } = await createBridgeHarness(tempRoot);
+  bridge.ensureExecutionRuntimeReady = async () => ({
+    ok: true,
+    codexVersion: "codex-cli 0.116.0",
+    bwrapVersion: "0.11.0",
+  });
   bridge.probeGatewayHealthForDoctor = async () => "正常";
+  bridge.probeFeishuRuntimeForDoctor = async () => ({
+    ok: true,
+    label: "已就绪",
+  });
 
   await bridge.routeInbound({
     senderId: "user-1",
@@ -1670,7 +1679,16 @@ test("runtime/protocol/command_surface/doctor: doctor returns a minimal health s
 test("runtime/protocol/command_surface/doctor: running-task doctor advice stays short and does not expose status fallback by default", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-doctor-running-"));
   const { bridge, replies } = await createBridgeHarness(tempRoot);
+  bridge.ensureExecutionRuntimeReady = async () => ({
+    ok: true,
+    codexVersion: "codex-cli 0.116.0",
+    bwrapVersion: "0.11.0",
+  });
   bridge.probeGatewayHealthForDoctor = async () => "正常";
+  bridge.probeFeishuRuntimeForDoctor = async () => ({
+    ok: true,
+    label: "已就绪",
+  });
   const task = createTaskRecord({
     taskId: "task-running",
     locale: "zh-CN",
@@ -1730,7 +1748,7 @@ test("runtime/protocol/native_entry/protected_root: explicit native cwd into ~/.
   assert.equal(task.cwd, path.join(os.homedir(), ".openclaw"));
 });
 
-test("runtime/protocol/native_entry/new: native flags start a new task with parsed cwd and execution options", async () => {
+test("runtime/protocol/native_entry/new: native start flags carry cwd model and reasoning only", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-native-new-"));
   const worktree = path.join(tempRoot, "worktree");
   await fs.mkdir(worktree, { recursive: true });
@@ -1746,7 +1764,7 @@ test("runtime/protocol/native_entry/new: native flags start a new task with pars
     accountId: "default",
     conversationId: "conv-1",
     messageId: "msg-native-new",
-    text: `/codex --cd ${worktree} --model gpt-5.3-codex --sandbox workspace-write --ask-for-approval on-request summarize README.md`,
+    text: `/codex --cd ${worktree} --model gpt-5.3-codex --reasoning high summarize README.md`,
   });
 
   assert.equal(queued.length, 1);
@@ -1755,8 +1773,7 @@ test("runtime/protocol/native_entry/new: native flags start a new task with pars
   assert.equal(queued[0].prompt, "summarize README.md");
   assert.deepEqual(queued[0].executionOptions, {
     model: "gpt-5.3-codex",
-    sandbox: "workspace-write",
-    askForApproval: "on-request",
+    reasoningEffort: "high",
   });
 });
 
@@ -1802,7 +1819,7 @@ test("runtime/protocol/native_entry/resume: explicit resume uses native command 
     accountId: "default",
     conversationId: "conv-1",
     messageId: "msg-native-resume",
-    text: "/codex resume --model gpt-5.3-codex continue README.md",
+    text: "/codex resume --model gpt-5.3-codex --reasoning medium continue README.md",
   });
 
   assert.equal(queued.length, 1);
@@ -1812,6 +1829,7 @@ test("runtime/protocol/native_entry/resume: explicit resume uses native command 
   assert.equal(queued[0].existingTask.taskId, "task-existing");
   assert.deepEqual(queued[0].executionOptions, {
     model: "gpt-5.3-codex",
+    reasoningEffort: "medium",
   });
 });
 
@@ -1862,16 +1880,16 @@ test("runtime/protocol/native_entry/validation: invalid native enum values fail 
     accountId: "default",
     conversationId: "conv-1",
     messageId: "msg-native-invalid-value",
-    text: "/codex --sandbox writable summarize README.md",
+    text: "/codex --reasoning minimal summarize README.md",
   });
 
   assert.equal(replies.length, 1);
-  assert.match(replies[0], /`--sandbox` 的值无效：`writable`/);
-  assert.match(replies[0], /`read-only`.*`workspace-write`.*`danger-full-access`/);
+  assert.match(replies[0], /`--reasoning` 的值无效：`minimal`/);
+  assert.match(replies[0], /`none`.*`low`.*`medium`.*`high`.*`xhigh`/);
   assert.equal(await bridge.loadProfile("user-1", null), null);
 });
 
-test("runtime/protocol/native_entry/validation: unknown native flags fail closed instead of becoming prompt text", async () => {
+test("runtime/protocol/native_entry/validation: unsupported native execution flags fail closed instead of becoming prompt text", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-native-unknown-option-"));
   const { bridge, replies } = await createBridgeHarness(tempRoot);
 
@@ -1881,19 +1899,20 @@ test("runtime/protocol/native_entry/validation: unknown native flags fail closed
     accountId: "default",
     conversationId: "conv-1",
     messageId: "msg-native-unknown-option",
-    text: "/codex --foo summarize README.md",
+    text: "/codex --sandbox workspace-write summarize README.md",
   });
 
   assert.equal(replies.length, 1);
-  assert.match(replies[0], /暂不支持这个原生命令参数：`--foo`/);
+  assert.match(replies[0], /暂不支持这个原生命令参数：`--sandbox`/);
   assert.equal(await bridge.loadProfile("user-1", null), null);
 });
 
-test("runtime/protocol/native_entry/risk: danger-full-access sandbox requires approval before starting", async () => {
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-native-sandbox-approval-"));
-  const { bridge, replies } = await createBridgeHarness(tempRoot);
-  bridge.startTask = async () => {
-    throw new Error("dangerous native flags must not start directly");
+test("runtime/protocol/native_entry/plain_text: model and reasoning wording in plain text still stays on the codex lane", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-native-plain-text-"));
+  const { bridge } = await createBridgeHarness(tempRoot);
+  const queued = [];
+  bridge.queueOrStartTask = async (params) => {
+    queued.push(params);
   };
 
   await bridge.routeInbound({
@@ -1901,44 +1920,68 @@ test("runtime/protocol/native_entry/risk: danger-full-access sandbox requires ap
     senderName: "tester",
     accountId: "default",
     conversationId: "conv-1",
-    messageId: "msg-native-danger",
-    text: "/codex --sandbox danger-full-access summarize README.md",
+    messageId: "msg-plain-text",
+    text: "请用 gpt-5.4 高思考等级继续整理 README.md",
   });
 
-  const profile = await bridge.loadProfile("user-1", null);
-  const task = await bridge.readTask(profile.activeTaskId);
-
-  assert.match(replies[0], /审批|同意|不要执行/);
-  assert.match(replies[0], /native_dangerous_sandbox_requires_approval/);
-  assert.equal(task.status, "awaiting_approval");
-  assert.deepEqual(task.executionOptions, {
-    sandbox: "danger-full-access",
-  });
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].mode, "new");
+  assert.equal(queued[0].executionOptions, undefined);
 });
 
-test("runtime/protocol/native_entry/risk: ask-for-approval never requires approval before starting", async () => {
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-native-approval-never-"));
+test("runtime/protocol/native_entry/plain_text: protected-root and host-codex wording in plain text still stays on the codex lane", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-native-plain-text-boundary-"));
   const { bridge, replies } = await createBridgeHarness(tempRoot);
-  bridge.startTask = async () => {
-    throw new Error("dangerous native flags must not start directly");
+  const started = [];
+  bridge.startTask = async (params) => {
+    started.push(params);
   };
+
+  const prompt = "请比较 ~/.openclaw/config.json 和 ~/.codex/config.toml，并用 gpt-5.4 高思考等级整理结论";
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-plain-text-boundary",
+    text: prompt,
+  });
+
+  assert.equal(replies.length, 0);
+  assert.equal(started.length, 1);
+  assert.equal(started[0].mode, "new");
+  assert.equal(started[0].prompt, prompt);
+  assert.equal(started[0].policyDecision, "allowed");
+  assert.deepEqual(started[0].reasonCodes, []);
+});
+
+test("runtime/protocol/command_surface/doctor: doctor reports concrete runtime readiness instead of only generic status", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-doctor-runtime-"));
+  const { bridge, replies } = await createBridgeHarness(tempRoot);
+  bridge.ensureExecutionRuntimeReady = async () => ({
+    ok: true,
+    codexVersion: "codex-cli 0.116.0",
+    bwrapVersion: "0.11.0",
+  });
+  bridge.probeGatewayHealthForDoctor = async () => "正常";
+  bridge.probeFeishuRuntimeForDoctor = async () => ({
+    ok: true,
+    label: "已就绪",
+  });
 
   await bridge.routeInbound({
     senderId: "user-1",
     senderName: "tester",
     accountId: "default",
     conversationId: "conv-1",
-    messageId: "msg-native-never",
-    text: "/codex --ask-for-approval never summarize README.md",
+    messageId: "msg-doctor-runtime",
+    text: "/codex doctor",
   });
 
-  const profile = await bridge.loadProfile("user-1", null);
-  const task = await bridge.readTask(profile.activeTaskId);
-
-  assert.match(replies[0], /审批|同意|不要执行/);
-  assert.match(replies[0], /native_never_approval_requires_approval/);
-  assert.equal(task.status, "awaiting_approval");
-  assert.deepEqual(task.executionOptions, {
-    askForApproval: "never",
-  });
+  assert.equal(replies.length, 1);
+  assert.match(replies[0], /运行时：正常/);
+  assert.match(replies[0], /Codex CLI：codex-cli 0\.116\.0/);
+  assert.match(replies[0], /bwrap：0\.11\.0/);
+  assert.match(replies[0], /Feishu 凭据：已就绪/);
+  assert.match(replies[0], /Gateway：正常/);
 });

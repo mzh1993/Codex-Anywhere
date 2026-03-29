@@ -33,9 +33,10 @@ export CODEX_FEISHU_APP_SECRET='xxx'
 - 当前入口：Feishu
 - 当前传输壳：OpenClaw
 - 当前稳定交互：文本、状态、审批
-- 自然语言是主路径；`/codex ...` 只是兜底控制面
+- 自然语言是主路径；显式启动持续会话时再使用 `/codex ...`
+- bridge 只在显式 `/codex ...` 启动面，或自有审批 / 控制面闭环里做最薄 gate；普通文本语义默认仍归 `Codex`
 
-它的职责是把远程输入、状态回传和审批动作接到本机 `codex exec`，而不是扩展成一个通用 IM 平台或重新封装一套新的 Codex 主交互语义。
+它的职责是把远程输入、状态回传和审批动作接到本机 `codex exec`，而不是扩展成一个通用 IM 平台或重新封装一套新的 Codex 主交互语义。`/codex doctor` 当前用于输出真实运行健康摘要（`Codex CLI`、`bwrap`、隔离 Feishu 凭据、gateway）。手机远程主路径收口为：显式启动持续会话，然后继续用普通文本和 `Codex` 对话。
 
 ## 仓库内容
 

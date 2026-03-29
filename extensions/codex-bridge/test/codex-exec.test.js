@@ -64,24 +64,22 @@ test("runtime/exec/options: native model and execution flags map to codex exec a
       prompt: "summarize README.md",
       executionOptions: {
         model: "gpt-5.3-codex",
-        sandbox: "workspace-write",
-        askForApproval: "on-request",
+        reasoningEffort: "high",
       },
     },
     settings: { locale: "en-US" },
   });
 
-  assert.equal(args.includes("--full-auto"), false);
-  assert.deepEqual(args.slice(0, 9), [
+  assert.equal(args.includes("--full-auto"), true);
+  assert.deepEqual(args.slice(0, 8), [
     "exec",
+    "--full-auto",
     "--json",
     "--skip-git-repo-check",
     "-m",
     "gpt-5.3-codex",
-    "-s",
-    "workspace-write",
-    "-a",
-    "on-request",
+    "-c",
+    'model_reasoning_effort="high"',
   ]);
   assert.equal(args.includes("-C"), true);
 });

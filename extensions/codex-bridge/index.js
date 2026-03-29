@@ -252,6 +252,7 @@ export class CodexBridge {
       }
       if (routeResult.action === "continue_task") {
         await this.queueOrStartTask({
+          entrySurface: "plain_text",
           profile,
           accountId: request.accountId,
           conversationId: request.conversationId,
@@ -279,6 +280,7 @@ export class CodexBridge {
     }
 
     await this.queueOrStartTask({
+      entrySurface: "plain_text",
       profile,
       accountId: request.accountId,
       conversationId: request.conversationId,
@@ -357,6 +359,7 @@ export class CodexBridge {
         return;
       }
       await this.queueOrStartTask({
+        entrySurface: "explicit_codex_command",
         profile,
         accountId: request.accountId,
         conversationId: request.conversationId,
@@ -398,6 +401,7 @@ export class CodexBridge {
     }
 
     await this.queueOrStartTask({
+      entrySurface: "explicit_codex_command",
       profile,
       accountId: request.accountId,
       conversationId: request.conversationId,
@@ -1039,15 +1043,15 @@ export class CodexBridge {
   async queueOrStartTask(params) {
     const cwd = expandUserPath(params.cwd, this.settings.defaultCwd);
     await assertAllowedCwd(cwd, this.settings);
-    const promptDecision = assessPolicyDecision({
+    const decision = resolveStartEntryDecision({
+      entrySurface: params.entrySurface,
       prompt: params.prompt,
       cwd,
+      executionOptions: params.executionOptions,
       protectedRoots: this.settings.policyProtectedRoots,
       isolationBoundaryRoots: this.settings.isolationBoundaryRoots,
       hostCodexRoot: this.settings.hostCodexRoot,
     });
-    const nativeDecision = assessNativeExecutionDecision(params.executionOptions);
-    const decision = mergePolicyDecisionKinds(promptDecision, nativeDecision);
     const reasonCodes = decision.reasonCodes ?? [];
 
     if (decision.kind === POLICY_DECISIONS.DENIED) {
@@ -1814,15 +1818,50 @@ export class CodexBridge {
       activeBridgeAction?.status != null
         ? localizeTaskStatus(this.settings.locale, activeBridgeAction.status)
         : doctorBridgeOkLabel(this.settings.locale);
-    const gateway = await this.probeGatewayHealthForDoctor(profileFallback);
-    const nextStep = resolveDoctorNextStep(this.settings.locale, activeTask?.status ?? null);
+    const runtime = await this.probeExecutionRuntimeForDoctor();
+    const gatewayProbe = await this.probeGatewayHealthForDoctor(profileFallback);
+    const gateway = typeof gatewayProbe === "string" ? gatewayProbe : gatewayProbe?.label ?? doctorGatewayErrorLabel(this.settings.locale);
+    const gatewayOk = typeof gatewayProbe === "string" ? gatewayProbe === doctorGatewayOkLabel(this.settings.locale) : Boolean(gatewayProbe?.ok);
+    const feishu = await this.probeFeishuRuntimeForDoctor();
+    const nextStep = resolveDoctorNextStep(this.settings.locale, {
+      activeTaskStatus: activeTask?.status ?? null,
+      runtimeOk: runtime.ok,
+      gatewayOk,
+      feishuReady: feishu.ok,
+    });
 
     return this.text.doctorSummary({
       codex,
       bridge,
+      runtime: runtime.label,
+      codexVersion: runtime.codexVersion,
+      bwrapVersion: runtime.bwrapVersion,
+      feishu: feishu.label,
       gateway,
+      runtimeMessage: runtime.message,
       nextStep,
     });
+  }
+
+  async probeExecutionRuntimeForDoctor() {
+    try {
+      const runtime = await this.ensureExecutionRuntimeReady();
+      return {
+        ok: Boolean(runtime?.ok),
+        label: runtime?.ok ? doctorRuntimeOkLabel(this.settings.locale) : doctorRuntimeErrorLabel(this.settings.locale),
+        codexVersion: runtime?.codexVersion ?? doctorUnknownValue(this.settings.locale),
+        bwrapVersion: runtime?.bwrapVersion ?? doctorUnknownValue(this.settings.locale),
+        message: runtime?.ok ? null : runtime?.message ?? null,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        label: doctorRuntimeErrorLabel(this.settings.locale),
+        codexVersion: doctorUnknownValue(this.settings.locale),
+        bwrapVersion: doctorUnknownValue(this.settings.locale),
+        message: toErrorText(error),
+      };
+    }
   }
 
   async probeGatewayHealthForDoctor(profileFallback = null) {
@@ -1841,6 +1880,18 @@ export class CodexBridge {
     } catch {
       return doctorGatewayErrorLabel(this.settings.locale);
     }
+  }
+
+  async probeFeishuRuntimeForDoctor() {
+    const envReady =
+      normalizeText(process.env.CODEX_FEISHU_APP_ID).length > 0 &&
+      normalizeText(process.env.CODEX_FEISHU_APP_SECRET).length > 0;
+    const secretsEnvPath = path.join(path.dirname(this.settings.stateRoot), "openclaw-codex-feishu.secrets.env");
+    const ok = envReady || fs.existsSync(secretsEnvPath);
+    return {
+      ok,
+      label: ok ? doctorFeishuReadyLabel(this.settings.locale) : doctorFeishuMissingLabel(this.settings.locale),
+    };
   }
 
   async isSenderPaired(accountId, senderId) {
@@ -2330,7 +2381,7 @@ function parseNativeCodexInvocation(text) {
       index += 1;
       continue;
     }
-    if (lower === "--sandbox" || token === "-s") {
+    if (lower === "--reasoning") {
       const nextValue = tokens[index + 1];
       if (!nextValue) {
         return createNativeInvocationError("missing_value", {
@@ -2338,67 +2389,30 @@ function parseNativeCodexInvocation(text) {
           usage: mode === "resume" ? "resume" : "new",
         });
       }
-      if (!NATIVE_SANDBOX_VALUES.includes(nextValue)) {
+      if (!NATIVE_REASONING_VALUES.includes(nextValue)) {
         return createNativeInvocationError("invalid_value", {
           option: token,
           value: nextValue,
-          allowedValues: NATIVE_SANDBOX_VALUES,
+          allowedValues: NATIVE_REASONING_VALUES,
         });
       }
-      executionOptions.sandbox = nextValue;
+      executionOptions.reasoningEffort = nextValue;
       index += 2;
       continue;
     }
-    if (lower.startsWith("--sandbox=")) {
-      executionOptions.sandbox = token.slice(token.indexOf("=") + 1);
-      if (!executionOptions.sandbox) {
+    if (lower.startsWith("--reasoning=")) {
+      executionOptions.reasoningEffort = token.slice(token.indexOf("=") + 1);
+      if (!executionOptions.reasoningEffort) {
         return createNativeInvocationError("missing_value", {
-          option: "--sandbox",
+          option: "--reasoning",
           usage: mode === "resume" ? "resume" : "new",
         });
       }
-      if (!NATIVE_SANDBOX_VALUES.includes(executionOptions.sandbox)) {
+      if (!NATIVE_REASONING_VALUES.includes(executionOptions.reasoningEffort)) {
         return createNativeInvocationError("invalid_value", {
-          option: "--sandbox",
-          value: executionOptions.sandbox,
-          allowedValues: NATIVE_SANDBOX_VALUES,
-        });
-      }
-      index += 1;
-      continue;
-    }
-    if (lower === "--ask-for-approval" || token === "-a") {
-      const nextValue = tokens[index + 1];
-      if (!nextValue) {
-        return createNativeInvocationError("missing_value", {
-          option: token,
-          usage: mode === "resume" ? "resume" : "new",
-        });
-      }
-      if (!NATIVE_APPROVAL_VALUES.includes(nextValue)) {
-        return createNativeInvocationError("invalid_value", {
-          option: token,
-          value: nextValue,
-          allowedValues: NATIVE_APPROVAL_VALUES,
-        });
-      }
-      executionOptions.askForApproval = nextValue;
-      index += 2;
-      continue;
-    }
-    if (lower.startsWith("--ask-for-approval=")) {
-      executionOptions.askForApproval = token.slice(token.indexOf("=") + 1);
-      if (!executionOptions.askForApproval) {
-        return createNativeInvocationError("missing_value", {
-          option: "--ask-for-approval",
-          usage: mode === "resume" ? "resume" : "new",
-        });
-      }
-      if (!NATIVE_APPROVAL_VALUES.includes(executionOptions.askForApproval)) {
-        return createNativeInvocationError("invalid_value", {
-          option: "--ask-for-approval",
-          value: executionOptions.askForApproval,
-          allowedValues: NATIVE_APPROVAL_VALUES,
+          option: "--reasoning",
+          value: executionOptions.reasoningEffort,
+          allowedValues: NATIVE_REASONING_VALUES,
         });
       }
       index += 1;
@@ -2421,8 +2435,7 @@ function parseNativeCodexInvocation(text) {
   };
 }
 
-const NATIVE_SANDBOX_VALUES = Object.freeze(["read-only", "workspace-write", "danger-full-access"]);
-const NATIVE_APPROVAL_VALUES = Object.freeze(["untrusted", "on-failure", "on-request", "never"]);
+const NATIVE_REASONING_VALUES = Object.freeze(["none", "low", "medium", "high", "xhigh"]);
 
 function createNativeInvocationError(kind, detail) {
   return {
@@ -2650,6 +2663,39 @@ function assessNativeExecutionDecision(executionOptions) {
   };
 }
 
+function resolveStartEntryDecision({
+  entrySurface,
+  prompt,
+  cwd,
+  executionOptions,
+  protectedRoots,
+  isolationBoundaryRoots,
+  hostCodexRoot,
+}) {
+  if (normalizeEntrySurface(entrySurface) === "plain_text") {
+    return {
+      kind: POLICY_DECISIONS.ALLOWED,
+      reasonCodes: [],
+    };
+  }
+
+  const promptDecision = assessPolicyDecision({
+    prompt,
+    cwd,
+    protectedRoots,
+    isolationBoundaryRoots,
+    hostCodexRoot,
+  });
+  const nativeDecision = assessNativeExecutionDecision(executionOptions);
+  return mergePolicyDecisionKinds(promptDecision, nativeDecision);
+}
+
+function normalizeEntrySurface(entrySurface) {
+  if (entrySurface === "plain_text") return "plain_text";
+  if (entrySurface === "approval_granted_run") return "approval_granted_run";
+  return "explicit_codex_command";
+}
+
 function mergePolicyDecisionKinds(primary, secondary) {
   const primaryReasonCodes = Array.isArray(primary?.reasonCodes) ? primary.reasonCodes : [];
   const secondaryReasonCodes = Array.isArray(secondary?.reasonCodes) ? secondary.reasonCodes : [];
@@ -2681,6 +2727,14 @@ function doctorBridgeOkLabel(locale) {
   return locale === "zh-CN" ? "正常" : "ok";
 }
 
+function doctorRuntimeOkLabel(locale) {
+  return locale === "zh-CN" ? "正常" : "ok";
+}
+
+function doctorRuntimeErrorLabel(locale) {
+  return locale === "zh-CN" ? "异常" : "unhealthy";
+}
+
 function doctorGatewayOkLabel(locale) {
   return locale === "zh-CN" ? "正常" : "ok";
 }
@@ -2689,13 +2743,37 @@ function doctorGatewayErrorLabel(locale) {
   return locale === "zh-CN" ? "异常" : "unhealthy";
 }
 
-function resolveDoctorNextStep(locale, activeTaskStatus) {
+function doctorFeishuReadyLabel(locale) {
+  return locale === "zh-CN" ? "已就绪" : "ready";
+}
+
+function doctorFeishuMissingLabel(locale) {
+  return locale === "zh-CN" ? "未就绪" : "missing";
+}
+
+function doctorUnknownValue(locale) {
+  return locale === "zh-CN" ? "未知" : "unknown";
+}
+
+function resolveDoctorNextStep(locale, input) {
+  const activeTaskStatus =
+    typeof input === "string" || input == null ? (input ?? null) : (input.activeTaskStatus ?? null);
+  const runtimeOk = typeof input === "object" && input != null ? input.runtimeOk !== false : true;
+  const gatewayOk = typeof input === "object" && input != null ? input.gatewayOk !== false : true;
+  const feishuReady = typeof input === "object" && input != null ? input.feishuReady !== false : true;
+
   if (locale === "zh-CN") {
+    if (!runtimeOk) return "先修复 Codex / bwrap 执行环境，再重试显式 `/codex ...`。";
+    if (!feishuReady) return "先补齐隔离 Feishu 凭据，再重试。";
+    if (!gatewayOk) return "先恢复 gateway 连通性，再重试。";
     if (activeTaskStatus === "running") return "等待当前任务完成。";
     if (activeTaskStatus === "awaiting_approval") return "先处理当前审批，再继续后续动作。";
     if (activeTaskStatus === "awaiting_input") return "直接回复下一步给 Codex。";
     return "直接发送普通消息给 Codex。";
   }
+  if (!runtimeOk) return "Fix the Codex / bwrap runtime, then retry an explicit `/codex ...` start.";
+  if (!feishuReady) return "Restore the isolated Feishu credentials, then retry.";
+  if (!gatewayOk) return "Restore gateway connectivity, then retry.";
   if (activeTaskStatus === "running") return "Wait for the current task to finish.";
   if (activeTaskStatus === "awaiting_approval") return "Handle the current approval first.";
   if (activeTaskStatus === "awaiting_input") return "Reply directly with the next step for Codex.";

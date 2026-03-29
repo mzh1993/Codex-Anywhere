@@ -60,6 +60,9 @@ function buildSharedArgs(task, outputPath) {
   if (task.executionOptions?.model) {
     args.push("-m", task.executionOptions.model);
   }
+  if (task.executionOptions?.reasoningEffort) {
+    args.push("-c", `model_reasoning_effort="${task.executionOptions.reasoningEffort}"`);
+  }
   if (task.riskLevel !== "high" && task.executionOptions?.sandbox) {
     args.push("-s", task.executionOptions.sandbox);
   }
