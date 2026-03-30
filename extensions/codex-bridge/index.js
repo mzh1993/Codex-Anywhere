@@ -1761,7 +1761,7 @@ export class CodexBridge {
 
       const task = runtime.task;
       const run = runtime.run;
-      this.clearResetAbandonedTask(task);
+      const abandonedByReset = this.isResetAbandonedTask(task);
       if (runtime.stdoutBuffer) await appendFile(run.stdoutLogPath, runtime.stdoutBuffer);
       if (runtime.stderrBuffer) await appendFile(run.stderrLogPath, runtime.stderrBuffer);
 
@@ -1770,7 +1770,13 @@ export class CodexBridge {
         const candidate = findNewSessionId(run.beforeSessions, snapshot);
         if (candidate) task.sessionId = candidate;
       }
-      if (task.sessionId) await this.onTaskSessionResolved(task);
+      if (task.sessionId) {
+        if (abandonedByReset) {
+          run.sessionId = task.sessionId;
+        } else {
+          await this.onTaskSessionResolved(task);
+        }
+      }
 
       const lastMessage = await readText(run.lastMessagePath);
       const finalSummary = normalizeText(lastMessage);
@@ -1793,22 +1799,27 @@ export class CodexBridge {
       await this.saveTask(nextTask);
       await this.saveRun(nextRun);
 
-      const profile = await this.loadProfile(senderId, null);
-      if (profile) {
-        if (isActiveTaskStatus(nextTask.status)) profile.activeTaskId = nextTask.taskId;
-        else if (profile.activeTaskId === nextTask.taskId) delete profile.activeTaskId;
-        if (nextTask.sessionId) profile.lastSessionId = nextTask.sessionId;
-        profile.lastTaskId = nextTask.taskId;
-        profile.updatedAt = new Date().toISOString();
-        await this.saveProfile(profile);
+      if (!abandonedByReset) {
+        const profile = await this.loadProfile(senderId, null);
+        if (profile) {
+          if (isActiveTaskStatus(nextTask.status)) profile.activeTaskId = nextTask.taskId;
+          else if (profile.activeTaskId === nextTask.taskId) delete profile.activeTaskId;
+          if (nextTask.sessionId) profile.lastSessionId = nextTask.sessionId;
+          profile.lastTaskId = nextTask.taskId;
+          profile.updatedAt = new Date().toISOString();
+          await this.saveProfile(profile);
+        }
       }
 
       activeTasks.delete(senderId);
-      await this.safeReply({
-        accountId: nextTask.accountId,
-        conversationId: nextTask.conversationId,
-        text: this.text.taskFinished({ ...nextTask, runStatus: nextRun.status }),
-      });
+      this.clearResetAbandonedTask(task);
+      if (!abandonedByReset) {
+        await this.safeReply({
+          accountId: nextTask.accountId,
+          conversationId: nextTask.conversationId,
+          text: this.text.taskFinished({ ...nextTask, runStatus: nextRun.status }),
+        });
+      }
     } catch (error) {
       runtime.finishing = false;
       await this.handleRuntimePersistenceFailure(senderId, error);

@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { createTaskRecord } from "../lib/task-store.js";
+import { createRunRecord, createTaskRecord } from "../lib/task-store.js";
 
 function createFakeApi(stateDir) {
   return {
@@ -2129,6 +2129,123 @@ test("runtime/protocol/reset: upstream before_reset stops continuing a running b
     assert.equal(queued.length, 1);
     assert.equal(queued[0].mode, "new");
     assert.equal(queued[0].existingTask, undefined);
+  } finally {
+    __activeTasks.clear();
+  }
+});
+
+test("runtime/protocol/reset: an abandoned old lane does not send a finish tail reply or overwrite the new lane profile continuity", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-reset-tail-"));
+  const { bridge, replies } = await createBridgeHarness(tempRoot);
+  const { __activeTasks } = await import("../index.js");
+  const runDir = path.join(tempRoot, "run-old");
+  await fs.mkdir(runDir, { recursive: true });
+  const lastMessagePath = path.join(runDir, "last-message.txt");
+  const stdoutLogPath = path.join(runDir, "stdout.log");
+  const stderrLogPath = path.join(runDir, "stderr.log");
+  await fs.writeFile(lastMessagePath, "旧 lane 的收尾总结");
+  await fs.writeFile(stdoutLogPath, "");
+  await fs.writeFile(stderrLogPath, "");
+
+  const oldTask = createTaskRecord({
+    taskId: "task-old",
+    locale: "zh-CN",
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-old",
+    cwd: tempRoot,
+    mode: "resume",
+    status: "running",
+    currentRunId: "run-old",
+    lastRunId: "run-old",
+    sessionId: "session-old",
+    prompt: "旧运行中任务",
+    createdAt: "2026-03-30T00:00:00.000Z",
+    updatedAt: "2026-03-30T00:00:00.000Z",
+  });
+  const oldRun = createRunRecord({
+    runId: "run-old",
+    taskId: oldTask.taskId,
+    locale: "zh-CN",
+    senderId: oldTask.senderId,
+    accountId: oldTask.accountId,
+    conversationId: oldTask.conversationId,
+    messageId: oldTask.messageId,
+    cwd: oldTask.cwd,
+    mode: oldTask.mode,
+    sessionId: oldTask.sessionId,
+    prompt: oldTask.prompt,
+    createdAt: "2026-03-30T00:00:00.000Z",
+    updatedAt: "2026-03-30T00:00:00.000Z",
+    stdoutLogPath,
+    stderrLogPath,
+    lastMessagePath,
+    runDir,
+    beforeSessions: new Set(),
+  });
+  const newTask = createTaskRecord({
+    taskId: "task-new",
+    locale: "zh-CN",
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-new",
+    cwd: tempRoot,
+    mode: "new",
+    status: "awaiting_input",
+    currentRunId: null,
+    lastRunId: "run-new",
+    sessionId: "session-new",
+    prompt: "新 lane 任务",
+    createdAt: "2026-03-30T00:01:00.000Z",
+    updatedAt: "2026-03-30T00:01:00.000Z",
+  });
+  const profile = {
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    defaultCwd: tempRoot,
+    activeTaskId: newTask.taskId,
+    lastTaskId: newTask.taskId,
+    lastSessionId: newTask.sessionId,
+    updatedAt: "2026-03-30T00:01:00.000Z",
+  };
+
+  try {
+    await bridge.saveTask(oldTask);
+    await bridge.saveRun(oldRun);
+    await bridge.saveTask(newTask);
+    await bridge.saveProfile(profile);
+    bridge.resetAbandonedTaskIds.set("user-1", oldTask.taskId);
+    __activeTasks.set("user-1", {
+      task: oldTask,
+      run: oldRun,
+      child: { kill() {} },
+      stdoutBuffer: "",
+      stderrBuffer: "",
+      stopping: true,
+      finishing: false,
+      heartbeatTimer: null,
+      sessionPollTimer: null,
+    });
+
+    await bridge.finishTask("user-1", {
+      exitCode: 0,
+      signal: "SIGTERM",
+      error: null,
+    });
+
+    const persistedProfile = await bridge.loadProfile("user-1", null);
+    const persistedOldTask = await bridge.readTask(oldTask.taskId);
+    const persistedOldRun = await bridge.readRun(oldRun.runId);
+
+    assert.equal(replies.length, 0);
+    assert.equal(persistedProfile.activeTaskId, newTask.taskId);
+    assert.equal(persistedProfile.lastTaskId, newTask.taskId);
+    assert.equal(persistedProfile.lastSessionId, newTask.sessionId);
+    assert.equal(persistedOldTask.status, "aborted");
+    assert.equal(persistedOldRun.status, "aborted");
   } finally {
     __activeTasks.clear();
   }
