@@ -1981,6 +1981,159 @@ test("runtime/protocol/native_entry/plain_text: protected-root and host-codex wo
   assert.deepEqual(started[0].reasonCodes, []);
 });
 
+test("runtime/protocol/reset: upstream before_reset clears an awaiting-input bridge lane so the next plain text starts fresh", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-reset-awaiting-input-"));
+  const { bridge } = await createBridgeHarness(tempRoot);
+  const queued = [];
+  bridge.queueOrStartTask = async (params) => {
+    queued.push(params);
+  };
+
+  const task = createTaskRecord({
+    taskId: "task-reset-old",
+    locale: "zh-CN",
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-old",
+    cwd: tempRoot,
+    mode: "new",
+    status: "awaiting_input",
+    currentRunId: null,
+    lastRunId: "run-old",
+    sessionId: "session-old",
+    prompt: "旧任务",
+    createdAt: "2026-03-29T23:40:00.000Z",
+    updatedAt: "2026-03-29T23:40:00.000Z",
+  });
+  const profile = {
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    defaultCwd: tempRoot,
+    activeTaskId: task.taskId,
+    lastTaskId: task.taskId,
+    updatedAt: "2026-03-29T23:40:00.000Z",
+  };
+
+  await bridge.saveTask(task);
+  await bridge.saveProfile(profile);
+  bridge.rememberOpenClawSessionBinding({
+    sessionKey: "feishu-main-user-1",
+    channelId: "feishu",
+    accountId: "default",
+    conversationId: "conv-1",
+    senderId: "user-1",
+  });
+
+  await bridge.handleBeforeReset(
+    { reason: "/new" },
+    { sessionKey: "feishu-main-user-1", sessionId: "shell-session-1" },
+  );
+
+  const clearedProfile = await bridge.loadProfile("user-1", null);
+  assert.equal(clearedProfile.activeTaskId, undefined);
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-after-reset",
+    text: "继续处理 README.md",
+  });
+
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].mode, "new");
+  assert.equal(queued[0].existingTask, undefined);
+});
+
+test("runtime/protocol/reset: upstream before_reset stops continuing a running bridge lane on the next plain text", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-reset-running-"));
+  const { bridge } = await createBridgeHarness(tempRoot);
+  const { __activeTasks } = await import("../index.js");
+  const queued = [];
+  const stopped = [];
+  bridge.queueOrStartTask = async (params) => {
+    queued.push(params);
+  };
+  bridge.stopTask = async (task, reason) => {
+    stopped.push({ taskId: task.taskId, reason });
+  };
+
+  const task = createTaskRecord({
+    taskId: "task-reset-running",
+    locale: "zh-CN",
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-old",
+    cwd: tempRoot,
+    mode: "resume",
+    status: "running",
+    currentRunId: "run-live",
+    lastRunId: "run-live",
+    sessionId: "session-old",
+    prompt: "旧运行中任务",
+    createdAt: "2026-03-29T23:55:00.000Z",
+    updatedAt: "2026-03-29T23:55:00.000Z",
+  });
+  const profile = {
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    defaultCwd: tempRoot,
+    activeTaskId: task.taskId,
+    lastTaskId: task.taskId,
+    updatedAt: "2026-03-29T23:55:00.000Z",
+  };
+
+  try {
+    await bridge.saveTask(task);
+    await bridge.saveProfile(profile);
+    __activeTasks.set("user-1", {
+      task,
+      run: { runId: "run-live" },
+      child: { kill() {} },
+      stopping: false,
+      finishing: false,
+      heartbeatTimer: null,
+      sessionPollTimer: null,
+    });
+    bridge.rememberOpenClawSessionBinding({
+      sessionKey: "feishu-main-user-1",
+      channelId: "feishu",
+      accountId: "default",
+      conversationId: "conv-1",
+      senderId: "user-1",
+    });
+
+    await bridge.handleBeforeReset(
+      { reason: "/reset" },
+      { sessionKey: "feishu-main-user-1", sessionId: "shell-session-1" },
+    );
+
+    await bridge.routeInbound({
+      senderId: "user-1",
+      senderName: "tester",
+      accountId: "default",
+      conversationId: "conv-1",
+      messageId: "msg-after-reset-running",
+      text: "新开一条任务，重新总结 README.md",
+    });
+
+    assert.deepEqual(stopped, [{
+      taskId: "task-reset-running",
+      reason: "upstream session reset: /reset",
+    }]);
+    assert.equal(queued.length, 1);
+    assert.equal(queued[0].mode, "new");
+    assert.equal(queued[0].existingTask, undefined);
+  } finally {
+    __activeTasks.clear();
+  }
+});
+
 test("runtime/protocol/command_surface/doctor: doctor reports concrete runtime readiness instead of only generic status", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-doctor-runtime-"));
   const { bridge, replies } = await createBridgeHarness(tempRoot);

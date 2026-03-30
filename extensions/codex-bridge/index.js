@@ -5,6 +5,7 @@ import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { f as unregisterInternalHook, u as registerInternalHook } from "../../.runtime/openclaw-2026.3.22/node_modules/openclaw/dist/internal-hooks-D4lZfNM5.js";
 import { definePluginEntry } from "../../.runtime/openclaw-2026.3.22/node_modules/openclaw/dist/plugin-sdk/plugin-entry.js";
 import { sendMessageFeishu } from "../../.runtime/openclaw-2026.3.22/node_modules/openclaw/dist/extensions/feishu/index.js";
 import { buildBridgeActionExecution } from "./lib/bridge-action-exec.js";
@@ -67,12 +68,16 @@ export default definePluginEntry({
   description: "Feishu remote Codex bridge",
   register(api) {
     const bridge = new CodexBridge(api);
+    const messageReceivedHook = async (event) => bridge.handleInternalMessageReceived(event);
     api.logger.warn?.("codex-bridge register: plugin loaded");
     api.logger.warn?.(`codex-bridge state root: ${bridge.settings.stateRoot}`);
     globalThis.__codexFeishuBridgeClaim = async (event, ctx) => bridge.handleInboundClaim(event, ctx);
+    registerInternalHook("message:received", messageReceivedHook);
     api.on("inbound_claim", async (event, ctx) => bridge.handleInboundClaim(event, ctx));
+    api.on("before_reset", async (event, ctx) => bridge.handleBeforeReset(event, ctx));
     api.on("gateway_stop", async () => {
       delete globalThis.__codexFeishuBridgeClaim;
+      unregisterInternalHook("message:received", messageReceivedHook);
       await bridge.abortAll("gateway stop");
     });
   },
@@ -83,6 +88,8 @@ export class CodexBridge {
     this.api = api;
     this.settings = resolveSettings(api);
     this.text = getLocaleText(this.settings.locale);
+    this.openClawSessionBindings = new Map();
+    this.resetAbandonedTaskIds = new Map();
     const persistence = createTaskPersistence({
       tasksRoot: this.settings.tasksRoot,
       runsRoot: this.settings.runsRoot,
@@ -99,6 +106,78 @@ export class CodexBridge {
     this.taskStore = persistence.tasks;
     this.runStore = persistence.runs;
     this.bridgeActionStore = bridgeActionPersistence.actions;
+  }
+
+  rememberOpenClawSessionBinding(binding) {
+    const sessionKey = normalizeText(binding?.sessionKey);
+    const senderId = normalizeText(binding?.senderId);
+    const conversationId = normalizeText(binding?.conversationId);
+    const channelId = normalizeText(binding?.channelId).toLowerCase();
+    if (!sessionKey || !senderId || !conversationId || channelId !== FEISHU_CHANNEL) return;
+    this.openClawSessionBindings.set(sessionKey, {
+      sessionKey,
+      channelId,
+      accountId: normalizeText(binding?.accountId) || DEFAULT_ACCOUNT_ID,
+      conversationId,
+      senderId,
+      updatedAt: Date.now(),
+    });
+  }
+
+  handleInternalMessageReceived(event) {
+    const sessionKey = normalizeText(event?.sessionKey);
+    const context = event?.context ?? {};
+    this.rememberOpenClawSessionBinding({
+      sessionKey,
+      channelId: context.channelId,
+      accountId: context.accountId,
+      conversationId: context.conversationId,
+      senderId: context.metadata?.senderId,
+    });
+  }
+
+  isResetAbandonedTask(task) {
+    return this.resetAbandonedTaskIds.get(task?.senderId) === task?.taskId;
+  }
+
+  clearResetAbandonedTask(task) {
+    if (!task) return;
+    if (this.resetAbandonedTaskIds.get(task.senderId) === task.taskId) {
+      this.resetAbandonedTaskIds.delete(task.senderId);
+    }
+  }
+
+  async handleBeforeReset(event, ctx) {
+    const sessionKey = normalizeText(ctx?.sessionKey);
+    if (!sessionKey) return;
+
+    const binding = this.openClawSessionBindings.get(sessionKey);
+    if (!binding) return;
+
+    const profile = await this.loadProfile(binding.senderId, null);
+    if (!profile) return;
+    if (normalizeText(profile.conversationId) && normalizeText(profile.conversationId) !== binding.conversationId) return;
+    if (normalizeText(profile.accountId) && normalizeText(profile.accountId) !== binding.accountId) return;
+
+    const activeTask = await this.loadActiveTask(binding.senderId, profile);
+    if (!activeTask) return;
+
+    const reason = formatUpstreamResetReason(event?.reason);
+    if (activeTask.status === "running") {
+      this.resetAbandonedTaskIds.set(activeTask.senderId, activeTask.taskId);
+      if (profile.activeTaskId === activeTask.taskId) delete profile.activeTaskId;
+      if (profile.pendingApprovalToken === activeTask.approvalToken) delete profile.pendingApprovalToken;
+      profile.lastTaskId = activeTask.taskId;
+      profile.updatedAt = new Date().toISOString();
+      await this.saveProfile(profile);
+      await this.stopTask(activeTask, reason);
+      return;
+    }
+
+    await this.finalizeStoredTask(activeTask, profile, {
+      status: "aborted",
+      error: reason,
+    });
   }
 
   async handleInboundClaim(event, ctx) {
@@ -1682,6 +1761,7 @@ export class CodexBridge {
 
       const task = runtime.task;
       const run = runtime.run;
+      this.clearResetAbandonedTask(task);
       if (runtime.stdoutBuffer) await appendFile(run.stdoutLogPath, runtime.stdoutBuffer);
       if (runtime.stderrBuffer) await appendFile(run.stderrLogPath, runtime.stderrBuffer);
 
@@ -2031,7 +2111,10 @@ export class CodexBridge {
 
   async loadActiveTask(senderId, profile = null) {
     const liveTask = this.getActiveTask(senderId);
-    if (liveTask) return liveTask;
+    if (liveTask) {
+      if (this.isResetAbandonedTask(liveTask)) return null;
+      return liveTask;
+    }
 
     const currentProfile = profile ?? (await this.loadProfile(senderId, null));
     if (!currentProfile?.activeTaskId) return null;
@@ -2647,6 +2730,11 @@ function shouldBypassClaim(text) {
 function normalizeText(value) {
   if (typeof value !== "string") return "";
   return value.trim();
+}
+
+function formatUpstreamResetReason(reason) {
+  const normalizedReason = normalizeText(reason);
+  return normalizedReason ? `upstream session reset: ${normalizedReason}` : "upstream session reset";
 }
 
 function assessNativeExecutionDecision(executionOptions) {
