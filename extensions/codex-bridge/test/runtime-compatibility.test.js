@@ -1644,7 +1644,7 @@ test("runtime/protocol/command_surface/unknown: unknown /codex subcommands retur
   assert.doesNotMatch(replies[0], /Codex Runner 命令/);
 });
 
-test("runtime/protocol/command_surface/doctor: doctor returns a minimal health summary", async () => {
+test("runtime/protocol/command_surface/doctor: doctor returns a concrete runtime health summary", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-doctor-"));
   const { bridge, replies } = await createBridgeHarness(tempRoot);
   bridge.ensureExecutionRuntimeReady = async () => ({

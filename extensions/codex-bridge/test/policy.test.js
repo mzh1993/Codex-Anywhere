@@ -337,7 +337,7 @@ test("approval/control/scheduler: representative scheduler-control prompts requi
   }
 });
 
-test("approval/host_codex: cwd or prompt access to host codex root requires approval", () => {
+test("policy/engine/host_codex: low-level assessment still flags host codex root access", () => {
   assertDecision(
     "list files",
     {
@@ -394,7 +394,7 @@ test("approval/write/outside_cwd: representative writes outside cwd require appr
   });
 });
 
-test("approval/protected_root: explicit access to user-protected roots requires approval", () => {
+test("policy/engine/protected_root: low-level assessment still flags protected-root access", () => {
   const protectedRoots = [HOST_OPENCLAW_ROOT];
   assertDecision(
     "请修改 ~/.openclaw/config.json",
