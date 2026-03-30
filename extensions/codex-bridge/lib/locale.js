@@ -269,7 +269,7 @@ export function getLocaleText(locale) {
         `默认工作目录：\`${cwd}\``,
       ].join("\n"),
       unknownCommand: (command) => [
-        `暂不支持 \`${command}\`。`,
+        `\`${command}\` 已关闭，不再执行。`,
         "当前 `/codex` 优先保持原生 Codex 心智；普通任务请直接发送自然语言。",
         "显式新任务请直接使用 `/codex --cd <path> [--model <model>] [--reasoning <level>] <prompt>`；显式续写请使用 `/codex resume [--model <model>] [--reasoning <level>] <prompt>`。",
       ].join("\n"),
@@ -456,8 +456,8 @@ export function getLocaleText(locale) {
       `Default cwd: \`${cwd}\``,
     ].join("\n"),
     unknownCommand: (command) => [
-      `\`${command}\` is not supported here yet.`,
-      "This `/codex` surface stays native-first; send ordinary work as plain language.",
+      `\`${command}\` is closed here and is no longer executed.`,
+      "This `/codex` surface stays native-first; send ordinary work as a plain message to Codex.",
       "For an explicit new task, use `/codex --cd <path> [--model <model>] [--reasoning <level>] <prompt>`; for an explicit resume, use `/codex resume [--model <model>] [--reasoning <level>] <prompt>`.",
     ].join("\n"),
     doctorSummary: ({ codex, bridge, runtime, codexVersion, bwrapVersion, feishu, gateway, runtimeMessage, nextStep }) => [

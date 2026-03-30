@@ -417,7 +417,7 @@ test("runtime/protocol/command_surface/approve: legacy approve with trailing tex
   assert.equal(persistedTask.status, "awaiting_approval");
   assert.equal(persistedProfile.pendingApprovalToken, "TOKEN1");
   assert.notEqual(persistedApproval, null);
-  assert.match(replies[0], /暂不支持 `\/codex approve`/);
+  assert.match(replies[0], /`\/codex approve` 已关闭|不再执行/);
   assert.doesNotMatch(replies[0], /未找到审批令牌|执行环境|bubblewrap|基础设施/);
 });
 
@@ -464,7 +464,7 @@ test("runtime/protocol/command_surface/approve: legacy approve is closed even wh
   });
 
   assert.equal(replies.length, 1);
-  assert.match(replies[0], /暂不支持 `\/codex approve`/);
+  assert.match(replies[0], /`\/codex approve` 已关闭|不再执行/);
   assert.match(replies[0], /`\/codex resume \[--model <model>\] \[--reasoning <level>\] <prompt>`/);
   assert.doesNotMatch(replies[0], /`\/codex continue <prompt>`/);
   assert.doesNotMatch(replies[0], /未找到审批令牌|task_not_waiting_approval|等待输入/);
@@ -1277,7 +1277,7 @@ test("runtime/protocol/command_surface/cwd: legacy cwd no longer mutates bridge 
   const persistedProfile = await bridge.loadProfile("user-1", null);
   assert.equal(persistedProfile.defaultCwd, activeCwd);
   assert.equal(replies.length, 1);
-  assert.match(replies[0], /暂不支持 `\/codex cwd`/);
+  assert.match(replies[0], /`\/codex cwd` 已关闭|不再执行/);
   assert.match(replies[0], /`\/codex --cd <path> \[--model <model>\] \[--reasoning <level>\] <prompt>`/);
   assert.doesNotMatch(replies[0], /`\/codex doctor`/);
 
@@ -1291,7 +1291,7 @@ test("runtime/protocol/command_surface/cwd: legacy cwd no longer mutates bridge 
   });
 
   assert.equal(replies.length, 2);
-  assert.match(replies[1], /暂不支持 `\/codex continue`/);
+  assert.match(replies[1], /`\/codex continue` 已关闭|不再执行/);
   assert.match(replies[1], /`\/codex resume \[--model <model>\] \[--reasoning <level>\] <prompt>`/);
   assert.doesNotMatch(replies[1], /`\/codex doctor`/);
 });
@@ -1364,7 +1364,7 @@ test("runtime/protocol/command_surface/abort: legacy abort is closed and falls b
   assert.equal(persistedProfile.activeTaskId, task.taskId);
   assert.equal(persistedProfile.pendingApprovalToken, "TOKEN1");
   assert.notEqual(persistedApproval, null);
-  assert.match(replies[0], /暂不支持 `\/codex abort`/);
+  assert.match(replies[0], /`\/codex abort` 已关闭|不再执行/);
   assert.match(replies[0], /`\/codex --cd <path> \[--model <model>\] \[--reasoning <level>\] <prompt>`/);
 });
 
@@ -1431,7 +1431,7 @@ test("runtime/protocol/command_surface/status: legacy status is closed and falls
     text: "/codex status",
   });
 
-  assert.match(replies[0], /暂不支持 `\/codex status`/);
+  assert.match(replies[0], /`\/codex status` 已关闭|不再执行/);
   assert.match(replies[0], /`\/codex --cd <path> \[--model <model>\] \[--reasoning <level>\] <prompt>`/);
   assert.doesNotMatch(replies[0], /活动任务：task-awaiting-approval/);
   assert.doesNotMatch(replies[0], /待审批令牌：TOKEN1/);
@@ -1450,7 +1450,7 @@ test("runtime/protocol/command_surface/status: legacy status is closed and falls
     text: "/codex status",
   });
 
-  assert.match(replies[0], /暂不支持 `\/codex status`/);
+  assert.match(replies[0], /`\/codex status` 已关闭|不再执行/);
   assert.match(replies[0], /`\/codex --cd <path> \[--model <model>\] \[--reasoning <level>\] <prompt>`/);
   assert.doesNotMatch(replies[0], /当前没有活动任务|这个私聊还没有记录/);
   assert.doesNotMatch(replies[0], /工作目录：/);
@@ -1504,7 +1504,7 @@ test("runtime/protocol/command_surface/pwd: legacy pwd no longer exposes bridge-
   });
 
   assert.equal(replies.length, 1);
-  assert.match(replies[0], /暂不支持 `\/codex pwd`/);
+  assert.match(replies[0], /`\/codex pwd` 已关闭|不再执行/);
   assert.match(replies[0], /`\/codex --cd <path> \[--model <model>\] \[--reasoning <level>\] <prompt>`/);
   assert.doesNotMatch(replies[0], /`\/codex doctor`/);
   assert.doesNotMatch(replies[0], new RegExp(defaultCwd.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
@@ -1546,7 +1546,7 @@ test("runtime/protocol/command_surface/help: legacy help is closed and falls bac
   });
 
   assert.equal(replies.length, 1);
-  assert.match(replies[0], /暂不支持 `\/codex help`/);
+  assert.match(replies[0], /`\/codex help` 已关闭|不再执行/);
   assert.match(replies[0], /`\/codex --cd <path> \[--model <model>\] \[--reasoning <level>\] <prompt>`/);
   assert.doesNotMatch(replies[0], /`\/codex doctor`/);
   assert.doesNotMatch(replies[0], /Codex Runner 命令|bridge|兼容/);
@@ -1619,7 +1619,7 @@ test("runtime/protocol/command_surface/approve: legacy approve is closed and doe
   assert.equal(persistedTask.status, "awaiting_approval");
   assert.equal(persistedProfile.pendingApprovalToken, "TOKEN1");
   assert.notEqual(persistedApproval, null);
-  assert.match(replies[0], /暂不支持 `\/codex approve`/);
+  assert.match(replies[0], /`\/codex approve` 已关闭|不再执行/);
   assert.match(replies[0], /`\/codex resume \[--model <model>\] \[--reasoning <level>\] <prompt>`/);
 });
 
@@ -1637,7 +1637,7 @@ test("runtime/protocol/command_surface/unknown: unknown /codex subcommands retur
   });
 
   assert.equal(replies.length, 1);
-  assert.match(replies[0], /暂不支持 `\/codex new`/);
+  assert.match(replies[0], /`\/codex new` 已关闭|不再执行/);
   assert.match(replies[0], /`\/codex --cd <path> \[--model <model>\] \[--reasoning <level>\] <prompt>`/);
   assert.doesNotMatch(replies[0], /`\/codex doctor`/);
   assert.doesNotMatch(replies[0], /bridge/i);
@@ -1746,6 +1746,32 @@ test("runtime/protocol/native_entry/protected_root: explicit native cwd into ~/.
   assert.match(replies[0], /protected_root_requires_approval/);
   assert.equal(task.status, "awaiting_approval");
   assert.equal(task.cwd, path.join(os.homedir(), ".openclaw"));
+});
+
+test("runtime/protocol/plain_text/protected_root_mentions: ordinary text mentioning protected roots or model knobs still stays on the Codex lane", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-plain-text-lane-"));
+  const { bridge, replies } = await createBridgeHarness(tempRoot);
+  const queued = [];
+  bridge.queueOrStartTask = async (params) => {
+    queued.push(params);
+  };
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-plain-sensitive",
+    text: "继续处理 ~/.openclaw 里的配置，再用 gpt-5.4 和 high reasoning 给我总结一下差异",
+  });
+
+  assert.equal(replies.length, 0);
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].entrySurface, "plain_text");
+  assert.equal(queued[0].mode, "new");
+  assert.equal(queued[0].prompt, "继续处理 ~/.openclaw 里的配置，再用 gpt-5.4 和 high reasoning 给我总结一下差异");
+  assert.equal(queued[0].executionOptions, undefined);
+  assert.equal(queued[0].policyDecision, undefined);
 });
 
 test("runtime/protocol/native_entry/new: native start flags carry cwd model and reasoning only", async () => {
