@@ -26,6 +26,6 @@ These add too much automation for a repo with remote execution, approval, and is
 ## High-signal references
 
 - `README.md`
-- `docs/feishu-codex-runner-v1.md`
+- `docs/feishu-codex-bridge-v1.md`
 - `extensions/codex-bridge/index.js`
 - `scripts/feishu-app-audit.sh`

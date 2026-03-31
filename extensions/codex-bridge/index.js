@@ -232,11 +232,14 @@ export class CodexBridge {
     const legacyTopLevelCommand = getClosedLegacyTopLevelCommand(text);
     if (legacyTopLevelCommand) {
       this.api.logger.info?.(`codex-bridge inbound_claim: closed legacy top-level command ${JSON.stringify(legacyTopLevelCommand)}`);
+      const profile = await this.loadProfile(senderId, null);
+      const cwd = profile?.defaultCwd || this.settings.defaultCwd;
       await this.safeReply({
         accountId,
         conversationId,
         messageId,
-        text: this.text.unknownCommand(legacyTopLevelCommand),
+        renderHint: "help",
+        text: this.text.unknownCommand(legacyTopLevelCommand, cwd),
       });
       return { handled: true };
     }
@@ -566,11 +569,14 @@ export class CodexBridge {
   }
 
   async sendUnknownCommand(request, commandName) {
+    const profile = await this.loadProfile(request.senderId, null);
+    const cwd = profile?.defaultCwd || this.settings.defaultCwd;
     await this.safeReply({
       accountId: request.accountId,
       conversationId: request.conversationId,
       messageId: request.messageId,
-      text: this.text.unknownCommand(`/codex ${commandName}`),
+      renderHint: "help",
+      text: this.text.unknownCommand(`/codex ${commandName}`, cwd),
     });
   }
 

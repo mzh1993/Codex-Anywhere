@@ -588,7 +588,8 @@ test("runtime/protocol/command_surface/approve: legacy approve with trailing tex
   assert.equal(persistedTask.status, "awaiting_approval");
   assert.equal(persistedProfile.pendingApprovalToken, "TOKEN1");
   assert.notEqual(persistedApproval, null);
-  assert.match(replies[0], /`\/codex approve` 已关闭|不再执行/);
+  assert.match(replies[0], /默认直接发送自然语言给 Codex/);
+  assert.match(replies[0], /`\/codex --cd <path> <prompt>`/);
   assert.doesNotMatch(replies[0], /未找到审批令牌|执行环境|bubblewrap|基础设施/);
 });
 
@@ -635,8 +636,8 @@ test("runtime/protocol/command_surface/approve: legacy approve is closed even wh
   });
 
   assert.equal(replies.length, 1);
-  assert.match(replies[0], /`\/codex approve` 已关闭|不再执行/);
-  assert.match(replies[0], /`\/codex resume \[--model <model>\] \[--reasoning <level>\] \[--sandbox <mode>\] \[--ask-for-approval <policy>\] <prompt>`/);
+  assert.match(replies[0], /默认直接发送自然语言给 Codex/);
+  assert.match(replies[0], /`\/codex resume <prompt>`/);
   assert.doesNotMatch(replies[0], /`\/codex continue <prompt>`/);
   assert.doesNotMatch(replies[0], /未找到审批令牌|task_not_waiting_approval|等待输入/);
 });
@@ -1448,9 +1449,9 @@ test("runtime/protocol/command_surface/cwd: legacy cwd no longer mutates bridge 
   const persistedProfile = await bridge.loadProfile("user-1", null);
   assert.equal(persistedProfile.defaultCwd, activeCwd);
   assert.equal(replies.length, 1);
-  assert.match(replies[0], /`\/codex cwd` 已关闭|不再执行/);
-  assert.match(replies[0], /`\/codex --cd <path> \[--model <model>\] \[--reasoning <level>\] \[--sandbox <mode>\] \[--ask-for-approval <policy>\] <prompt>`/);
-  assert.doesNotMatch(replies[0], /`\/codex doctor`/);
+  assert.match(replies[0], /默认直接发送自然语言给 Codex/);
+  assert.match(replies[0], /`\/codex --cd <path> <prompt>`/);
+  assert.match(replies[0], /`\/codex doctor`/);
 
   await bridge.routeInbound({
     senderId: "user-1",
@@ -1462,9 +1463,9 @@ test("runtime/protocol/command_surface/cwd: legacy cwd no longer mutates bridge 
   });
 
   assert.equal(replies.length, 2);
-  assert.match(replies[1], /`\/codex continue` 已关闭|不再执行/);
-  assert.match(replies[1], /`\/codex resume \[--model <model>\] \[--reasoning <level>\] \[--sandbox <mode>\] \[--ask-for-approval <policy>\] <prompt>`/);
-  assert.doesNotMatch(replies[1], /`\/codex doctor`/);
+  assert.match(replies[1], /默认直接发送自然语言给 Codex/);
+  assert.match(replies[1], /`\/codex resume <prompt>`/);
+  assert.match(replies[1], /`\/codex doctor`/);
 });
 
 test("runtime/protocol/command_surface/abort: legacy abort is closed and falls back to the native-first unknown-command hint", async () => {
@@ -1535,8 +1536,8 @@ test("runtime/protocol/command_surface/abort: legacy abort is closed and falls b
   assert.equal(persistedProfile.activeTaskId, task.taskId);
   assert.equal(persistedProfile.pendingApprovalToken, "TOKEN1");
   assert.notEqual(persistedApproval, null);
-  assert.match(replies[0], /`\/codex abort` 已关闭|不再执行/);
-  assert.match(replies[0], /`\/codex --cd <path> \[--model <model>\] \[--reasoning <level>\] \[--sandbox <mode>\] \[--ask-for-approval <policy>\] <prompt>`/);
+  assert.match(replies[0], /默认直接发送自然语言给 Codex/);
+  assert.match(replies[0], /`\/codex --cd <path> <prompt>`/);
 });
 
 test("runtime/protocol/command_surface/status: legacy status is closed and falls back to the native-first unknown-command hint while awaiting approval", async () => {
@@ -1602,8 +1603,8 @@ test("runtime/protocol/command_surface/status: legacy status is closed and falls
     text: "/codex status",
   });
 
-  assert.match(replies[0], /`\/codex status` 已关闭|不再执行/);
-  assert.match(replies[0], /`\/codex --cd <path> \[--model <model>\] \[--reasoning <level>\] \[--sandbox <mode>\] \[--ask-for-approval <policy>\] <prompt>`/);
+  assert.match(replies[0], /默认直接发送自然语言给 Codex/);
+  assert.match(replies[0], /`\/codex --cd <path> <prompt>`/);
   assert.doesNotMatch(replies[0], /活动任务：task-awaiting-approval/);
   assert.doesNotMatch(replies[0], /待审批令牌：TOKEN1/);
 });
@@ -1621,10 +1622,10 @@ test("runtime/protocol/command_surface/status: legacy status is closed and falls
     text: "/codex status",
   });
 
-  assert.match(replies[0], /`\/codex status` 已关闭|不再执行/);
-  assert.match(replies[0], /`\/codex --cd <path> \[--model <model>\] \[--reasoning <level>\] \[--sandbox <mode>\] \[--ask-for-approval <policy>\] <prompt>`/);
+  assert.match(replies[0], /默认直接发送自然语言给 Codex/);
+  assert.match(replies[0], /`\/codex --cd <path> <prompt>`/);
   assert.doesNotMatch(replies[0], /当前没有活动任务|这个私聊还没有记录/);
-  assert.doesNotMatch(replies[0], /工作目录：/);
+  assert.match(replies[0], /默认工作目录：/);
 });
 
 test("runtime/protocol/command_surface/pwd: legacy pwd no longer exposes bridge-managed cwd state and falls back to the native-first unknown-command hint", async () => {
@@ -1675,10 +1676,10 @@ test("runtime/protocol/command_surface/pwd: legacy pwd no longer exposes bridge-
   });
 
   assert.equal(replies.length, 1);
-  assert.match(replies[0], /`\/codex pwd` 已关闭|不再执行/);
-  assert.match(replies[0], /`\/codex --cd <path> \[--model <model>\] \[--reasoning <level>\] \[--sandbox <mode>\] \[--ask-for-approval <policy>\] <prompt>`/);
-  assert.doesNotMatch(replies[0], /`\/codex doctor`/);
-  assert.doesNotMatch(replies[0], new RegExp(defaultCwd.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.match(replies[0], /默认直接发送自然语言给 Codex/);
+  assert.match(replies[0], /`\/codex --cd <path> <prompt>`/);
+  assert.match(replies[0], /`\/codex doctor`/);
+  assert.match(replies[0], new RegExp(defaultCwd.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   assert.doesNotMatch(replies[0], new RegExp(activeCwd.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 });
 
@@ -1794,13 +1795,15 @@ test("runtime/protocol/command_surface/approve: legacy approve is closed and doe
   assert.equal(persistedTask.status, "awaiting_approval");
   assert.equal(persistedProfile.pendingApprovalToken, "TOKEN1");
   assert.notEqual(persistedApproval, null);
-  assert.match(replies[0], /`\/codex approve` 已关闭|不再执行/);
-  assert.match(replies[0], /`\/codex resume \[--model <model>\] \[--reasoning <level>\] \[--sandbox <mode>\] \[--ask-for-approval <policy>\] <prompt>`/);
+  assert.match(replies[0], /默认直接发送自然语言给 Codex/);
+  assert.match(replies[0], /`\/codex --cd <path> <prompt>`/);
+  assert.match(replies[0], /`\/codex resume <prompt>`/);
+  assert.ok(!/已关闭|不再执行/.test(replies[0]));
 });
 
 test("runtime/protocol/command_surface/unknown: unknown /codex subcommands return a short native-first hint instead of the full legacy help page", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-unknown-command-"));
-  const { bridge, replies } = await createBridgeHarness(tempRoot);
+  const { bridge, replies, replyEvents } = await createBridgeHarness(tempRoot);
 
   await bridge.routeInbound({
     senderId: "user-1",
@@ -1812,11 +1815,14 @@ test("runtime/protocol/command_surface/unknown: unknown /codex subcommands retur
   });
 
   assert.equal(replies.length, 1);
-  assert.match(replies[0], /`\/codex new` 已关闭|不再执行/);
-  assert.match(replies[0], /`\/codex --cd <path> \[--model <model>\] \[--reasoning <level>\] \[--sandbox <mode>\] \[--ask-for-approval <policy>\] <prompt>`/);
-  assert.doesNotMatch(replies[0], /`\/codex doctor`/);
+  assert.match(replies[0], /默认直接发送自然语言给 Codex/);
+  assert.match(replies[0], /`\/codex --cd <path> <prompt>`/);
+  assert.match(replies[0], /`\/codex --cd <path> --sandbox danger-full-access <prompt>`/);
+  assert.match(replies[0], /`\/codex doctor`/);
+  assert.doesNotMatch(replies[0], /已关闭|不再执行/);
   assert.doesNotMatch(replies[0], /bridge/i);
   assert.doesNotMatch(replies[0], /Codex Runner 命令/);
+  assert.ok(replyEvents[0].card);
 });
 
 test("runtime/protocol/command_surface/doctor: doctor returns a concrete runtime health summary", async () => {
@@ -2395,9 +2401,9 @@ test("runtime/protocol/legacy_top_level/new: top-level /new is claimed and close
 
   assert.deepEqual(handled, { handled: true });
   assert.equal(replies.length, 1);
-  assert.match(replies[0], /`\/new` 已关闭|不再执行/);
-  assert.match(replies[0], /普通任务请直接发送自然语言/);
-  assert.match(replies[0], /`\/codex --cd <path> \[--model <model>\] \[--reasoning <level>\] \[--sandbox <mode>\] \[--ask-for-approval <policy>\] <prompt>`/);
+  assert.match(replies[0], /默认直接发送自然语言给 Codex/);
+  assert.match(replies[0], /`\/codex --cd <path> <prompt>`/);
+  assert.match(replies[0], /`\/codex doctor`/);
 });
 
 test("runtime/protocol/reset: upstream before_reset stops continuing a running bridge lane on the next plain text", async () => {

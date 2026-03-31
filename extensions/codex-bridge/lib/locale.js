@@ -273,10 +273,14 @@ export function getLocaleText(locale) {
         "健康检查：`/codex doctor`",
         `默认工作目录：\`${cwd}\``,
       ].join("\n"),
-      unknownCommand: (command) => [
-        `\`${command}\` 已关闭，不再执行。`,
-        "当前 `/codex` 优先保持原生 Codex 心智；普通任务请直接发送自然语言。",
-        "显式新任务请直接使用 `/codex --cd <path> [--model <model>] [--reasoning <level>] [--sandbox <mode>] [--ask-for-approval <policy>] <prompt>`；显式续写请使用 `/codex resume [--model <model>] [--reasoning <level>] [--sandbox <mode>] [--ask-for-approval <policy>] <prompt>`。",
+      unknownCommand: (_command, cwd) => [
+        "默认直接发送自然语言给 Codex。",
+        "新任务：`/codex --cd <path> <prompt>`",
+        "完全访问：`/codex --cd <path> --sandbox danger-full-access <prompt>`",
+        "续写：`/codex resume <prompt>`",
+        "可选参数：`--model <model>` `--reasoning <level>` `--ask-for-approval <policy>`",
+        "健康检查：`/codex doctor`",
+        `默认工作目录：\`${cwd}\``,
       ].join("\n"),
       doctorSummary: ({ codex, bridge, runtime, codexVersion, bwrapVersion, feishu, gateway, runtimeMessage, nextStep }) => [
         "健康摘要",
@@ -464,10 +468,14 @@ export function getLocaleText(locale) {
       "Health check: `/codex doctor`",
       `Default cwd: \`${cwd}\``,
     ].join("\n"),
-    unknownCommand: (command) => [
-      `\`${command}\` is closed here and is no longer executed.`,
-      "This `/codex` surface stays native-first; send ordinary work as a plain message to Codex.",
-      "For an explicit new task, use `/codex --cd <path> [--model <model>] [--reasoning <level>] [--sandbox <mode>] [--ask-for-approval <policy>] <prompt>`; for an explicit resume, use `/codex resume [--model <model>] [--reasoning <level>] [--sandbox <mode>] [--ask-for-approval <policy>] <prompt>`.",
+    unknownCommand: (_command, cwd) => [
+      "For normal work, just send a plain message to Codex.",
+      "New task: `/codex --cd <path> <prompt>`",
+      "Full access: `/codex --cd <path> --sandbox danger-full-access <prompt>`",
+      "Resume: `/codex resume <prompt>`",
+      "Optional flags: `--model <model>` `--reasoning <level>` `--ask-for-approval <policy>`",
+      "Health check: `/codex doctor`",
+      `Default cwd: \`${cwd}\``,
     ].join("\n"),
     doctorSummary: ({ codex, bridge, runtime, codexVersion, bwrapVersion, feishu, gateway, runtimeMessage, nextStep }) => [
       "Health Summary",

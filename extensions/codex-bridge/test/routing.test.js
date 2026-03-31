@@ -256,17 +256,15 @@ test("protocol/locale/approval: bridge-action approval text also keeps closed le
   assert.doesNotMatch(pending, /\/codex approve|\/codex status|\/codex abort/);
 });
 
-test("constitution/locale/unknown_command: closed legacy commands are described as closed, not pending future support", () => {
+test("constitution/locale/unknown_command: closed legacy commands fall back to the same short help examples", () => {
   const zh = getLocaleText("zh-CN");
   const en = getLocaleText("en-US");
 
-  assert.match(zh.unknownCommand("/codex status"), /已关闭|不再执行/);
-  assert.doesNotMatch(zh.unknownCommand("/codex status"), /暂不支持/);
-  assert.match(zh.unknownCommand("/codex status"), /普通任务请直接发送自然语言|直接发送普通消息给 Codex/);
+  assert.equal(zh.unknownCommand("/codex status", "/tmp"), zh.help("/tmp"));
+  assert.doesNotMatch(zh.unknownCommand("/codex status", "/tmp"), /已关闭|不再执行|暂不支持/);
 
-  assert.match(en.unknownCommand("/codex status"), /closed|no longer executed/i);
-  assert.doesNotMatch(en.unknownCommand("/codex status"), /not supported here yet/i);
-  assert.match(en.unknownCommand("/codex status"), /plain language|plain message/i);
+  assert.equal(en.unknownCommand("/codex status", "/tmp"), en.help("/tmp"));
+  assert.doesNotMatch(en.unknownCommand("/codex status", "/tmp"), /closed|no longer executed|not supported here yet/i);
 });
 
 test("protocol/transition/approval: approval-required decision transitions task to awaiting_approval", () => {
