@@ -291,6 +291,7 @@ test("constitution/command/help: help stays native-first and excludes closed leg
   assert.match(zh.help("/tmp"), /`\/codex --cd <path> <prompt>`/);
   assert.match(zh.help("/tmp"), /`\/codex --cd <path> --sandbox danger-full-access <prompt>`/);
   assert.match(zh.help("/tmp"), /`\/codex resume <prompt>`/);
+  assert.match(zh.help("/tmp"), /`--model <model>` `--reasoning <level>` `--ask-for-approval <policy>`/);
   assert.doesNotMatch(zh.help("/tmp"), /兼容/);
   assert.doesNotMatch(zh.help("/tmp"), /`\/codex cwd <path>`|`\/codex pwd`|`\/codex continue <prompt>`/);
 
@@ -300,6 +301,7 @@ test("constitution/command/help: help stays native-first and excludes closed leg
   assert.match(en.help("/tmp"), /`\/codex --cd <path> <prompt>`/);
   assert.match(en.help("/tmp"), /`\/codex --cd <path> --sandbox danger-full-access <prompt>`/);
   assert.match(en.help("/tmp"), /`\/codex resume <prompt>`/);
+  assert.match(en.help("/tmp"), /`--model <model>` `--reasoning <level>` `--ask-for-approval <policy>`/);
   assert.doesNotMatch(en.help("/tmp"), /Compatibility/);
   assert.doesNotMatch(en.help("/tmp"), /`\/codex cwd <path>`|`\/codex pwd`|`\/codex continue <prompt>`/);
 });
