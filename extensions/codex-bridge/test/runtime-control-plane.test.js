@@ -782,3 +782,23 @@ test("runtime/control-plane/recovery: stale running bridge actions fail closed a
     reason: "bridge_action_interrupted_before_completion",
   });
 });
+
+test("runtime/control-plane/status: DM full access status is reported without overstating host capability", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-control-plane-status-full-access-"));
+  const { bridge } = await createBridgeHarness(tempRoot);
+
+  await bridge.saveProfile({
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    defaultCwd: tempRoot,
+    accessMode: "full_access",
+    updatedAt: "2026-03-31T00:00:00.000Z",
+  });
+
+  const status = await bridge.formatStatus("user-1");
+
+  assert.match(status, /完全访问|Full Access/);
+  assert.match(status, /宿主|运行时|runtime|host/i);
+  assert.doesNotMatch(status, /GPU 可用|systemd 可用|已具备全部宿主能力/);
+});

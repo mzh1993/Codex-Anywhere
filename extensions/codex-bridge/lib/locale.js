@@ -116,6 +116,11 @@ function localizeRisk(locale, riskLevel) {
   return riskLevel === "high" ? "高风险" : "普通";
 }
 
+function localizeAccessMode(locale, accessMode) {
+  if (normalizeLocale(locale) !== "zh-CN") return accessMode === "full_access" ? "Full Access" : "Normal";
+  return accessMode === "full_access" ? "完全访问" : "普通";
+}
+
 function localizeReason(locale, reasonCode) {
   const normalized = normalizeLocale(locale);
   return REASON_LABELS[normalized]?.[reasonCode] ?? reasonCode;
@@ -325,6 +330,10 @@ export function getLocaleText(locale) {
       cwdLine: (cwd) => `工作目录：\`${cwd}\``,
       modeLine: (mode) => `模式：${localizeMode(normalized, mode)}`,
       riskLine: (risk) => `风险：${localizeRisk(normalized, risk)}`,
+      accessModeLine: (accessMode) =>
+        accessMode === "full_access"
+          ? `默认权限：${localizeAccessMode(normalized, accessMode)}（表示后续任务默认以高权限启动；宿主 GPU / systemd 等能力仍取决于当前运行时）`
+          : `默认权限：${localizeAccessMode(normalized, accessMode)}`,
       elapsedLine: (elapsed) => `耗时：${elapsed}`,
       sessionIdLine: (sessionId) => `会话 ID：${sessionId}`,
       lastLine: (hint) => `最近状态：${hint}`,
@@ -512,6 +521,10 @@ export function getLocaleText(locale) {
     cwdLine: (cwd) => `cwd: \`${cwd}\``,
     modeLine: (mode) => `mode: ${localizeMode(normalized, mode)}`,
     riskLine: (risk) => `risk: ${localizeRisk(normalized, risk)}`,
+    accessModeLine: (accessMode) =>
+      accessMode === "full_access"
+        ? `default access: ${localizeAccessMode(normalized, accessMode)} (future tasks default to high-risk mode; host GPU/systemd capability still depends on the runtime)`
+        : `default access: ${localizeAccessMode(normalized, accessMode)}`,
     elapsedLine: (elapsed) => `elapsed: ${elapsed}`,
     sessionIdLine: (sessionId) => `session_id: ${sessionId}`,
     lastLine: (hint) => `last: ${hint}`,

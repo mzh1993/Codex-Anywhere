@@ -31,9 +31,12 @@ export function buildBridgeTaskPrompt({ task, settings = {} }) {
     "You are running inside a Feishu remote Codex bridge task.",
     `Working directory: ${task.cwd}`,
     `Task mode: ${task.mode}`,
+    `Execution model: ${task.executionOptions?.model ?? "default"}`,
+    `Execution reasoning effort: ${task.executionOptions?.reasoningEffort ?? "default"}`,
     task.mode === "resume"
       ? "Resume cwd semantics: use the working directory above for any new commands in this resumed run."
       : "Start the run in the working directory above.",
+    "If asked about the current model, reasoning effort, or working directory, answer from the execution metadata above.",
     "Treat this as a bounded execution task, not a persona chat.",
     "Return a concise final answer with: summary, changed files, and next steps.",
     getResponseLanguageInstruction(task.locale ?? settings.locale),

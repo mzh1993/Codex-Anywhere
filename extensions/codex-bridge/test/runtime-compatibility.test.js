@@ -343,6 +343,165 @@ test("runtime/protocol/approval: explicit native starts still persist a run-scop
   }
 });
 
+test("runtime/protocol/full_access: approving a codex task persists DM-scoped full access", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-full-access-approval-"));
+  const { bridge } = await createBridgeHarness(tempRoot);
+
+  bridge.ensureExecutionRuntimeReady = async () => ({ ok: true });
+
+  const task = createTaskRecord({
+    taskId: "task-needs-approval",
+    locale: "zh-CN",
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-old",
+    cwd: tempRoot,
+    mode: "new",
+    sessionId: null,
+    status: "awaiting_approval",
+    approvalToken: "TOKEN1",
+    currentRunId: null,
+    lastRunId: "run-old",
+    prompt: "重启服务",
+    createdAt: "2026-03-31T00:00:00.000Z",
+    updatedAt: "2026-03-31T00:00:00.000Z",
+  });
+  const profile = {
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    defaultCwd: tempRoot,
+    activeTaskId: task.taskId,
+    lastTaskId: task.taskId,
+    pendingApprovalToken: "TOKEN1",
+    updatedAt: "2026-03-31T00:00:00.000Z",
+  };
+  const request = {
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-approve",
+  };
+  const approval = {
+    token: "TOKEN1",
+    taskId: task.taskId,
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-old",
+    mode: "new",
+    prompt: "重启服务",
+    cwd: tempRoot,
+    sessionId: null,
+    policyDecision: "approval_required",
+    reasonCodes: ["service_control_requires_approval"],
+    createdAtMs: Date.now(),
+    expiresAtMs: Date.now() + 60_000,
+  };
+
+  await bridge.saveTask(task);
+  await bridge.saveProfile(profile);
+  await bridge.writeApproval(approval);
+
+  const started = [];
+  bridge.startTask = async (params) => {
+    started.push(params);
+  };
+
+  await bridge.approvePendingRequest(profile, request, "TOKEN1");
+
+  const persistedProfile = await bridge.loadProfile("user-1", null);
+  assert.equal(started.length, 1);
+  assert.equal(started[0].riskLevel, "high");
+  assert.equal(persistedProfile.accessMode, "full_access");
+});
+
+test("runtime/protocol/full_access: explicit new task inherits DM-scoped full access", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-full-access-explicit-new-"));
+  const { bridge } = await createBridgeHarness(tempRoot);
+
+  bridge.ensureExecutionRuntimeReady = async () => ({ ok: true });
+
+  await bridge.saveProfile({
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    defaultCwd: tempRoot,
+    accessMode: "full_access",
+    updatedAt: "2026-03-31T00:00:00.000Z",
+  });
+
+  const started = [];
+  bridge.startTask = async (params) => {
+    started.push(params);
+  };
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-explicit-new",
+    text: `/codex --cd ${tempRoot} 帮我看看空间占用`,
+  });
+
+  assert.equal(started.length, 1);
+  assert.equal(started[0].riskLevel, "high");
+});
+
+test("runtime/protocol/full_access: before_reset clears DM-scoped full access", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-full-access-reset-"));
+  const { bridge } = await createBridgeHarness(tempRoot);
+
+  const task = createTaskRecord({
+    taskId: "task-running",
+    locale: "zh-CN",
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-old",
+    cwd: tempRoot,
+    mode: "resume",
+    sessionId: "session-old",
+    status: "awaiting_input",
+    currentRunId: null,
+    lastRunId: "run-old",
+    prompt: "旧任务",
+    createdAt: "2026-03-31T00:00:00.000Z",
+    updatedAt: "2026-03-31T00:00:00.000Z",
+  });
+  const profile = {
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    defaultCwd: tempRoot,
+    activeTaskId: task.taskId,
+    lastTaskId: task.taskId,
+    accessMode: "full_access",
+    updatedAt: "2026-03-31T00:00:00.000Z",
+  };
+
+  await bridge.saveTask(task);
+  await bridge.saveProfile(profile);
+  bridge.rememberOpenClawSessionBinding({
+    sessionKey: "feishu-main-user-1",
+    channelId: "feishu",
+    accountId: "default",
+    conversationId: "conv-1",
+    senderId: "user-1",
+  });
+
+  await bridge.handleBeforeReset(
+    { reason: "/new" },
+    { sessionKey: "feishu-main-user-1", sessionId: "shell-session-1" },
+  );
+
+  const clearedProfile = await bridge.loadProfile("user-1", null);
+  assert.notEqual(clearedProfile?.accessMode, "full_access");
+});
+
 test("runtime/protocol/command_surface/approve: legacy approve with trailing text is closed and leaves approval state untouched", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-approve-token-"));
   const { bridge, replies } = await createBridgeHarness(tempRoot);
@@ -1803,6 +1962,64 @@ test("runtime/protocol/native_entry/new: native start flags carry cwd model and 
   });
 });
 
+test("runtime/protocol/native_entry/new: explicit native new supersedes an awaiting-input task instead of resuming it", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-native-new-supersede-"));
+  const worktree = path.join(tempRoot, "worktree");
+  await fs.mkdir(worktree, { recursive: true });
+  const { bridge } = await createBridgeHarness(tempRoot);
+  const oldTask = createTaskRecord({
+    taskId: "task-old-awaiting-input",
+    locale: "zh-CN",
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-old",
+    cwd: tempRoot,
+    mode: "resume",
+    sessionId: "session-old",
+    status: "awaiting_input",
+    currentRunId: null,
+    lastRunId: "run-old",
+    prompt: "旧任务",
+    createdAt: "2026-03-24T08:00:00.000Z",
+    updatedAt: "2026-03-24T08:00:00.000Z",
+  });
+  const profile = {
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    defaultCwd: tempRoot,
+    activeTaskId: oldTask.taskId,
+    lastTaskId: oldTask.taskId,
+    updatedAt: "2026-03-24T08:00:00.000Z",
+  };
+  const queued = [];
+  bridge.queueOrStartTask = async (params) => {
+    queued.push(params);
+  };
+  await bridge.saveTask(oldTask);
+  await bridge.saveProfile(profile);
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-native-new-supersede",
+    text: `/codex --cd ${worktree} --model gpt-5.2 --reasoning high 帮我看看本目录空间利用率`,
+  });
+
+  const persistedOldTask = await bridge.readTask(oldTask.taskId);
+  const persistedProfile = await bridge.loadProfile("user-1", null);
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].mode, "new");
+  assert.equal(queued[0].cwd, worktree);
+  assert.equal(queued[0].existingTask, undefined);
+  assert.equal(persistedOldTask.status, "aborted");
+  assert.match(persistedOldTask.error ?? "", /explicit new task|superseded/i);
+  assert.equal(persistedProfile.activeTaskId, undefined);
+});
+
 test("runtime/protocol/native_entry/resume: explicit resume uses native command naming for the current task", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-native-resume-"));
   const { bridge } = await createBridgeHarness(tempRoot);
@@ -2048,6 +2265,34 @@ test("runtime/protocol/reset: upstream before_reset clears an awaiting-input bri
   assert.equal(queued[0].existingTask, undefined);
 });
 
+test("runtime/protocol/legacy_top_level/new: top-level /new is claimed and closed instead of bypassing upstream session logic", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-legacy-top-level-new-"));
+  const { bridge, replies } = await createBridgeHarness(tempRoot);
+
+  const handled = await bridge.handleInboundClaim(
+    {
+      channel: "feishu",
+      isGroup: false,
+      senderId: "user-1",
+      accountId: "default",
+      body: "/new --cd ~/home/mzh --model gpt-5.2 --reasoning high 帮我看看本目录空间利用率",
+    },
+    {
+      channelId: "feishu",
+      senderId: "user-1",
+      accountId: "default",
+      conversationId: "conv-1",
+      messageId: "msg-top-level-new",
+    },
+  );
+
+  assert.deepEqual(handled, { handled: true });
+  assert.equal(replies.length, 1);
+  assert.match(replies[0], /`\/new` 已关闭|不再执行/);
+  assert.match(replies[0], /普通任务请直接发送自然语言/);
+  assert.match(replies[0], /`\/codex --cd <path> \[--model <model>\] \[--reasoning <level>\] <prompt>`/);
+});
+
 test("runtime/protocol/reset: upstream before_reset stops continuing a running bridge lane on the next plain text", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-reset-running-"));
   const { bridge } = await createBridgeHarness(tempRoot);
@@ -2246,6 +2491,108 @@ test("runtime/protocol/reset: an abandoned old lane does not send a finish tail 
     assert.equal(persistedProfile.lastSessionId, newTask.sessionId);
     assert.equal(persistedOldTask.status, "aborted");
     assert.equal(persistedOldRun.status, "aborted");
+  } finally {
+    __activeTasks.clear();
+  }
+});
+
+test("runtime/protocol/finish_summary: changed files are extracted only from the explicit Changed Files section", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-finish-summary-"));
+  const { bridge } = await createBridgeHarness(tempRoot);
+  const { __activeTasks } = await import("../index.js");
+  const runDir = path.join(tempRoot, "run-summary");
+  await fs.mkdir(runDir, { recursive: true });
+  const lastMessagePath = path.join(runDir, "last-message.txt");
+  const stdoutLogPath = path.join(runDir, "stdout.jsonl");
+  const stderrLogPath = path.join(runDir, "stderr.log");
+  await fs.writeFile(lastMessagePath, `**Summary**
+- 模型：\`GPT-5.2\`
+- 思考等级（reasoning effort）：\`high\`
+- 工作目录（cwd）：\`/home/mzh\`
+
+**Changed Files**
+- 无
+
+**Next Steps**
+- 如需我切到其他目录或检查某个路径占用，告诉我目标路径即可。`);
+  await fs.writeFile(stdoutLogPath, "");
+  await fs.writeFile(stderrLogPath, "");
+
+  const task = createTaskRecord({
+    taskId: "task-summary",
+    locale: "zh-CN",
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-summary",
+    cwd: "/home/mzh",
+    mode: "resume",
+    status: "running",
+    currentRunId: "run-summary",
+    lastRunId: "run-summary",
+    sessionId: "session-summary",
+    prompt: "你现在使用的是什么模型？思考等级是多少？工作目录在哪里？",
+    createdAt: "2026-03-30T02:28:36.005Z",
+    updatedAt: "2026-03-30T02:28:36.005Z",
+  });
+  const run = createRunRecord({
+    runId: "run-summary",
+    taskId: task.taskId,
+    locale: task.locale,
+    senderId: task.senderId,
+    accountId: task.accountId,
+    conversationId: task.conversationId,
+    messageId: task.messageId,
+    cwd: task.cwd,
+    mode: task.mode,
+    sessionId: task.sessionId,
+    prompt: task.prompt,
+    createdAt: "2026-03-30T02:28:36.005Z",
+    updatedAt: "2026-03-30T02:28:36.005Z",
+    stdoutLogPath,
+    stderrLogPath,
+    lastMessagePath,
+    runDir,
+    beforeSessions: new Set(),
+  });
+  const profile = {
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    defaultCwd: "/home/mzh",
+    activeTaskId: task.taskId,
+    lastTaskId: task.taskId,
+    lastSessionId: task.sessionId,
+    updatedAt: "2026-03-30T02:28:36.005Z",
+  };
+
+  try {
+    await bridge.saveTask(task);
+    await bridge.saveRun(run);
+    await bridge.saveProfile(profile);
+    __activeTasks.set("user-1", {
+      task,
+      run,
+      child: { kill() {} },
+      stdoutBuffer: "",
+      stderrBuffer: "",
+      stopping: false,
+      finishing: false,
+      heartbeatTimer: null,
+      sessionPollTimer: null,
+    });
+
+    await bridge.finishTask("user-1", {
+      exitCode: 0,
+      signal: null,
+      error: null,
+    });
+
+    const persistedTask = await bridge.readTask(task.taskId);
+    assert.deepEqual(persistedTask.changedFiles, []);
+    assert.deepEqual(persistedTask.nextSteps, [
+      "如需我切到其他目录或检查某个路径占用，告诉我目标路径即可。",
+    ]);
   } finally {
     __activeTasks.clear();
   }

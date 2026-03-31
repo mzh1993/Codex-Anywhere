@@ -83,3 +83,25 @@ test("runtime/exec/options: native model and execution flags map to codex exec a
   ]);
   assert.equal(args.includes("-C"), true);
 });
+
+test("runtime/exec/prompt_metadata: prompt includes effective model, reasoning, and cwd metadata for self-reporting", () => {
+  const args = buildCodexArgs({
+    task: {
+      mode: "resume",
+      cwd: "/home/mzh",
+      prompt: "你现在使用的是什么模型？思考等级是多少？工作目录在哪里？",
+      sessionId: "session-1",
+      executionOptions: {
+        model: "gpt-5.2",
+        reasoningEffort: "high",
+      },
+    },
+    settings: { locale: "zh-CN" },
+  });
+
+  const prompt = args.at(-1);
+  assert.equal(prompt.includes("Execution model: gpt-5.2"), true);
+  assert.equal(prompt.includes("Execution reasoning effort: high"), true);
+  assert.equal(prompt.includes("Working directory: /home/mzh"), true);
+  assert.equal(prompt.includes("If asked about the current model, reasoning effort, or working directory, answer from the execution metadata above."), true);
+});

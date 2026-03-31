@@ -62,6 +62,15 @@ export const __activeTasks = activeTasks;
 const activeBridgeActions = new Map();
 export const __activeBridgeActions = activeBridgeActions;
 
+function normalizeAccessMode(value) {
+  return value === "full_access" ? "full_access" : "normal";
+}
+
+function resolveProfileRiskLevel(profile, existingTask = null) {
+  if (existingTask?.riskLevel) return existingTask.riskLevel;
+  return normalizeAccessMode(profile?.accessMode) === "full_access" ? "high" : "normal";
+}
+
 export default definePluginEntry({
   id: "codex-bridge",
   name: "Codex Bridge",
@@ -159,8 +168,20 @@ export class CodexBridge {
     if (normalizeText(profile.conversationId) && normalizeText(profile.conversationId) !== binding.conversationId) return;
     if (normalizeText(profile.accountId) && normalizeText(profile.accountId) !== binding.accountId) return;
 
+    let profileChanged = false;
+    if (normalizeAccessMode(profile.accessMode) !== "normal") {
+      delete profile.accessMode;
+      profileChanged = true;
+    }
+
     const activeTask = await this.loadActiveTask(binding.senderId, profile);
-    if (!activeTask) return;
+    if (!activeTask) {
+      if (profileChanged) {
+        profile.updatedAt = new Date().toISOString();
+        await this.saveProfile(profile);
+      }
+      return;
+    }
 
     const reason = formatUpstreamResetReason(event?.reason);
     if (activeTask.status === "running") {
@@ -202,14 +223,26 @@ export class CodexBridge {
       this.api.logger.info?.("codex-bridge inbound_claim: empty text => handled");
       return { handled: true };
     }
-    if (shouldBypassClaim(text)) {
-      this.api.logger.info?.(`codex-bridge inbound_claim: bypass command ${JSON.stringify(truncate(text, 80))}`);
-      return;
-    }
-
     const paired = await this.isSenderPaired(accountId, senderId);
     if (!paired) {
       this.api.logger.info?.(`codex-bridge inbound_claim: decline (sender not paired sender=${senderId} account=${accountId})`);
+      return;
+    }
+
+    const legacyTopLevelCommand = getClosedLegacyTopLevelCommand(text);
+    if (legacyTopLevelCommand) {
+      this.api.logger.info?.(`codex-bridge inbound_claim: closed legacy top-level command ${JSON.stringify(legacyTopLevelCommand)}`);
+      await this.safeReply({
+        accountId,
+        conversationId,
+        messageId,
+        text: this.text.unknownCommand(legacyTopLevelCommand),
+      });
+      return { handled: true };
+    }
+
+    if (shouldBypassClaim(text)) {
+      this.api.logger.info?.(`codex-bridge inbound_claim: bypass command ${JSON.stringify(truncate(text, 80))}`);
       return;
     }
 
@@ -464,7 +497,8 @@ export class CodexBridge {
     }
 
     const activeTask = await this.loadActiveTask(profile.senderId, profile);
-    if (activeTask) {
+    const explicitNewPrep = await this.prepareForExplicitNewTask(profile, activeTask);
+    if (!explicitNewPrep.ok) {
       await this.safeReply({
         accountId: request.accountId,
         conversationId: request.conversationId,
@@ -473,7 +507,7 @@ export class CodexBridge {
           taskId: activeTask.taskId,
           status: activeTask.status,
           code: "active_task_exists",
-          ...(activeTask.status === "awaiting_input" ? { suggestedCommand: "/codex resume <prompt>" } : {}),
+          ...(activeTask?.status === "awaiting_input" ? { suggestedCommand: "/codex resume <prompt>" } : {}),
         }),
       });
       return;
@@ -491,6 +525,18 @@ export class CodexBridge {
       senderName: request.senderName,
       executionOptions: invocation.executionOptions,
     });
+  }
+
+  async prepareForExplicitNewTask(profile, activeTask) {
+    if (!activeTask) return { ok: true };
+    if (activeTask.status === "awaiting_input" || activeTask.status === "awaiting_approval") {
+      await this.finalizeStoredTask(activeTask, profile, {
+        status: "aborted",
+        error: "superseded by explicit new task",
+      });
+      return { ok: true };
+    }
+    return { ok: false, activeTask };
   }
 
   formatNativeInvocationError(error) {
@@ -897,6 +943,7 @@ export class CodexBridge {
     await this.writeApproval(approval);
     await this.deleteApproval(token);
     if (profile.pendingApprovalToken === token) delete profile.pendingApprovalToken;
+    profile.accessMode = "full_access";
     await this.saveProfile(profile);
   }
 
@@ -1244,7 +1291,7 @@ export class CodexBridge {
       cwd,
       policyDecision: decision.kind,
       reasonCodes,
-      riskLevel: "normal",
+      riskLevel: resolveProfileRiskLevel(params.profile, params.existingTask),
     });
   }
 
@@ -1479,7 +1526,7 @@ export class CodexBridge {
       status: "running",
       currentRunId: runId,
       lastRunId: runId,
-      riskLevel: params.riskLevel ?? params.existingTask?.riskLevel ?? "normal",
+      riskLevel: params.riskLevel ?? resolveProfileRiskLevel(params.profile, params.existingTask),
       executionOptions: params.executionOptions ?? params.existingTask?.executionOptions ?? null,
       approvalToken: params.approvalToken ?? null,
       policyDecision: params.policyDecision ?? params.existingTask?.policyDecision ?? POLICY_DECISIONS.ALLOWED,
@@ -1892,6 +1939,7 @@ export class CodexBridge {
     const lines = [
       this.text.noActiveTask,
       this.text.cwdLine(profile.defaultCwd || this.settings.defaultCwd),
+      this.text.accessModeLine(profile.accessMode === "full_access" ? "full_access" : "normal"),
     ];
     if (profile.lastTaskId) lines.push(this.text.lastTaskIdLine(profile.lastTaskId));
     if (profile.lastSessionId) lines.push(this.text.lastSessionIdLine(profile.lastSessionId));
@@ -2738,6 +2786,14 @@ function shouldBypassClaim(text) {
   return !normalized.startsWith("/codex");
 }
 
+function getClosedLegacyTopLevelCommand(text) {
+  const normalized = normalizeText(text);
+  if (!normalized.startsWith("/")) return null;
+  if (/^\/new(?:\s|$)/i.test(normalized)) return "/new";
+  if (/^\/reset(?:\s|$)/i.test(normalized)) return "/reset";
+  return null;
+}
+
 function normalizeText(value) {
   if (typeof value !== "string") return "";
   return value.trim();
@@ -3078,19 +3134,32 @@ function formatElapsed(startedAt) {
 
 function extractChangedFiles(text) {
   if (!text) return [];
+  const lines = text.split(/\r?\n/).map((line) => line.trim());
   const matches = new Set();
   const patterns = [
     /`([^`\n]+\.[A-Za-z0-9]+(?::\d+(?::\d+)?)?)`/g,
     /\b(?:\/|\.{0,2}\/)[^\s`]+?\.[A-Za-z0-9]+\b/g,
   ];
-  for (const pattern of patterns) {
-    let match;
-    while ((match = pattern.exec(text)) !== null) {
-      const candidate = normalizeText(match[1] ?? match[0]);
-      if (!candidate) continue;
-      if (candidate.length > 200) continue;
-      matches.add(candidate);
-      if (matches.size >= DEFAULT_MAX_CHANGED_FILES) break;
+  let collecting = false;
+  for (const line of lines) {
+    const normalizedLine = normalizeHeadingLine(line);
+    if (!collecting && /^(changed\s+files?|changed\s+file|改动文件|修改文件)\b[:：]?/i.test(normalizedLine)) {
+      collecting = true;
+      continue;
+    }
+    if (!collecting) continue;
+    if (!line) break;
+    if (/^(next(?:\s+steps?)?|下一步|后续建议)\b[:：]?/i.test(normalizedLine)) break;
+    if (/^(?:[-*]\s+)?(?:无|none|n\/a)$/i.test(normalizedLine)) continue;
+    for (const pattern of patterns) {
+      let match;
+      while ((match = pattern.exec(line)) !== null) {
+        const candidate = normalizeText(match[1] ?? match[0]);
+        if (!candidate) continue;
+        if (candidate.length > 200) continue;
+        matches.add(candidate);
+        if (matches.size >= DEFAULT_MAX_CHANGED_FILES) return Array.from(matches);
+      }
     }
   }
   return Array.from(matches);
