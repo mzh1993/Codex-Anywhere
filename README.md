@@ -37,6 +37,7 @@ export CODEX_FEISHU_APP_SECRET='xxx'
 - bridge 只在显式 `/codex ...` 启动面，或自有审批 / 控制面闭环里做最薄 gate；普通文本语义默认仍归 `Codex`
 - paired bridge 私聊的 Full Access 现按 DM 级状态记住：一旦显式高权限获批，后续任务默认沿用，直到显式降权或 reset
 - 这里的“Full Access”只表示 bridge 会默认按高权限方式启动 `codex exec`；宿主 GPU / systemd / 设备可见性仍取决于当前运行时
+- 如需在显式新任务时直接申请 Full Access，使用原生命令面：`/codex --cd <path> --sandbox danger-full-access <prompt>`；如需显式声明不再询问审批策略，也支持 `--ask-for-approval never`
 - 若用户表面显示“新会话 / reset 完成”，执行层也必须真地切到新的 task / session lane，而不是只换聊天壳
 - 当前 reset 对齐依赖 OpenClaw 官方 `before_reset` 信号来清 lane，不靠 bridge 猜 `/new` / `/reset` 文本
 - 在这条 paired bridge 私聊表面，历史顶层 `/new` / `/reset` 已关闭；显式新任务请使用 `/codex --cd ...`，显式续写请使用 `/codex resume ...`

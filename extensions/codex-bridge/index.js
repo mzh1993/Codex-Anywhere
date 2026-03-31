@@ -2560,6 +2560,80 @@ function parseNativeCodexInvocation(text) {
       index += 1;
       continue;
     }
+    if (lower === "--sandbox" || token === "-s") {
+      const nextValue = tokens[index + 1];
+      if (!nextValue) {
+        return createNativeInvocationError("missing_value", {
+          option: token,
+          usage: mode === "resume" ? "resume" : "new",
+        });
+      }
+      if (!NATIVE_SANDBOX_VALUES.includes(nextValue)) {
+        return createNativeInvocationError("invalid_value", {
+          option: token,
+          value: nextValue,
+          allowedValues: NATIVE_SANDBOX_VALUES,
+        });
+      }
+      executionOptions.sandbox = nextValue;
+      index += 2;
+      continue;
+    }
+    if (lower.startsWith("--sandbox=")) {
+      executionOptions.sandbox = token.slice(token.indexOf("=") + 1);
+      if (!executionOptions.sandbox) {
+        return createNativeInvocationError("missing_value", {
+          option: "--sandbox",
+          usage: mode === "resume" ? "resume" : "new",
+        });
+      }
+      if (!NATIVE_SANDBOX_VALUES.includes(executionOptions.sandbox)) {
+        return createNativeInvocationError("invalid_value", {
+          option: "--sandbox",
+          value: executionOptions.sandbox,
+          allowedValues: NATIVE_SANDBOX_VALUES,
+        });
+      }
+      index += 1;
+      continue;
+    }
+    if (lower === "--ask-for-approval" || token === "-a") {
+      const nextValue = tokens[index + 1];
+      if (!nextValue) {
+        return createNativeInvocationError("missing_value", {
+          option: token,
+          usage: mode === "resume" ? "resume" : "new",
+        });
+      }
+      if (!NATIVE_APPROVAL_VALUES.includes(nextValue)) {
+        return createNativeInvocationError("invalid_value", {
+          option: token,
+          value: nextValue,
+          allowedValues: NATIVE_APPROVAL_VALUES,
+        });
+      }
+      executionOptions.askForApproval = nextValue;
+      index += 2;
+      continue;
+    }
+    if (lower.startsWith("--ask-for-approval=")) {
+      executionOptions.askForApproval = token.slice(token.indexOf("=") + 1);
+      if (!executionOptions.askForApproval) {
+        return createNativeInvocationError("missing_value", {
+          option: "--ask-for-approval",
+          usage: mode === "resume" ? "resume" : "new",
+        });
+      }
+      if (!NATIVE_APPROVAL_VALUES.includes(executionOptions.askForApproval)) {
+        return createNativeInvocationError("invalid_value", {
+          option: "--ask-for-approval",
+          value: executionOptions.askForApproval,
+          allowedValues: NATIVE_APPROVAL_VALUES,
+        });
+      }
+      index += 1;
+      continue;
+    }
     if (token.startsWith("-")) {
       return createNativeInvocationError("unknown_option", { option: token });
     }
@@ -2578,6 +2652,8 @@ function parseNativeCodexInvocation(text) {
 }
 
 const NATIVE_REASONING_VALUES = Object.freeze(["none", "low", "medium", "high", "xhigh"]);
+const NATIVE_SANDBOX_VALUES = Object.freeze(["read-only", "workspace-write", "danger-full-access"]);
+const NATIVE_APPROVAL_VALUES = Object.freeze(["untrusted", "on-failure", "on-request", "never"]);
 
 function createNativeInvocationError(kind, detail) {
   return {
