@@ -288,14 +288,18 @@ test("constitution/command/help: help stays native-first and excludes closed leg
   assert.doesNotMatch(zh.help("/tmp"), /Codex Runner 命令/);
   assert.doesNotMatch(zh.help("/tmp"), /bridge/i);
   assert.match(zh.help("/tmp"), /`\/codex doctor`/);
-  assert.match(zh.help("/tmp"), /`\/codex --cd <path> --model <model> --reasoning <level> <prompt>`/);
+  assert.match(zh.help("/tmp"), /`\/codex --cd <path> <prompt>`/);
+  assert.match(zh.help("/tmp"), /`\/codex --cd <path> --sandbox danger-full-access <prompt>`/);
+  assert.match(zh.help("/tmp"), /`\/codex resume <prompt>`/);
   assert.doesNotMatch(zh.help("/tmp"), /兼容/);
   assert.doesNotMatch(zh.help("/tmp"), /`\/codex cwd <path>`|`\/codex pwd`|`\/codex continue <prompt>`/);
 
   assert.doesNotMatch(en.help("/tmp"), /Codex Runner commands/);
   assert.doesNotMatch(en.help("/tmp"), /bridge/i);
   assert.match(en.help("/tmp"), /`\/codex doctor`/);
-  assert.match(en.help("/tmp"), /`\/codex --cd <path> --model <model> --reasoning <level> <prompt>`/);
+  assert.match(en.help("/tmp"), /`\/codex --cd <path> <prompt>`/);
+  assert.match(en.help("/tmp"), /`\/codex --cd <path> --sandbox danger-full-access <prompt>`/);
+  assert.match(en.help("/tmp"), /`\/codex resume <prompt>`/);
   assert.doesNotMatch(en.help("/tmp"), /Compatibility/);
   assert.doesNotMatch(en.help("/tmp"), /`\/codex cwd <path>`|`\/codex pwd`|`\/codex continue <prompt>`/);
 });
