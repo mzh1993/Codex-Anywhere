@@ -46,18 +46,30 @@ function createFakeApi(stateDir) {
 function createBridgeHarness(tempRoot) {
   return import("../index.js").then(({ CodexBridge, __activeBridgeActions }) => {
     const replies = [];
+    const replyEvents = [];
     const startedTasks = [];
     const bridge = new CodexBridge(createFakeApi(tempRoot));
     bridge.safeReply = async (params) => {
-      replies.push(params.text);
+      const prepared = bridge.prepareReply(params);
+      replyEvents.push(prepared);
+      replies.push(renderReplyText(prepared));
     };
     bridge.ensureCodexHome = async () => {};
     bridge.snapshotSessionFiles = async () => new Set();
     bridge.startTask = async (params) => {
       startedTasks.push(params);
     };
-    return { bridge, replies, startedTasks, activeBridgeActions: __activeBridgeActions };
+    return { bridge, replies, replyEvents, startedTasks, activeBridgeActions: __activeBridgeActions };
   });
+}
+
+function renderReplyText(params) {
+  if (params?.text) return params.text;
+  const elements = Array.isArray(params?.card?.elements) ? params.card.elements : [];
+  return elements
+    .map((element) => (element?.tag === "markdown" ? element.content : ""))
+    .filter(Boolean)
+    .join("\n");
 }
 
 function buildAwaitingInputTask(tempRoot, overrides = {}) {
@@ -154,7 +166,7 @@ function buildBridgeAction(tempRoot, overrides = {}) {
 
 async function routeOwnedPrompt({ tempPrefix, prompt, executeResult = null }) {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), tempPrefix));
-  const { bridge, replies, startedTasks } = await createBridgeHarness(tempRoot);
+  const { bridge, replies, replyEvents, startedTasks } = await createBridgeHarness(tempRoot);
 
   bridge.ensureExecutionRuntimeReady = async () => {
     throw new Error("bridge action must not depend on codex runtime checks");
@@ -176,7 +188,7 @@ async function routeOwnedPrompt({ tempPrefix, prompt, executeResult = null }) {
   const profile = await bridge.loadProfile("user-1", null);
   const actionId = profile.activeBridgeActionId ?? profile.lastBridgeActionId;
   const action = await bridge.readBridgeAction(actionId);
-  return { bridge, replies, startedTasks, profile, action };
+  return { bridge, replies, replyEvents, startedTasks, profile, action };
 }
 
 async function routeCodexOwnedPrompt({ tempPrefix, prompt }) {
@@ -217,7 +229,7 @@ function assertCodexFallbackLane({ startedTasks, queued, bridgeActionFiles, repl
 }
 
 test("runtime/control-plane/routing: repository-owned service control creates an approval-gated bridge action instead of a codex task", async () => {
-  const { replies, startedTasks, profile, action } = await routeOwnedPrompt({
+  const { replies, replyEvents, startedTasks, profile, action } = await routeOwnedPrompt({
     tempPrefix: "codex-bridge-control-plane-route-",
     prompt: "请重启 openclaw-codex-feishu.service",
   });
@@ -230,6 +242,7 @@ test("runtime/control-plane/routing: repository-owned service control creates an
     expectedKind: "service_control",
   });
   assert.equal(action.status, "awaiting_approval");
+  assert.ok(replyEvents[0].card);
 });
 
 test("runtime/control-plane/routing: dedicated read-only control-plane prompts execute inside bridge", async () => {

@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { f as unregisterInternalHook, u as registerInternalHook } from "../../.runtime/openclaw-2026.3.22/node_modules/openclaw/dist/internal-hooks-D4lZfNM5.js";
 import { definePluginEntry } from "../../.runtime/openclaw-2026.3.22/node_modules/openclaw/dist/plugin-sdk/plugin-entry.js";
-import { sendMessageFeishu } from "../../.runtime/openclaw-2026.3.22/node_modules/openclaw/dist/extensions/feishu/index.js";
+import { sendCardFeishu, sendMessageFeishu } from "../../.runtime/openclaw-2026.3.22/node_modules/openclaw/dist/extensions/feishu/index.js";
 import { buildBridgeActionExecution } from "./lib/bridge-action-exec.js";
 import { buildCodexArgs, buildCodexEnv } from "./lib/codex-exec.js";
 import {
@@ -560,6 +560,7 @@ export class CodexBridge {
       accountId: request.accountId,
       conversationId: request.conversationId,
       messageId: request.messageId,
+      renderHint: "help",
       text: this.text.help(cwd),
     });
   }
@@ -624,6 +625,7 @@ export class CodexBridge {
         accountId: params.accountId,
         conversationId: params.conversationId,
         messageId: params.messageId,
+        renderHint: "approval",
         text: this.text.bridgeActionApprovalQueued({
           token,
           reasons: params.reasonCodes ?? [],
@@ -761,6 +763,7 @@ export class CodexBridge {
       accountId: request.accountId,
       conversationId: request.conversationId,
       messageId: request.messageId,
+      renderHint: "approval",
       text: this.text.bridgeActionApprovalStillPending({
         token: approval.token,
         reasons: approval.reasonCodes ?? [],
@@ -996,6 +999,7 @@ export class CodexBridge {
       accountId: request.accountId,
       conversationId: request.conversationId,
       messageId: request.messageId,
+      renderHint: "approval",
       text: this.text.approvalStillPending({
         token: approval.token,
         reasons: approval.reasonCodes ?? [],
@@ -1275,6 +1279,7 @@ export class CodexBridge {
         accountId: params.accountId,
         conversationId: params.conversationId,
         messageId: params.messageId,
+        renderHint: "approval",
         text: this.text.approvalQueued({
           token,
           mode: params.mode,
@@ -1463,6 +1468,7 @@ export class CodexBridge {
       accountId: params.accountId,
       conversationId: params.conversationId,
       messageId: params.messageId,
+      renderHint: "approval",
       text: this.text.approvalQueued({
         token,
         mode: params.mode,
@@ -1627,6 +1633,7 @@ export class CodexBridge {
       accountId: params.accountId,
       conversationId: params.conversationId,
       messageId: params.messageId,
+      renderHint: "task_started",
       text: this.text.taskStarted(task),
     });
 
@@ -1864,6 +1871,7 @@ export class CodexBridge {
         await this.safeReply({
           accountId: nextTask.accountId,
           conversationId: nextTask.conversationId,
+          renderHint: "task_finished",
           text: this.text.taskFinished({ ...nextTask, runStatus: nextRun.status }),
         });
       }
@@ -2054,16 +2062,40 @@ export class CodexBridge {
   async safeReply(params) {
     try {
       const cfg = this.api.runtime.config.loadConfig();
+      const prepared = this.prepareReply(params);
+      if (prepared.card) {
+        await sendCardFeishu({
+          cfg,
+          accountId: prepared.accountId,
+          to: prepared.conversationId,
+          replyToMessageId: prepared.messageId || undefined,
+          card: prepared.card,
+        });
+        return;
+      }
       await sendMessageFeishu({
         cfg,
-        accountId: params.accountId,
-        to: params.conversationId,
-        replyToMessageId: params.messageId || undefined,
-        text: params.text,
+        accountId: prepared.accountId,
+        to: prepared.conversationId,
+        replyToMessageId: prepared.messageId || undefined,
+        text: prepared.text,
       });
     } catch (error) {
       this.api.logger.error(`codex-bridge reply failed: ${toErrorText(error)}`);
     }
+  }
+
+  prepareReply(params) {
+    if (params.card || !params.renderHint || !params.text) return params;
+    return {
+      ...params,
+      card: buildBridgePresentationCard({
+        locale: this.settings.locale,
+        renderHint: params.renderHint,
+        text: params.text,
+      }),
+      text: undefined,
+    };
   }
 
   async executeBridgeAction(action) {
@@ -2828,6 +2860,47 @@ function requestMessageTarget(params) {
     conversationId: params.conversationId,
     messageId: params.messageId,
   };
+}
+
+function buildBridgePresentationCard({ locale, renderHint, text }) {
+  const normalizedLocale = /^zh(?:[-_].*)?$/i.test(normalizeText(locale)) ? "zh-CN" : "en-US";
+  const cardMeta = resolveBridgeCardMeta(normalizedLocale, renderHint);
+  return {
+    config: {
+      wide_screen_mode: true,
+    },
+    header: {
+      template: cardMeta.template,
+      title: {
+        tag: "plain_text",
+        content: cardMeta.title,
+      },
+    },
+    elements: [
+      {
+        tag: "markdown",
+        content: text,
+      },
+    ],
+  };
+}
+
+function resolveBridgeCardMeta(locale, renderHint) {
+  const zh = locale === "zh-CN";
+  switch (renderHint) {
+    case "help":
+      return { title: zh ? "Codex" : "Codex", template: "blue" };
+    case "doctor":
+      return { title: zh ? "健康摘要" : "Health Summary", template: "blue" };
+    case "approval":
+      return { title: zh ? "等待确认" : "Approval Needed", template: "orange" };
+    case "task_started":
+      return { title: zh ? "任务已启动" : "Task Started", template: "indigo" };
+    case "task_finished":
+      return { title: zh ? "本轮结果" : "Run Result", template: "green" };
+    default:
+      return { title: zh ? "Codex" : "Codex", template: "blue" };
+  }
 }
 
 function inferRecoveredInterruptionHint(task, settings) {

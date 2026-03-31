@@ -15,6 +15,7 @@ export async function handleCommandFallback({
       accountId: request.accountId,
       conversationId: request.conversationId,
       messageId: request.messageId,
+      renderHint: "doctor",
       text: doctorText,
     });
     return true;

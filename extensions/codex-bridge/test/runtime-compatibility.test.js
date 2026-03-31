@@ -45,14 +45,26 @@ function createFakeApi(stateDir) {
 function createBridgeHarness(tempRoot) {
   return import("../index.js").then(({ CodexBridge }) => {
     const replies = [];
+    const replyEvents = [];
     const bridge = new CodexBridge(createFakeApi(tempRoot));
     bridge.safeReply = async (params) => {
-      replies.push(params.text);
+      const prepared = bridge.prepareReply(params);
+      replyEvents.push(prepared);
+      replies.push(renderReplyText(prepared));
     };
     bridge.ensureCodexHome = async () => {};
     bridge.snapshotSessionFiles = async () => new Set();
-    return { bridge, replies };
+    return { bridge, replies, replyEvents };
   });
+}
+
+function renderReplyText(params) {
+  if (params?.text) return params.text;
+  const elements = Array.isArray(params?.card?.elements) ? params.card.elements : [];
+  return elements
+    .map((element) => (element?.tag === "markdown" ? element.content : ""))
+    .filter(Boolean)
+    .join("\n");
 }
 
 test("runtime/compat/version: runtime compatibility version parsing accepts 0.9.0 and rejects older versions", async () => {
@@ -1693,7 +1705,7 @@ test("runtime/protocol/command_parse: malformed codex command prefix is rejected
 
 test("runtime/protocol/command_surface/help: /codex help falls back to the same short help as bare /codex", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-help-surface-"));
-  const { bridge, replies } = await createBridgeHarness(tempRoot);
+  const { bridge, replies, replyEvents } = await createBridgeHarness(tempRoot);
 
   await bridge.routeInbound({
     senderId: "user-1",
@@ -1711,6 +1723,8 @@ test("runtime/protocol/command_surface/help: /codex help falls back to the same 
   assert.match(replies[0], /`\/codex resume <prompt>`/);
   assert.match(replies[0], /`\/codex doctor`/);
   assert.doesNotMatch(replies[0], /已关闭|不再执行|兼容/);
+  assert.ok(replyEvents[0].card);
+  assert.equal(replyEvents[0].text, undefined);
 });
 
 test("runtime/protocol/command_surface/approve: legacy approve is closed and does not consume pending approvals", async () => {
@@ -1807,7 +1821,7 @@ test("runtime/protocol/command_surface/unknown: unknown /codex subcommands retur
 
 test("runtime/protocol/command_surface/doctor: doctor returns a concrete runtime health summary", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-doctor-"));
-  const { bridge, replies } = await createBridgeHarness(tempRoot);
+  const { bridge, replies, replyEvents } = await createBridgeHarness(tempRoot);
   bridge.ensureExecutionRuntimeReady = async () => ({
     ok: true,
     codexVersion: "codex-cli 0.116.0",
@@ -1835,6 +1849,51 @@ test("runtime/protocol/command_surface/doctor: doctor returns a concrete runtime
   assert.match(replies[0], /Gateway：正常/);
   assert.match(replies[0], /下一步：/);
   assert.doesNotMatch(replies[0], /未探测/);
+  assert.ok(replyEvents[0].card);
+});
+
+test("runtime/protocol/plain_text: ordinary codex-owned text still does not emit bridge presentation replies", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-no-card-plain-text-"));
+  const { bridge, replyEvents } = await createBridgeHarness(tempRoot);
+  const queued = [];
+  bridge.queueOrStartTask = async (params) => {
+    queued.push(params);
+  };
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-plain",
+    text: "帮我继续整理 README.md",
+  });
+
+  assert.equal(queued.length, 1);
+  assert.equal(replyEvents.length, 0);
+});
+
+test("runtime/protocol/presentation: task lifecycle bridge notices render as lightweight cards", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-task-lifecycle-card-"));
+  const { bridge } = await createBridgeHarness(tempRoot);
+
+  const started = bridge.prepareReply({
+    accountId: "default",
+    conversationId: "conv-1",
+    renderHint: "task_started",
+    text: "Codex 任务已启动。",
+  });
+  const finished = bridge.prepareReply({
+    accountId: "default",
+    conversationId: "conv-1",
+    renderHint: "task_finished",
+    text: "本轮执行已完成。",
+  });
+
+  assert.equal(started.text, undefined);
+  assert.equal(started.card?.header?.title?.content, "任务已启动");
+  assert.equal(finished.text, undefined);
+  assert.equal(finished.card?.header?.title?.content, "本轮结果");
 });
 
 test("runtime/protocol/command_surface/doctor: running-task doctor advice stays short and does not expose status fallback by default", async () => {
@@ -2546,7 +2605,7 @@ test("runtime/protocol/reset: an abandoned old lane does not send a finish tail 
 
 test("runtime/protocol/finish_summary: changed files are extracted only from the explicit Changed Files section", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-finish-summary-"));
-  const { bridge } = await createBridgeHarness(tempRoot);
+  const { bridge, replyEvents } = await createBridgeHarness(tempRoot);
   const { __activeTasks } = await import("../index.js");
   const runDir = path.join(tempRoot, "run-summary");
   await fs.mkdir(runDir, { recursive: true });
@@ -2641,6 +2700,9 @@ test("runtime/protocol/finish_summary: changed files are extracted only from the
     assert.deepEqual(persistedTask.nextSteps, [
       "如需我切到其他目录或检查某个路径占用，告诉我目标路径即可。",
     ]);
+    assert.equal(replyEvents.length, 1);
+    assert.ok(replyEvents[0].card);
+    assert.equal(replyEvents[0].card?.header?.title?.content, "本轮结果");
   } finally {
     __activeTasks.clear();
   }
