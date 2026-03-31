@@ -1691,7 +1691,7 @@ test("runtime/protocol/command_parse: malformed codex command prefix is rejected
   assert.equal((await fs.readdir(bridge.settings.runsRoot).catch(() => [])).length, 0);
 });
 
-test("runtime/protocol/command_surface/help: legacy help is closed and falls back to the native-first unknown-command hint", async () => {
+test("runtime/protocol/command_surface/help: /codex help falls back to the same short help as bare /codex", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-help-surface-"));
   const { bridge, replies } = await createBridgeHarness(tempRoot);
 
@@ -1705,10 +1705,12 @@ test("runtime/protocol/command_surface/help: legacy help is closed and falls bac
   });
 
   assert.equal(replies.length, 1);
-  assert.match(replies[0], /`\/codex help` 已关闭|不再执行/);
-  assert.match(replies[0], /`\/codex --cd <path> \[--model <model>\] \[--reasoning <level>\] \[--sandbox <mode>\] \[--ask-for-approval <policy>\] <prompt>`/);
-  assert.doesNotMatch(replies[0], /`\/codex doctor`/);
-  assert.doesNotMatch(replies[0], /Codex Runner 命令|bridge|兼容/);
+  assert.match(replies[0], /默认直接发送自然语言给 Codex/);
+  assert.match(replies[0], /`\/codex --cd <path> <prompt>`/);
+  assert.match(replies[0], /`\/codex --cd <path> --sandbox danger-full-access <prompt>`/);
+  assert.match(replies[0], /`\/codex resume <prompt>`/);
+  assert.match(replies[0], /`\/codex doctor`/);
+  assert.doesNotMatch(replies[0], /已关闭|不再执行|兼容/);
 });
 
 test("runtime/protocol/command_surface/approve: legacy approve is closed and does not consume pending approvals", async () => {

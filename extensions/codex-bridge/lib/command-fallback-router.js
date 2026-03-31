@@ -4,6 +4,11 @@ export async function handleCommandFallback({
   request,
   parsed,
 }) {
+  if (parsed.name === "help") {
+    await bridge.sendHelp(request, profile);
+    return true;
+  }
+
   if (parsed.name === "doctor") {
     const doctorText = await bridge.formatDoctor(profile.senderId, profile);
     await bridge.safeReply({
