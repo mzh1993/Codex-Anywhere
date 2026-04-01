@@ -60,3 +60,14 @@ export CODEX_FEISHU_APP_SECRET='xxx'
 - `docs/product-north-star.md`：产品北极星与第一原则
 - `docs/product-decision-baseline.md`：内部决策基线
 - `docs/roadmap.md`：能力缺口优先级路线图
+
+## 提交前 + CI 泄露防护
+
+```bash
+./scripts/security/install-hooks.sh
+./scripts/security/scan-secrets.sh repo
+./scripts/security/scan-secrets.sh history
+```
+
+- 本地提交前由 `pre-commit` 自动执行 `staged` 扫描
+- GitHub Actions 会在 `push/pull_request` 执行 `repo + history` 双层扫描

@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "${ROOT_DIR}"
+
+chmod +x scripts/security/scan-secrets.sh .githooks/pre-commit
+git config core.hooksPath .githooks
+
+echo "git hooks installed (core.hooksPath=.githooks)"

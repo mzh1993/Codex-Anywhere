@@ -666,8 +666,17 @@ cmd_gateway_run() {
 
 cmd_gateway_status() {
   install_runtime
-  render_config
-  write_env_file
+
+  local runtime_bin_dir effective_path
+  runtime_bin_dir="$(resolve_path "${RUNTIME_DIR}")/node_modules/.bin"
+  effective_path="${PATH:-/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin}"
+  case ":${effective_path}:" in
+    *":${runtime_bin_dir}:"*) ;;
+    *)
+      effective_path="${runtime_bin_dir}:${effective_path}"
+      ;;
+  esac
+
   printf 'Isolated config: %s\n' "$(resolve_path "${CONFIG_OUT}")"
   printf 'Isolated state:  %s\n' "$(resolve_path "${OPENCLAW_STATE_DIR}")"
   printf 'Isolated home:   %s\n' "$(resolve_path "${OPENCLAW_HOME_DIR}")"
@@ -679,6 +688,17 @@ cmd_gateway_status() {
   printf 'Secrets env:     %s\n' "$(resolve_path "${SECRETS_ENV_FILE}")"
   printf 'Model provider:  %s/%s\n' "${MODEL_PROVIDER_ID}" "${MODEL_ID}"
   printf 'Model base URL:  %s\n' "${MODEL_BASE_URL}"
+  printf 'Env file:        %s\n' "$(resolve_path "${ENV_FILE}")"
+  if [[ -f "${CONFIG_OUT}" ]]; then
+    printf 'Config file:     present (read-only status mode)\n'
+  else
+    printf 'Config file:     missing (run bootstrap/render-config to create)\n'
+  fi
+  if [[ -f "${ENV_FILE}" ]]; then
+    printf 'Env file check:  present (read-only status mode)\n'
+  else
+    printf 'Env file check:  missing (run bootstrap/write path to create)\n'
+  fi
 
   if [[ -f "${SYSTEMD_UNIT_PATH}" ]]; then
     printf 'Service file:    present\n'
