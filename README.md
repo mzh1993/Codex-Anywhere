@@ -32,6 +32,7 @@ $env:CODEX_FEISHU_APP_SECRET = "xxx"
 ```
 
 Windows 托管策略（默认）：优先 `NSSM` 注册服务；若未安装 `NSSM` 自动回退为“登录触发计划任务”。
+安装脚本会写入单一状态文件：`.isolated/codex-feishu/state/install-health.json`。
 
 ## 项目定位
 

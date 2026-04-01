@@ -24,11 +24,13 @@ This document defines the current P1 deployment contract for sharing `codex_feis
 - Linux:
   - `scripts/install.sh`
   - wraps `bootstrap` + `persist-secrets` + `preflight` + optional `install-systemd --enable --start`
+  - runs a post-install local health check and writes `install-health.json`
 - Windows:
   - `scripts/install.ps1`
   - installs pinned local OpenClaw runtime
   - renders isolated config with `runtimeMode=native_windows_fast`
   - default hosting strategy: `NSSM` service first, fallback to logon scheduled task
+  - writes `install-health.json` as the single local status truth
 
 ## Preflight contract (P1)
 
@@ -83,6 +85,15 @@ This document defines the current P1 deployment contract for sharing `codex_feis
 - Feishu has no response after installation:
   - Re-run with `-NoStart:$false` and check service/task status.
   - Use `/codex doctor` to inspect runtime summary.
+
+## Install health file (single local truth)
+
+- Path:
+  - Linux: `.isolated/codex-feishu/state/install-health.json`
+  - Windows: `.isolated/codex-feishu/state/install-health.json`
+- Purpose:
+  - records latest installer outcome, selected hosting mode, and basic liveness checks
+  - operators should check this file first before deeper debugging
 
 ## Required environment
 

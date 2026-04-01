@@ -52,6 +52,31 @@ function Ensure-Directory([string]$PathValue) {
   New-Item -ItemType Directory -Path $PathValue -Force | Out-Null
 }
 
+function Write-InstallHealth(
+  [string]$PathValue,
+  [string]$Result,
+  [string]$Message,
+  [string]$RuntimeModeValue,
+  [string]$HostingModeValue,
+  [string]$ServiceActive,
+  [string]$TaskActive,
+  [int]$PortValue
+) {
+  Ensure-Directory (Split-Path -Parent $PathValue)
+  $payload = @{
+    timestamp = (Get-Date).ToUniversalTime().ToString("o")
+    platform = "windows"
+    result = $Result
+    message = $Message
+    runtimeMode = $RuntimeModeValue
+    hostingMode = $HostingModeValue
+    serviceActive = $ServiceActive
+    taskActive = $TaskActive
+    basePort = $PortValue
+  }
+  ($payload | ConvertTo-Json -Depth 4) | Set-Content -Path $PathValue -Encoding UTF8
+}
+
 function Write-GatewayLauncherCmd(
   [string]$LauncherPath,
   [string]$RuntimeBin,
@@ -151,6 +176,7 @@ $xdgData = Join-Path $xdgRoot "data"
 $workspaceDir = Join-Path $repoRoot "workspaces/$ProfileName"
 $configOut = Join-Path $stateDir "openclaw.codex-feishu.windows.json5"
 $launcherCmd = Join-Path $stateDir "openclaw-gateway-run.cmd"
+$installHealthPath = Join-Path $stateDir "install-health.json"
 $gatewayTokenEnv = "CODEX_FEISHU_GATEWAY_TOKEN"
 $appIdEnv = "CODEX_FEISHU_APP_ID"
 $appSecretEnv = "CODEX_FEISHU_APP_SECRET"
@@ -162,6 +188,9 @@ $feishuDomain = "feishu"
 $defaultCwd = To-UnixPath $HOME
 $authJsonPath = "$defaultCwd/.codex/auth.json"
 $configTomlPath = "$defaultCwd/.codex/config.toml"
+$effectiveHostingMode = "none"
+$serviceActive = "unknown"
+$taskActive = "unknown"
 
 Require-Command "node"
 Require-Command "npm"
@@ -233,30 +262,64 @@ Ensure-EnvPersisted @{
 $startNow = -not $NoStart.IsPresent
 switch ($Hosting) {
   "none" {
+    $effectiveHostingMode = "none"
     Write-Log "hosting registration skipped (--Hosting none)"
   }
   "nssm" {
     if (-not (Register-WithNssm -LauncherPath $launcherCmd -ServiceNameValue $ServiceName -WorkingDir $repoRoot -StartNow:$startNow)) {
       throw "hosting=nssm requested, but nssm is not installed"
     }
+    $effectiveHostingMode = "nssm"
   }
   "task" {
     Register-WithScheduledTask -LauncherPath $launcherCmd -TaskNameValue $TaskName -StartNow:$startNow
+    $effectiveHostingMode = "task"
   }
   "auto" {
     $registered = Register-WithNssm -LauncherPath $launcherCmd -ServiceNameValue $ServiceName -WorkingDir $repoRoot -StartNow:$startNow
     if (-not $registered) {
+      Write-Log "NSSM not found, fallback to scheduled task hosting."
       Register-WithScheduledTask -LauncherPath $launcherCmd -TaskNameValue $TaskName -StartNow:$startNow
+      $effectiveHostingMode = "task"
+    } else {
+      $effectiveHostingMode = "nssm"
     }
   }
 }
+
+if ($effectiveHostingMode -eq "nssm") {
+  $nssm = Get-Command nssm -ErrorAction SilentlyContinue
+  if ($nssm) {
+    $nssmStatus = (& $nssm.Source status $ServiceName) 2>&1
+    if ($nssmStatus -match "SERVICE_RUNNING") {
+      $serviceActive = "yes"
+    } else {
+      $serviceActive = "no"
+    }
+  }
+}
+if ($effectiveHostingMode -eq "task") {
+  try {
+    $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop
+    if ($task.State -in @("Running", "Ready")) {
+      $taskActive = "yes"
+    } else {
+      $taskActive = "no"
+    }
+  } catch {
+    $taskActive = "no"
+  }
+}
+
+Write-InstallHealth -PathValue $installHealthPath -Result "ok" -Message "install_completed" -RuntimeModeValue $RuntimeMode -HostingModeValue $effectiveHostingMode -ServiceActive $serviceActive -TaskActive $taskActive -PortValue $BasePort
 
 Write-Log "done"
 Write-Host ""
 Write-Host "Config generated: $configOut"
 Write-Host "Runtime mode: $RuntimeMode"
-Write-Host "Hosting mode: $Hosting"
+Write-Host "Hosting mode: $effectiveHostingMode"
 Write-Host "Launcher: $launcherCmd"
+Write-Host "Install health: $installHealthPath"
 Write-Host ""
 Write-Host "Manual foreground fallback:"
 Write-Host "`"$launcherCmd`""
