@@ -1902,6 +1902,30 @@ test("runtime/protocol/presentation: task lifecycle bridge notices render as lig
   assert.equal(finished.card?.header?.title?.content, "本轮结果");
 });
 
+test("runtime/protocol/presentation: approval cards include click-to-approve actions", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-approval-card-actions-"));
+  const { bridge } = await createBridgeHarness(tempRoot);
+
+  const approval = bridge.prepareReply({
+    accountId: "default",
+    conversationId: "conv-1",
+    renderHint: "approval",
+    text: "高风险请求已进入审批队列。",
+  });
+
+  const elements = Array.isArray(approval.card?.elements) ? approval.card.elements : [];
+  const actionElement = elements.find((element) => element?.tag === "action");
+  const actions = Array.isArray(actionElement?.actions) ? actionElement.actions : [];
+  const approveButton = actions.find((action) => action?.value?.command === "同意");
+  const denyButton = actions.find((action) => action?.value?.command === "不要执行");
+
+  assert.equal(approval.text, undefined);
+  assert.equal(approval.card?.header?.title?.content, "等待确认");
+  assert.equal(actions.length, 2);
+  assert.equal(approveButton?.type, "primary");
+  assert.equal(denyButton?.type, "danger");
+});
+
 test("runtime/protocol/command_surface/doctor: running-task doctor advice stays short and does not expose status fallback by default", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-doctor-running-"));
   const { bridge, replies } = await createBridgeHarness(tempRoot);

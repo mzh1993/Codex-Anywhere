@@ -2928,6 +2928,22 @@ function requestMessageTarget(params) {
 function buildBridgePresentationCard({ locale, renderHint, text }) {
   const normalizedLocale = /^zh(?:[-_].*)?$/i.test(normalizeText(locale)) ? "zh-CN" : "en-US";
   const cardMeta = resolveBridgeCardMeta(normalizedLocale, renderHint);
+  const approvalActions = renderHint === "approval" ? buildApprovalCardActions(normalizedLocale) : null;
+  const elements = [
+    {
+      tag: "markdown",
+      content: text,
+    },
+    ...(approvalActions
+      ? [
+          {
+            tag: "action",
+            actions: approvalActions,
+            layout: "bisected",
+          },
+        ]
+      : []),
+  ];
   return {
     config: {
       wide_screen_mode: true,
@@ -2939,13 +2955,40 @@ function buildBridgePresentationCard({ locale, renderHint, text }) {
         content: cardMeta.title,
       },
     },
-    elements: [
-      {
-        tag: "markdown",
-        content: text,
-      },
-    ],
+    elements,
   };
+}
+
+function buildApprovalCardActions(locale) {
+  const isZh = locale === "zh-CN";
+  const approveLabel = isZh ? "同意" : "Approve";
+  const denyLabel = isZh ? "不要执行" : "Do Not Run";
+  const approveCommand = isZh ? "同意" : "approve";
+  const denyCommand = isZh ? "不要执行" : "do not run";
+  return [
+    {
+      tag: "button",
+      text: {
+        tag: "plain_text",
+        content: approveLabel,
+      },
+      type: "primary",
+      value: {
+        command: approveCommand,
+      },
+    },
+    {
+      tag: "button",
+      text: {
+        tag: "plain_text",
+        content: denyLabel,
+      },
+      type: "danger",
+      value: {
+        command: denyCommand,
+      },
+    },
+  ];
 }
 
 function resolveBridgeCardMeta(locale, renderHint) {
