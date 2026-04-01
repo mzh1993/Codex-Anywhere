@@ -79,11 +79,44 @@ test("runtime/compat/version: runtime compatibility version parsing accepts 0.9.
   assert.equal(isVersionAtLeast("0.10.1", "0.9.0"), true);
 });
 
+test("runtime/cwd/fallback: missing requested cwd falls back to profile/default cwd on Windows", async () => {
+  const { resolveExistingCwd } = await import("../index.js");
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-cwd-fallback-"));
+  const defaultCwd = path.join(tempRoot, "default-cwd");
+  await fs.mkdir(defaultCwd, { recursive: true });
+  const warnMessages = [];
+  const logger = {
+    warn(message) {
+      warnMessages.push(String(message));
+    },
+  };
+
+  const resolved = await resolveExistingCwd(String.raw`C:\Users\0406\Users0406`, defaultCwd, logger);
+
+  assert.equal(resolved, defaultCwd);
+  assert.equal(warnMessages.length, 1);
+  assert.match(warnMessages[0], /cwd fallback/i);
+});
+
+test("runtime/cwd/fallback: existing requested cwd remains unchanged", async () => {
+  const { resolveExistingCwd } = await import("../index.js");
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-cwd-keep-"));
+  const preferred = path.join(tempRoot, "preferred");
+  const fallback = path.join(tempRoot, "fallback");
+  await fs.mkdir(preferred, { recursive: true });
+  await fs.mkdir(fallback, { recursive: true });
+
+  const resolved = await resolveExistingCwd(preferred, fallback, null);
+
+  assert.equal(resolved, preferred);
+});
+
 test("runtime/compat/detect: runtime compatibility detection reports missing commands and unsupported bubblewrap", async () => {
   const { detectExecutionRuntimeCompatibility } = await import("../lib/runtime-compatibility.js");
 
   const missingCodex = await detectExecutionRuntimeCompatibility({
     codexBin: "codex",
+    runtimeMode: "secure_linux",
     runCommand: async (command) => {
       if (command === "codex") throw Object.assign(new Error("not found"), { code: "ENOENT" });
       return { stdout: "bubblewrap 0.9.0\n", stderr: "" };
@@ -94,6 +127,7 @@ test("runtime/compat/detect: runtime compatibility detection reports missing com
 
   const missingBwrap = await detectExecutionRuntimeCompatibility({
     codexBin: "codex",
+    runtimeMode: "secure_linux",
     runCommand: async (command) => {
       if (command === "/usr/bin/bwrap") throw Object.assign(new Error("not found"), { code: "ENOENT" });
       return { stdout: "codex-cli 0.116.0\n", stderr: "" };
@@ -104,6 +138,7 @@ test("runtime/compat/detect: runtime compatibility detection reports missing com
 
   const unsupportedBwrap = await detectExecutionRuntimeCompatibility({
     codexBin: "codex",
+    runtimeMode: "secure_linux",
     runCommand: async (command) => {
       if (command === "/usr/bin/bwrap") return { stdout: "bubblewrap 0.4.0\n", stderr: "" };
       return { stdout: "codex-cli 0.116.0\n", stderr: "" };
@@ -114,11 +149,29 @@ test("runtime/compat/detect: runtime compatibility detection reports missing com
   assert.match(unsupportedBwrap.message, />= 0.9.0/);
 });
 
+test("runtime/compat/detect: native_windows_fast bypasses bwrap checks", async () => {
+  const { detectExecutionRuntimeCompatibility } = await import("../lib/runtime-compatibility.js");
+
+  const nativeWindowsFast = await detectExecutionRuntimeCompatibility({
+    codexBin: "codex",
+    runtimeMode: "native_windows_fast",
+    runCommand: async (command) => {
+      if (command === "codex") return { stdout: "codex-cli 0.118.0\n", stderr: "" };
+      throw new Error("unexpected command");
+    },
+  });
+
+  assert.equal(nativeWindowsFast.ok, true);
+  assert.equal(nativeWindowsFast.codexVersion, "codex-cli 0.118.0");
+  assert.equal(nativeWindowsFast.bwrapVersion, "n/a (windows)");
+});
+
 test("runtime/compat/probe: runtime compatibility detection fails when codex sandbox probe fails", async () => {
   const { detectExecutionRuntimeCompatibility } = await import("../lib/runtime-compatibility.js");
 
   const sandboxProbeFailure = await detectExecutionRuntimeCompatibility({
     codexBin: "codex",
+    runtimeMode: "secure_linux",
     runCommand: async (command, args) => {
       if (command === "/usr/bin/bwrap") return { stdout: "bubblewrap 0.9.0\n", stderr: "" };
       if (command === "codex" && args[0] === "sandbox") {
@@ -2053,6 +2106,54 @@ test("runtime/protocol/native_entry/new: native start flags carry cwd model and 
     model: "gpt-5.3-codex",
     reasoningEffort: "high",
   });
+});
+
+test("runtime/protocol/native_entry/new: unquoted Windows cwd keeps backslashes intact", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-native-new-win-path-"));
+  const { bridge } = await createBridgeHarness(tempRoot);
+  const queued = [];
+  const winCwd = String.raw`C:\Users\0406\Desktop`;
+  bridge.queueOrStartTask = async (params) => {
+    queued.push(params);
+  };
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-native-new-win-path",
+    text: `/codex --cd ${winCwd} summarize Windows path`,
+  });
+
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].mode, "new");
+  assert.equal(queued[0].cwd, winCwd);
+  assert.equal(queued[0].prompt, "summarize Windows path");
+});
+
+test("runtime/protocol/native_entry/new: quoted Windows cwd with spaces keeps backslashes intact", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-native-new-win-space-"));
+  const { bridge } = await createBridgeHarness(tempRoot);
+  const queued = [];
+  const winCwd = String.raw`C:\Users\0406\My Workspace`;
+  bridge.queueOrStartTask = async (params) => {
+    queued.push(params);
+  };
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-native-new-win-space",
+    text: `/codex --cd "${winCwd}" summarize quoted windows path`,
+  });
+
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].mode, "new");
+  assert.equal(queued[0].cwd, winCwd);
+  assert.equal(queued[0].prompt, "summarize quoted windows path");
 });
 
 test("runtime/protocol/native_entry/new: minimal prompt like entering directory still starts a normal codex task", async () => {

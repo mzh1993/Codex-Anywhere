@@ -84,6 +84,24 @@ test("runtime/exec/options: native model and execution flags map to codex exec a
   assert.equal(args.includes("-C"), true);
 });
 
+test("runtime/exec/windows_fast: native_windows_fast defaults to bypass sandbox for stable execution", () => {
+  const args = buildCodexArgs({
+    task: {
+      mode: "new",
+      cwd: "C:/repo/worktree",
+      prompt: "summarize README.md",
+      executionOptions: {
+        askForApproval: "never",
+      },
+    },
+    settings: { locale: "en-US", runtimeMode: "native_windows_fast" },
+  });
+
+  assert.equal(args.includes("--dangerously-bypass-approvals-and-sandbox"), true);
+  assert.equal(args.includes("--full-auto"), false);
+  assert.equal(args.includes("-a"), false);
+});
+
 test("runtime/exec/prompt_metadata: prompt includes effective model, reasoning, and cwd metadata for self-reporting", () => {
   const args = buildCodexArgs({
     task: {

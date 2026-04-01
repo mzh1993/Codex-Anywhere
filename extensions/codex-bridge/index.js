@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -59,6 +60,10 @@ const FEISHU_CHANNEL = "feishu";
 const DEFAULT_ACCOUNT_ID = "default";
 const DEFAULT_MAX_CHANGED_FILES = 8;
 const DEFAULT_ABORT_GRACE_MS = 5000;
+const WINDOWS_ATOMIC_WRITE_MAX_ATTEMPTS = 6;
+const WINDOWS_ATOMIC_WRITE_RETRY_BASE_MS = 25;
+const STALE_ATOMIC_TEMP_MAX_AGE_MS = 10 * 60 * 1000;
+const RETRYABLE_ATOMIC_WRITE_ERROR_CODES = new Set(["EPERM", "EACCES", "EBUSY"]);
 const ISOLATED_OPENCLAW_SCRIPT_PATH = fileURLToPath(new URL("../../scripts/openclaw-isolated.sh", import.meta.url));
 const BOOTSTRAP_SCRIPT_PATH = fileURLToPath(new URL("../../scripts/bootstrap-codex-feishu.sh", import.meta.url));
 
@@ -66,6 +71,7 @@ const activeTasks = new Map();
 export const __activeTasks = activeTasks;
 const activeBridgeActions = new Map();
 export const __activeBridgeActions = activeBridgeActions;
+const cleanedAtomicTempDirs = new Set();
 
 function normalizeAccessMode(value) {
   return value === "full_access" ? "full_access" : "normal";
@@ -1520,6 +1526,11 @@ export class CodexBridge {
       return;
     }
 
+    const cwd = await resolveExistingCwd(
+      params.cwd,
+      params.profile.defaultCwd || this.settings.defaultCwd,
+      this.api.logger,
+    );
     await this.ensureCodexHome();
 
     const timestamp = new Date().toISOString();
@@ -1540,7 +1551,7 @@ export class CodexBridge {
       accountId: params.accountId,
       conversationId: params.conversationId,
       messageId: params.messageId,
-      cwd: params.cwd,
+      cwd,
       mode: params.mode,
       sessionId: params.sessionId ?? params.existingTask?.sessionId ?? null,
       status: "running",
@@ -1572,7 +1583,7 @@ export class CodexBridge {
       accountId: params.accountId,
       conversationId: params.conversationId,
       messageId: params.messageId,
-      cwd: params.cwd,
+      cwd,
       mode: params.mode,
       sessionId: task.sessionId,
       status: "running",
@@ -1623,11 +1634,44 @@ export class CodexBridge {
       inheritedEnv: process.env,
       envAllowlist: this.settings.envAllowlist,
     });
-    const child = spawn(this.settings.codexBin, args, {
-      cwd: params.cwd,
-      env,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    let child;
+    try {
+      child = spawn(this.settings.codexBin, args, {
+        cwd,
+        env,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch (error) {
+      const persisted = applyRunResultToPersistence({
+        task,
+        run,
+        result: {
+          exitCode: null,
+          signal: null,
+          error: toErrorText(error),
+        },
+        summary: null,
+        changedFiles: [],
+        nextSteps: [],
+      });
+      const nextTask = persisted.task;
+      const nextRun = persisted.run;
+      await this.saveTask(nextTask);
+      await this.saveRun(nextRun);
+      if (isActiveTaskStatus(nextTask.status)) params.profile.activeTaskId = nextTask.taskId;
+      else if (params.profile.activeTaskId === nextTask.taskId) delete params.profile.activeTaskId;
+      if (nextTask.sessionId) params.profile.lastSessionId = nextTask.sessionId;
+      params.profile.lastTaskId = nextTask.taskId;
+      params.profile.updatedAt = new Date().toISOString();
+      await this.saveProfile(params.profile);
+      await this.safeReply({
+        accountId: nextTask.accountId,
+        conversationId: nextTask.conversationId,
+        renderHint: "task_finished",
+        text: this.text.taskFinished({ ...nextTask, runStatus: nextRun.status }),
+      });
+      return;
+    }
 
     run.pid = child.pid ?? null;
     activeTasks.set(task.senderId, {
@@ -2041,6 +2085,13 @@ export class CodexBridge {
   }
 
   async probeGatewayHealthForDoctor(profileFallback = null) {
+    if (this.settings.runtimeMode === "native_windows_fast" || process.platform === "win32") {
+      const config = this.api.runtime.config.loadConfig?.() ?? this.api.config ?? {};
+      const configuredPort = Number.parseInt(String(config?.gateway?.port ?? ""), 10);
+      const port = Number.isFinite(configuredPort) && configuredPort > 0 ? configuredPort : 19789;
+      const ok = await probeTcpLoopbackPort(port);
+      return ok ? doctorGatewayOkLabel(this.settings.locale) : doctorGatewayErrorLabel(this.settings.locale);
+    }
     try {
       const profile = profileFallback ?? null;
       const result = await this.executeBridgeAction({
@@ -2449,6 +2500,7 @@ export class CodexBridge {
   async ensureExecutionRuntimeReady() {
     return detectExecutionRuntimeCompatibility({
       codexBin: this.settings.codexBin,
+      runtimeMode: this.settings.runtimeMode,
     });
   }
 
@@ -2530,6 +2582,26 @@ export class CodexBridge {
       this.api.logger.error?.(`codex-bridge recovery degraded after sender=${runtime.task.senderId}: ${toErrorText(error)}`);
     }
   }
+}
+
+async function probeTcpLoopbackPort(port) {
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      try {
+        socket.destroy();
+      } catch {}
+      resolve(value);
+    };
+    socket.setTimeout(1200);
+    socket.once("connect", () => finish(true));
+    socket.once("timeout", () => finish(false));
+    socket.once("error", () => finish(false));
+    socket.connect(port, "127.0.0.1");
+  });
 }
 
 function parseCodexCommand(text) {
@@ -2772,8 +2844,13 @@ function splitCommandTokens(input) {
       if (char === quote) {
         quote = null;
       } else if (char === "\\" && index + 1 < input.length) {
-        current += input[index + 1];
-        index += 1;
+        const next = input[index + 1];
+        if (next === quote || next === "\\") {
+          current += next;
+          index += 1;
+        } else {
+          current += char;
+        }
       } else {
         current += char;
       }
@@ -2791,8 +2868,14 @@ function splitCommandTokens(input) {
       continue;
     }
     if (char === "\\" && index + 1 < input.length) {
-      current += input[index + 1];
-      index += 1;
+      const next = input[index + 1];
+      // Keep Windows paths intact (C:\Users\...) while still allowing escaped whitespace and quotes.
+      if (/\s/.test(next) || next === '"' || next === "'" || next === "\\") {
+        current += next;
+        index += 1;
+      } else {
+        current += char;
+      }
       continue;
     }
     current += char;
@@ -3233,6 +3316,19 @@ async function assertAllowedCwd(cwd, settings) {
   }
 }
 
+export async function resolveExistingCwd(candidateCwd, fallbackCwd, logger) {
+  const fallback = expandUserPath(fallbackCwd, fallbackCwd);
+  const preferred = expandUserPath(candidateCwd, fallback);
+  if (await isExistingDirectory(preferred)) return preferred;
+  if (preferred !== fallback) {
+    logger?.warn?.(`codex-bridge cwd fallback: requested cwd missing (${preferred}); using ${fallback}`);
+  }
+  if (!(await isExistingDirectory(fallback))) {
+    await ensureDir(fallback);
+  }
+  return fallback;
+}
+
 function makeTaskId() {
   return `task-${new Date().toISOString().replace(/[:.]/g, "-")}-${crypto.randomBytes(3).toString("hex")}`;
 }
@@ -3257,15 +3353,82 @@ async function ensureDir(dirPath) {
   await fsp.mkdir(dirPath, { recursive: true });
 }
 
+async function isExistingDirectory(dirPath) {
+  try {
+    const stat = await fsp.stat(dirPath);
+    return stat.isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 export function makeAtomicJsonTempPath(filePath) {
   return `${filePath}.${process.pid}.${Date.now()}.${crypto.randomUUID()}.tmp`;
 }
 
 async function writeJson(filePath, value) {
   await ensureDir(path.dirname(filePath));
-  const tmpPath = makeAtomicJsonTempPath(filePath);
-  await fsp.writeFile(tmpPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
-  await fsp.rename(tmpPath, filePath);
+  await cleanupStaleAtomicTempsOnce(path.dirname(filePath));
+  const payload = `${JSON.stringify(value, null, 2)}\n`;
+  const maxAttempts = process.platform === "win32" ? WINDOWS_ATOMIC_WRITE_MAX_ATTEMPTS : 1;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const tmpPath = makeAtomicJsonTempPath(filePath);
+    try {
+      await fsp.writeFile(tmpPath, payload, "utf8");
+      await fsp.rename(tmpPath, filePath);
+      return;
+    } catch (error) {
+      await fsp.rm(tmpPath, { force: true }).catch(() => {});
+      if (attempt >= maxAttempts || !isRetryableAtomicWriteError(error)) {
+        throw withAtomicWriteContext(error, { filePath, attempt, maxAttempts });
+      }
+      await sleep(getAtomicWriteRetryDelayMs(attempt));
+    }
+  }
+}
+
+async function cleanupStaleAtomicTempsOnce(dirPath) {
+  if (cleanedAtomicTempDirs.has(dirPath)) return;
+  cleanedAtomicTempDirs.add(dirPath);
+  try {
+    const now = Date.now();
+    const entries = await fsp.readdir(dirPath, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      if (!/\.json\..+\.tmp$/i.test(entry.name)) continue;
+      const fullPath = path.join(dirPath, entry.name);
+      const stat = await fsp.stat(fullPath).catch(() => null);
+      if (!stat) continue;
+      if (now - stat.mtimeMs < STALE_ATOMIC_TEMP_MAX_AGE_MS) continue;
+      await fsp.rm(fullPath, { force: true }).catch(() => {});
+    }
+  } catch {
+    // best effort
+  }
+}
+
+function isRetryableAtomicWriteError(error) {
+  const code = normalizeText(error?.code ?? "");
+  return RETRYABLE_ATOMIC_WRITE_ERROR_CODES.has(code);
+}
+
+function getAtomicWriteRetryDelayMs(attempt) {
+  const exp = Math.min(Math.max(0, Number(attempt) - 1), 5);
+  const jitter = Math.floor(Math.random() * 15);
+  return WINDOWS_ATOMIC_WRITE_RETRY_BASE_MS * 2 ** exp + jitter;
+}
+
+function withAtomicWriteContext(error, context) {
+  const details = `atomic write failed for ${context.filePath} (attempt ${context.attempt}/${context.maxAttempts})`;
+  const wrapped = new Error(`${toErrorText(error)}; ${details}`);
+  if (error?.code) wrapped.code = error.code;
+  if (error?.stack) wrapped.stack = `${wrapped.name}: ${wrapped.message}\ncaused by: ${error.stack}`;
+  return wrapped;
+}
+
+async function sleep(ms) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function readJson(filePath, fallback) {
