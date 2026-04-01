@@ -114,6 +114,7 @@
           heartbeatMs: 30000,
           approvalTtlMs: 600000,
           bridgeServiceUnitNames: ["openclaw-codex-feishu.service"],
+          runtimeMode: "__RUNTIME_MODE__",
         },
       },
     },

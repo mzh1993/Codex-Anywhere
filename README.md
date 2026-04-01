@@ -20,10 +20,15 @@ Feishu is the first channel. OpenClaw is the current transport shell.
 ```bash
 export CODEX_FEISHU_APP_ID='cli_xxx'
 export CODEX_FEISHU_APP_SECRET='xxx'
-./scripts/bootstrap-codex-feishu.sh bootstrap
-./scripts/bootstrap-codex-feishu.sh persist-secrets
-./scripts/bootstrap-codex-feishu.sh preflight
-./scripts/bootstrap-codex-feishu.sh gateway-run
+./scripts/install.sh
+```
+
+Windows (PowerShell, native):
+
+```powershell
+$env:CODEX_FEISHU_APP_ID = "cli_xxx"
+$env:CODEX_FEISHU_APP_SECRET = "xxx"
+.\scripts\install.ps1
 ```
 
 ## 项目定位
@@ -47,6 +52,8 @@ export CODEX_FEISHU_APP_SECRET='xxx'
 ## 仓库内容
 
 - `scripts/bootstrap-codex-feishu.sh`：安装隔离运行时、渲染配置、执行预检、启动 gateway
+- `scripts/install.sh`：Linux 一键安装入口（bootstrap + preflight + systemd）
+- `scripts/install.ps1`：Windows 原生安装入口（实验版）
 - `scripts/openclaw-isolated.sh`：统一连接仓库隔离 gateway 的 OpenClaw CLI 包装脚本
 - `scripts/feishu-app-audit.sh`：审计 Feishu 应用发布、事件订阅和可见范围
 - `extensions/codex-bridge/`：远程 Codex bridge，负责消息路由、审批、恢复和调用本机 `codex exec`
@@ -60,6 +67,7 @@ export CODEX_FEISHU_APP_SECRET='xxx'
 - `docs/product-north-star.md`：产品北极星与第一原则
 - `docs/product-decision-baseline.md`：内部决策基线
 - `docs/roadmap.md`：能力缺口优先级路线图
+- `docs/deployment-p1-cross-platform.md`：跨平台部署 P1 契约
 
 ## 提交前 + CI 泄露防护
 

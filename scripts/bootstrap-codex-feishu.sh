@@ -16,6 +16,7 @@ MODEL_PROVIDER_ID_DEFAULT="codexzh"
 MODEL_ID_DEFAULT="gpt-5.4"
 MODEL_BASE_URL_DEFAULT="https://api.codexzh.com/v1"
 MODEL_API_ENV_VAR_DEFAULT="CODEXZH_API_KEY"
+RUNTIME_MODE_DEFAULT="secure_linux"
 LOCAL_CODEX_AUTH_JSON_DEFAULT="${HOME}/.codex/auth.json"
 SYSTEMD_UNIT_NAME_DEFAULT="openclaw-codex-feishu.service"
 SYSTEMD_MARKER="# Managed by codex_feishu bootstrap"
@@ -34,6 +35,7 @@ MODEL_PROVIDER_ID="${MODEL_PROVIDER_ID_DEFAULT}"
 MODEL_ID="${MODEL_ID_DEFAULT}"
 MODEL_BASE_URL="${MODEL_BASE_URL_DEFAULT}"
 MODEL_API_ENV_VAR="${MODEL_API_ENV_VAR_DEFAULT}"
+RUNTIME_MODE="${RUNTIME_MODE_DEFAULT}"
 LOCAL_CODEX_AUTH_JSON="${LOCAL_CODEX_AUTH_JSON_DEFAULT}"
 APP_ID_VALUE="${APP_ID_VALUE:-}"
 ENABLE_SYSTEMD=0
@@ -95,6 +97,7 @@ Options:
   --model-id VALUE           Custom provider model id (default: ${MODEL_ID_DEFAULT})
   --model-base-url URL       Custom provider base URL (default: ${MODEL_BASE_URL_DEFAULT})
   --model-api-env VAR        Env var name for custom provider API key
+  --runtime-mode MODE        Bridge runtime mode: secure_linux | native_windows_fast (default: ${RUNTIME_MODE_DEFAULT})
   --local-codex-auth PATH    Local Codex auth.json path for API-key reuse
   --systemd-unit-path PATH   Override generated systemd user unit path
   --enable                   With install-systemd, run systemctl --user enable
@@ -479,6 +482,7 @@ render_config() {
     -e "s|__MODEL_ID__|$(sed_escape "${MODEL_ID}")|g" \
     -e "s|__MODEL_BASE_URL__|$(sed_escape "${MODEL_BASE_URL}")|g" \
     -e "s|__MODEL_API_ENV_VAR__|$(sed_escape "${MODEL_API_ENV_VAR}")|g" \
+    -e "s|__RUNTIME_MODE__|$(sed_escape "${RUNTIME_MODE}")|g" \
     "${CONFIG_TEMPLATE}")"
 
   printf '%s\n' "${rendered}" >"${CONFIG_OUT}"
@@ -904,6 +908,10 @@ parse_args() {
         MODEL_API_ENV_VAR="$2"
         shift 2
         ;;
+      --runtime-mode)
+        RUNTIME_MODE="$2"
+        shift 2
+        ;;
       --local-codex-auth)
         LOCAL_CODEX_AUTH_JSON="$2"
         shift 2
@@ -931,6 +939,12 @@ parse_args() {
   done
 
   derive_paths
+  case "${RUNTIME_MODE}" in
+    secure_linux|native_windows_fast) ;;
+    *)
+      die "invalid --runtime-mode: ${RUNTIME_MODE} (expected secure_linux or native_windows_fast)"
+      ;;
+  esac
   ensure_local_openclaw_bin
 
   case "${command}" in
