@@ -53,6 +53,37 @@ This document defines the current P1 deployment contract for sharing `codex_feis
   - `-Hosting auto|nssm|task|none`
   - `-NoStart` to register without immediate start
 
+## Windows acceptance checklist (operator runbook)
+
+1. Open a new PowerShell terminal.
+2. Set required env vars:
+   - `$env:CODEX_FEISHU_APP_ID="cli_xxx"`
+   - `$env:CODEX_FEISHU_APP_SECRET="xxx"`
+3. Run installer:
+   - `.\scripts\install.ps1` (default `Hosting=auto`)
+4. Confirm hosting mode:
+   - If `NSSM` is installed, confirm service exists:
+     - `nssm status openclaw-codex-feishu`
+   - Otherwise confirm scheduled task exists:
+     - `Get-ScheduledTask -TaskName "OpenClaw Codex Feishu"`
+5. Verify process is alive:
+   - `Get-Process -Name node,openclaw -ErrorAction SilentlyContinue`
+6. In Feishu DM, run:
+   - `/codex doctor`
+7. Run one smoke task:
+   - `/codex --cd <path> 帮我执行 pwd 并总结目录结构`
+8. Confirm lifecycle reaches `awaiting_input`.
+
+## Windows troubleshooting (P1)
+
+- `missing required env var`:
+  - Ensure `CODEX_FEISHU_APP_ID` and `CODEX_FEISHU_APP_SECRET` are set before running installer.
+- `hosting=nssm requested, but nssm is not installed`:
+  - Use `-Hosting auto` (fallback to task) or install NSSM and retry.
+- Feishu has no response after installation:
+  - Re-run with `-NoStart:$false` and check service/task status.
+  - Use `/codex doctor` to inspect runtime summary.
+
 ## Required environment
 
 - `CODEX_FEISHU_APP_ID`
