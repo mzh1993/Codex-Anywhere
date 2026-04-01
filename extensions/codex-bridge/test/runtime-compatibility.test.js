@@ -2029,6 +2029,33 @@ test("runtime/protocol/native_entry/new: native start flags carry cwd model and 
   });
 });
 
+test("runtime/protocol/native_entry/new: minimal prompt like entering directory still starts a normal codex task", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-native-new-enter-dir-"));
+  const worktree = path.join(tempRoot, "worktree");
+  await fs.mkdir(worktree, { recursive: true });
+  const { bridge } = await createBridgeHarness(tempRoot);
+  const queued = [];
+  bridge.queueOrStartTask = async (params) => {
+    queued.push(params);
+  };
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-native-new-enter-dir",
+    text: `/codex --cd ${worktree} 进入目录`,
+  });
+
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].mode, "new");
+  assert.equal(queued[0].cwd, worktree);
+  assert.equal(queued[0].prompt, "进入目录");
+  assert.equal(queued[0].entrySurface, "explicit_codex_command");
+  assert.deepEqual(queued[0].executionOptions, {});
+});
+
 test("runtime/protocol/native_entry/new: explicit native new supersedes an awaiting-input task instead of resuming it", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-native-new-supersede-"));
   const worktree = path.join(tempRoot, "worktree");

@@ -86,7 +86,7 @@
     },
     "heartbeatMs": {
       "label": "Heartbeat",
-      "help": "Heartbeat interval while a Codex task is still running."
+      "help": "Base heartbeat interval while a Codex task is running; long runs use staged backoff and dedupe unchanged status."
     },
     "approvalTtlMs": {
       "label": "Approval TTL",
