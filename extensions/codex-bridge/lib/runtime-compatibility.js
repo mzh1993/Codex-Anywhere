@@ -27,13 +27,26 @@ export function isVersionAtLeast(version, minimum) {
   return left.patch >= right.patch;
 }
 
-export async function detectExecutionRuntimeCompatibility({ codexBin = "codex", runCommand = runVersionCommand } = {}) {
+export async function detectExecutionRuntimeCompatibility({
+  codexBin = "codex",
+  runtimeMode = "secure_linux",
+  runCommand = runVersionCommand,
+} = {}) {
   const codexVersion = await readCommandResult(codexBin, ["--version"], runCommand, "missing_codex");
   if (!codexVersion.ok) {
     return {
       ok: false,
       reasonCode: codexVersion.reasonCode,
       message: `missing required command: ${codexBin}`,
+    };
+  }
+
+  const isWindowsRuntime = runtimeMode === "native_windows_fast";
+  if (isWindowsRuntime) {
+    return {
+      ok: true,
+      codexVersion: extractFirstLine(codexVersion.stdout),
+      bwrapVersion: "n/a (windows)",
     };
   }
 

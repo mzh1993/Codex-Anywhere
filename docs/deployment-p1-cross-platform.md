@@ -17,6 +17,7 @@ This document defines the current P1 deployment contract for sharing `codex_feis
   - keeps the safety-first approval behavior
 - `native_windows_fast` (default for Windows installer)
   - minimizes approval prompts for explicit `/codex` start surface
+  - defaults to a no-sandbox execution path for non-high-risk runs to avoid Windows helper/UAC launch failures
   - keeps deny boundaries and audit records
 
 ## One-command install entrypoints
@@ -41,6 +42,7 @@ This document defines the current P1 deployment contract for sharing `codex_feis
 - Windows (`scripts/install.ps1`):
   - requires: `node`, `npm`, `codex`
   - validates `codex --version`
+  - resolves codex executable via `CODEX_FEISHU_CODEX_BIN` override, local isolated runtime mirror, `Get-Command`, then WindowsApps fallback
   - validates isolated runtime binary exists after install (`openclaw.cmd`)
   - renders isolated config deterministically from template
   - writes a dedicated launcher script (`openclaw-gateway-run.cmd`)
@@ -85,6 +87,9 @@ This document defines the current P1 deployment contract for sharing `codex_feis
 - Feishu has no response after installation:
   - Re-run with `-NoStart:$false` and check service/task status.
   - Use `/codex doctor` to inspect runtime summary.
+- `codex-bridge cwd fallback: requested cwd missing (...)` appears in log:
+  - This is an expected self-healing warning on Windows when a stale task contains an invalid historical `cwd`.
+  - Bridge will automatically fall back to profile/default cwd and continue processing instead of crashing the gateway.
 
 ## Install health file (single local truth)
 
@@ -104,6 +109,7 @@ Optional:
 
 - `CODEX_FEISHU_GATEWAY_TOKEN`
 - `CODEXZH_API_KEY`
+- `CODEX_FEISHU_CODEX_BIN` (explicit codex executable path override on Windows)
 
 ## Smoke test checklist
 

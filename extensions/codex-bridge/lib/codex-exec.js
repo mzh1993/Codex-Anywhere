@@ -16,7 +16,7 @@ export function buildCodexEnv({ codexHome, inheritedEnv = process.env, envAllowl
 export function buildCodexArgs({ task, settings, outputPath = null }) {
   const args = ["exec"];
   if (task.mode === "resume") args.push("resume");
-  args.push(...buildSharedArgs(task, outputPath));
+  args.push(...buildSharedArgs(task, settings, outputPath));
   if (task.mode !== "resume") {
     args.push("-C", task.cwd);
   } else if (task.sessionId) {
@@ -52,9 +52,12 @@ export function buildBridgeTaskPrompt({ task, settings = {} }) {
   return policyLines.join("\n");
 }
 
-function buildSharedArgs(task, outputPath) {
+function buildSharedArgs(task, settings, outputPath) {
   const args = [];
+  const useNativeWindowsBypass = shouldUseNativeWindowsBypass(task, settings);
   if (task.riskLevel === "high") {
+    args.push("--dangerously-bypass-approvals-and-sandbox");
+  } else if (useNativeWindowsBypass) {
     args.push("--dangerously-bypass-approvals-and-sandbox");
   } else if (!task.executionOptions?.sandbox && !task.executionOptions?.askForApproval) {
     args.push("--full-auto");
@@ -66,16 +69,23 @@ function buildSharedArgs(task, outputPath) {
   if (task.executionOptions?.reasoningEffort) {
     args.push("-c", `model_reasoning_effort="${task.executionOptions.reasoningEffort}"`);
   }
-  if (task.riskLevel !== "high" && task.executionOptions?.sandbox) {
+  if (task.riskLevel !== "high" && !useNativeWindowsBypass && task.executionOptions?.sandbox) {
     args.push("-s", task.executionOptions.sandbox);
   }
-  if (task.riskLevel !== "high" && task.executionOptions?.askForApproval) {
+  if (task.riskLevel !== "high" && !useNativeWindowsBypass && task.executionOptions?.askForApproval) {
     args.push("-a", task.executionOptions.askForApproval);
   }
   if (outputPath) {
     args.push("-o", outputPath);
   }
   return args;
+}
+
+function shouldUseNativeWindowsBypass(task, settings) {
+  if (settings?.runtimeMode !== "native_windows_fast") return false;
+  if (task.riskLevel === "high") return false;
+  // Windows quick mode defaults to a no-sandbox path to avoid helper/UAC launch failures.
+  return !task.executionOptions?.sandbox;
 }
 
 function getResponseLanguageInstruction(locale) {
