@@ -6,13 +6,14 @@ import path from "node:path";
 
 import { createRunRecord, createTaskRecord } from "../lib/task-store.js";
 
-function createFakeApi(stateDir) {
+function createFakeApi(stateDir, pluginConfigOverrides = {}) {
   return {
     pluginConfig: {
       locale: "zh-CN",
       heartbeatMs: 1000,
       statusThrottleMs: 0,
       codexHome: path.join(stateDir, "codex-home"),
+      ...pluginConfigOverrides,
     },
     config: {},
     logger: {
@@ -42,11 +43,12 @@ function createFakeApi(stateDir) {
   };
 }
 
-function createBridgeHarness(tempRoot) {
+function createBridgeHarness(tempRoot, options = {}) {
+  const pluginConfig = options.pluginConfig ?? {};
   return import("../index.js").then(({ CodexBridge }) => {
     const replies = [];
     const replyEvents = [];
-    const bridge = new CodexBridge(createFakeApi(tempRoot));
+    const bridge = new CodexBridge(createFakeApi(tempRoot, pluginConfig));
     bridge.safeReply = async (params) => {
       const prepared = bridge.prepareReply(params);
       replyEvents.push(prepared);
@@ -2312,6 +2314,60 @@ test("runtime/protocol/native_entry/permissions: explicit native approval policy
   assert.deepEqual(task.reasonCodes, ["native_never_approval_requires_approval"]);
   assert.equal(approval.executionOptions?.askForApproval, "never");
   assert.match(replies[0], /高风险请求已进入审批队列|高风险操作，请确认/);
+});
+
+test("runtime/protocol/native_entry/permissions: native_windows_fast runs danger-full-access without approval queue", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-native-fast-full-access-"));
+  const { bridge } = await createBridgeHarness(tempRoot, {
+    pluginConfig: {
+      runtimeMode: "native_windows_fast",
+    },
+  });
+  const started = [];
+  bridge.startTask = async (params) => {
+    started.push(params);
+  };
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-native-fast-full-access",
+    text: `/codex --cd ${tempRoot} --sandbox danger-full-access 帮我检查 GPU 占用`,
+  });
+
+  assert.equal(started.length, 1);
+  assert.equal(started[0].riskLevel, "normal");
+  assert.equal(started[0].executionOptions?.sandbox, "danger-full-access");
+  assert.equal((await fs.readdir(bridge.settings.approvalsRoot).catch(() => [])).length, 0);
+});
+
+test("runtime/protocol/native_entry/permissions: native_windows_fast runs ask-for-approval never without approval queue", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-native-fast-never-approval-"));
+  const { bridge } = await createBridgeHarness(tempRoot, {
+    pluginConfig: {
+      runtimeMode: "native_windows_fast",
+    },
+  });
+  const started = [];
+  bridge.startTask = async (params) => {
+    started.push(params);
+  };
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-native-fast-never-approval",
+    text: `/codex --cd ${tempRoot} --ask-for-approval never 帮我停掉旧服务`,
+  });
+
+  assert.equal(started.length, 1);
+  assert.equal(started[0].riskLevel, "normal");
+  assert.equal(started[0].executionOptions?.askForApproval, "never");
+  assert.equal((await fs.readdir(bridge.settings.approvalsRoot).catch(() => [])).length, 0);
 });
 
 test("runtime/protocol/native_entry/plain_text: model and reasoning wording in plain text still stays on the codex lane", async () => {

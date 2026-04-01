@@ -23,6 +23,10 @@ test("runtime/contract/schema: plugin schema accepts envAllowlist", () => {
       type: "string",
     },
   });
+  assert.deepEqual(pluginManifest.configSchema.properties.runtimeMode, {
+    type: "string",
+    enum: ["secure_linux", "native_windows_fast"],
+  });
 });
 
 test("runtime/contract/systemd: generated systemd unit uses an always-restart policy", () => {

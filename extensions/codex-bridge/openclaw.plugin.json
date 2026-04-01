@@ -48,6 +48,10 @@
         "items": {
           "type": "string"
         }
+      },
+      "runtimeMode": {
+        "type": "string",
+        "enum": ["secure_linux", "native_windows_fast"]
       }
     }
   },
@@ -95,6 +99,10 @@
     "bridgeServiceUnitNames": {
       "label": "Bridge Service Units",
       "help": "Service unit names that host this bridge instance and may interrupt their own runs when restarted."
+    },
+    "runtimeMode": {
+      "label": "Runtime Mode",
+      "help": "secure_linux keeps safety-first approval gates; native_windows_fast minimizes approval prompts and accepts lower host isolation."
     }
   }
 }

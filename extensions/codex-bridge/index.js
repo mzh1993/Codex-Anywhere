@@ -1077,12 +1077,13 @@ export class CodexBridge {
       isolationBoundaryRoots: this.settings.isolationBoundaryRoots,
       hostCodexRoot: this.settings.hostCodexRoot,
     });
+    const normalizedMergedDecision = applyRuntimeModePolicyDecision(mergedDecision, this.settings.runtimeMode);
 
-    if (mergedDecision.kind === POLICY_DECISIONS.DENIED) {
+    if (normalizedMergedDecision.kind === POLICY_DECISIONS.DENIED) {
       return {
         ok: false,
         replyText: [
-          this.text.requestRejected(mergedDecision.reasonCodes ?? []),
+          this.text.requestRejected(normalizedMergedDecision.reasonCodes ?? []),
           "",
           this.text.approvalStillPending({
             token: approval.token,
@@ -1101,13 +1102,14 @@ export class CodexBridge {
         isolationBoundaryRoots: this.settings.isolationBoundaryRoots,
         hostCodexRoot: this.settings.hostCodexRoot,
       });
-      if (tailDecision.kind !== POLICY_DECISIONS.ALLOWED) {
+      const normalizedTailDecision = applyRuntimeModePolicyDecision(tailDecision, this.settings.runtimeMode);
+      if (normalizedTailDecision.kind !== POLICY_DECISIONS.ALLOWED) {
         return {
           ok: false,
           replyText:
-            tailDecision.kind === POLICY_DECISIONS.DENIED
+            normalizedTailDecision.kind === POLICY_DECISIONS.DENIED
               ? [
-                  this.text.requestRejected(tailDecision.reasonCodes ?? []),
+                  this.text.requestRejected(normalizedTailDecision.reasonCodes ?? []),
                   "",
                   this.text.approvalStillPending({
                     token: approval.token,
@@ -1192,6 +1194,7 @@ export class CodexBridge {
       protectedRoots: this.settings.policyProtectedRoots,
       isolationBoundaryRoots: this.settings.isolationBoundaryRoots,
       hostCodexRoot: this.settings.hostCodexRoot,
+      runtimeMode: this.settings.runtimeMode,
     });
     const reasonCodes = decision.reasonCodes ?? [];
 
@@ -3091,6 +3094,7 @@ function resolveStartEntryDecision({
   protectedRoots,
   isolationBoundaryRoots,
   hostCodexRoot,
+  runtimeMode,
 }) {
   if (normalizeEntrySurface(entrySurface) === "plain_text") {
     return {
@@ -3107,7 +3111,8 @@ function resolveStartEntryDecision({
     hostCodexRoot,
   });
   const nativeDecision = assessNativeExecutionDecision(executionOptions);
-  return mergePolicyDecisionKinds(promptDecision, nativeDecision);
+  const mergedDecision = mergePolicyDecisionKinds(promptDecision, nativeDecision);
+  return applyRuntimeModePolicyDecision(mergedDecision, runtimeMode);
 }
 
 function normalizeEntrySurface(entrySurface) {
@@ -3137,6 +3142,20 @@ function mergePolicyDecisionKinds(primary, secondary) {
     kind: POLICY_DECISIONS.ALLOWED,
     reasonCodes,
   };
+}
+
+function applyRuntimeModePolicyDecision(decision, runtimeMode) {
+  if (normalizeRuntimeMode(runtimeMode) !== "native_windows_fast") return decision;
+  if (decision?.kind !== POLICY_DECISIONS.APPROVAL_REQUIRED) return decision;
+  return {
+    kind: POLICY_DECISIONS.ALLOWED,
+    reasonCodes: [],
+  };
+}
+
+function normalizeRuntimeMode(value) {
+  if (value === "native_windows_fast") return "native_windows_fast";
+  return "secure_linux";
 }
 
 function doctorIdleLabel(locale) {

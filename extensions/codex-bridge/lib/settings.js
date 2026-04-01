@@ -9,6 +9,7 @@ const DEFAULT_CODEX_HOME_DIRNAME = "codex-home";
 const DEFAULT_DEFAULT_CWD = "/home/neousys";
 const DEFAULT_LOCALE = "en-US";
 const DEFAULT_BRIDGE_SERVICE_UNIT_NAMES = ["openclaw-codex-feishu.service"];
+const DEFAULT_RUNTIME_MODE = "secure_linux";
 
 export const DEFAULT_ENV_ALLOWLIST = ["HOME", "PATH", "LANG", "LC_ALL", "TERM", "USER", "LOGNAME"];
 
@@ -47,6 +48,7 @@ export function resolveSettings(api) {
     heartbeatMs: normalizeInteger(pluginConfig.heartbeatMs) || DEFAULT_HEARTBEAT_MS,
     approvalTtlMs: normalizeInteger(pluginConfig.approvalTtlMs) || DEFAULT_APPROVAL_TTL_MS,
     bridgeServiceUnitNames: resolveStringList(pluginConfig.bridgeServiceUnitNames, DEFAULT_BRIDGE_SERVICE_UNIT_NAMES),
+    runtimeMode: normalizeRuntimeMode(pluginConfig.runtimeMode),
   };
 }
 
@@ -99,4 +101,11 @@ function normalizePathSetting(value) {
   if (!normalized) return "";
   if (normalized.startsWith("~/")) return path.join(os.homedir(), normalized.slice(2));
   return normalized;
+}
+
+function normalizeRuntimeMode(value) {
+  const normalized = normalizeText(typeof value === "string" ? value : "");
+  if (!normalized) return DEFAULT_RUNTIME_MODE;
+  if (normalized === "native_windows_fast") return "native_windows_fast";
+  return "secure_linux";
 }
