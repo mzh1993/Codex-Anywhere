@@ -2929,10 +2929,11 @@ function buildBridgePresentationCard({ locale, renderHint, text }) {
   const normalizedLocale = /^zh(?:[-_].*)?$/i.test(normalizeText(locale)) ? "zh-CN" : "en-US";
   const cardMeta = resolveBridgeCardMeta(normalizedLocale, renderHint);
   const approvalActions = renderHint === "approval" ? buildApprovalCardActions(normalizedLocale) : null;
+  const markdownText = renderHint === "approval" ? approvalCardWarningText(normalizedLocale) : text;
   const elements = [
     {
       tag: "markdown",
-      content: text,
+      content: markdownText,
     },
     ...(approvalActions
       ? [
@@ -2989,6 +2990,11 @@ function buildApprovalCardActions(locale) {
       },
     },
   ];
+}
+
+function approvalCardWarningText(locale) {
+  if (locale === "zh-CN") return "⚠️ 高风险操作，请确认。";
+  return "⚠️ High-risk operation. Please confirm.";
 }
 
 function resolveBridgeCardMeta(locale, renderHint) {

@@ -217,7 +217,7 @@ function assertBridgeOwnedLane({ startedTasks, profile, action, replies, expecte
   assert.equal(startedTasks.length, 0);
   assert.equal(profile.activeTaskId, undefined);
   assert.equal(action.kind, expectedKind);
-  assert.match(replies[0], /等待审批|同意|不要执行/);
+  assert.match(replies[0], /高风险操作，请确认|等待审批|同意|不要执行/);
 }
 
 function assertCodexFallbackLane({ startedTasks, queued, bridgeActionFiles, replies, prompt, label }) {
@@ -381,7 +381,7 @@ test("runtime/control-plane/continuity: bridge action approval does not overwrit
   assert.deepEqual(persistedTask.changedFiles, ["README.md"]);
   assert.deepEqual(persistedTask.nextSteps, ["继续处理 README"]);
   assert.equal(action.status, "awaiting_approval");
-  assert.match(replies[0], /等待审批|同意|不要执行/);
+  assert.match(replies[0], /高风险操作，请确认|等待审批|同意|不要执行/);
 });
 
 test("runtime/control-plane/routing: an awaiting-approval task keeps ownership and blocks a new bridge action", async () => {
@@ -452,7 +452,7 @@ test("runtime/control-plane/routing: an awaiting-approval task keeps ownership a
   assert.equal(persistedProfile.activeBridgeActionId, undefined);
   assert.equal(persistedTask.approvalToken, "TOKEN_TASK");
   assert.equal(bridgeActionFiles.length, 0);
-  assert.match(replies[0], /审批|同意|不要执行|\/codex approve/);
+  assert.match(replies[0], /高风险操作，请确认|审批|同意|不要执行|\/codex approve/);
 });
 
 test("runtime/control-plane/routing: a running bridge action blocks a second owned bridge action", async () => {
@@ -545,7 +545,7 @@ test("runtime/control-plane/approval: explanation keeps the bridge-action approv
   assert.equal(startedTasks.length, 0);
   assert.equal(persistedTask.taskId, task.taskId);
   assert.equal(persistedAction.status, "awaiting_approval");
-  assert.match(replies[0], /审批|同意|不要执行/);
+  assert.match(replies[0], /高风险操作，请确认|审批|同意|不要执行/);
 });
 
 test("runtime/control-plane/approval: pure approval executes directly in bridge without starting a codex task", async () => {

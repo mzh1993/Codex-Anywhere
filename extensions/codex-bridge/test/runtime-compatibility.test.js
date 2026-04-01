@@ -1256,7 +1256,7 @@ test("runtime/protocol/approval_input: ambiguous replies keep the approval gate 
   assert.equal(persistedProfile.pendingApprovalToken, "TOKEN1");
   assert.equal(persistedApproval?.token, "TOKEN1");
   assert.equal(replies.length, 1);
-  assert.match(replies[0], /等待你的明确审批|直接回复“同意”|不要执行/);
+  assert.match(replies[0], /高风险操作，请确认|等待你的明确审批|直接回复“同意”|不要执行/);
   assert.doesNotMatch(replies[0], /active_task_exists|请先使用 `\/codex approve/);
 });
 
@@ -1992,8 +1992,8 @@ test("runtime/protocol/native_entry/protected_root: explicit native cwd into ~/.
   const task = await bridge.readTask(profile.activeTaskId);
 
   assert.equal(replies.length, 1);
-  assert.match(replies[0], /审批|同意|不要执行/);
-  assert.match(replies[0], /protected_root_requires_approval/);
+  assert.match(replies[0], /高风险操作，请确认|审批|同意|不要执行/);
+  assert.deepEqual(task.reasonCodes, ["protected_root_requires_approval"]);
   assert.equal(task.status, "awaiting_approval");
   assert.equal(task.cwd, path.join(os.homedir(), ".openclaw"));
 });
@@ -2288,7 +2288,7 @@ test("runtime/protocol/native_entry/permissions: explicit danger-full-access fla
   assert.equal(task.status, "awaiting_approval");
   assert.deepEqual(task.reasonCodes, ["native_dangerous_sandbox_requires_approval"]);
   assert.equal(approval.executionOptions?.sandbox, "danger-full-access");
-  assert.match(replies[0], /高风险请求已进入审批队列/);
+  assert.match(replies[0], /高风险请求已进入审批队列|高风险操作，请确认/);
 });
 
 test("runtime/protocol/native_entry/permissions: explicit native approval policy flag queues approval instead of being rejected as unknown", async () => {
@@ -2311,7 +2311,7 @@ test("runtime/protocol/native_entry/permissions: explicit native approval policy
   assert.equal(task.status, "awaiting_approval");
   assert.deepEqual(task.reasonCodes, ["native_never_approval_requires_approval"]);
   assert.equal(approval.executionOptions?.askForApproval, "never");
-  assert.match(replies[0], /高风险请求已进入审批队列/);
+  assert.match(replies[0], /高风险请求已进入审批队列|高风险操作，请确认/);
 });
 
 test("runtime/protocol/native_entry/plain_text: model and reasoning wording in plain text still stays on the codex lane", async () => {
