@@ -70,4 +70,5 @@ export CODEX_FEISHU_APP_SECRET='xxx'
 ```
 
 - 本地提交前由 `pre-commit` 自动执行 `staged` 扫描
+- 本地推送前由 `pre-push` 自动执行 `repo` 扫描
 - GitHub Actions 会在 `push/pull_request` 执行 `repo + history` 双层扫描

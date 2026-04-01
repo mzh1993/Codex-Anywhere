@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "${ROOT_DIR}"
 
 chmod +x scripts/security/scan-secrets.sh .githooks/pre-commit
+chmod +x .githooks/pre-push
 git config core.hooksPath .githooks
 
 echo "git hooks installed (core.hooksPath=.githooks)"
