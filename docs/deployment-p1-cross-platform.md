@@ -28,7 +28,7 @@ This document defines the current P1 deployment contract for sharing `codex_feis
   - `scripts/install.ps1`
   - installs pinned local OpenClaw runtime
   - renders isolated config with `runtimeMode=native_windows_fast`
-  - outputs foreground gateway startup command
+  - default hosting strategy: `NSSM` service first, fallback to logon scheduled task
 
 ## Preflight contract (P1)
 
@@ -41,6 +41,17 @@ This document defines the current P1 deployment contract for sharing `codex_feis
   - validates `codex --version`
   - validates isolated runtime binary exists after install (`openclaw.cmd`)
   - renders isolated config deterministically from template
+  - writes a dedicated launcher script (`openclaw-gateway-run.cmd`)
+  - persists required env vars in current user scope for auto-start hosting
+
+## Windows hosting contract (P1)
+
+- Preferred: `NSSM` service (`Hosting=auto` or `Hosting=nssm`)
+- Fallback: scheduled task at user logon (`Hosting=task` or auto when `NSSM` absent)
+- Skip registration: `Hosting=none` (manual foreground mode only)
+- Installer parameters:
+  - `-Hosting auto|nssm|task|none`
+  - `-NoStart` to register without immediate start
 
 ## Required environment
 

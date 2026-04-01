@@ -17,6 +17,9 @@ MODEL_ID_DEFAULT="gpt-5.4"
 MODEL_BASE_URL_DEFAULT="https://api.codexzh.com/v1"
 MODEL_API_ENV_VAR_DEFAULT="CODEXZH_API_KEY"
 RUNTIME_MODE_DEFAULT="secure_linux"
+DEFAULT_CWD_DEFAULT="/home/neousys"
+AUTH_JSON_PATH_DEFAULT="/home/neousys/.codex/auth.json"
+CONFIG_TOML_PATH_DEFAULT="/home/neousys/.codex/config.toml"
 LOCAL_CODEX_AUTH_JSON_DEFAULT="${HOME}/.codex/auth.json"
 SYSTEMD_UNIT_NAME_DEFAULT="openclaw-codex-feishu.service"
 SYSTEMD_MARKER="# Managed by codex_feishu bootstrap"
@@ -36,6 +39,9 @@ MODEL_ID="${MODEL_ID_DEFAULT}"
 MODEL_BASE_URL="${MODEL_BASE_URL_DEFAULT}"
 MODEL_API_ENV_VAR="${MODEL_API_ENV_VAR_DEFAULT}"
 RUNTIME_MODE="${RUNTIME_MODE_DEFAULT}"
+DEFAULT_CWD="${DEFAULT_CWD_DEFAULT}"
+AUTH_JSON_PATH="${AUTH_JSON_PATH_DEFAULT}"
+CONFIG_TOML_PATH="${CONFIG_TOML_PATH_DEFAULT}"
 LOCAL_CODEX_AUTH_JSON="${LOCAL_CODEX_AUTH_JSON_DEFAULT}"
 APP_ID_VALUE="${APP_ID_VALUE:-}"
 ENABLE_SYSTEMD=0
@@ -98,6 +104,9 @@ Options:
   --model-base-url URL       Custom provider base URL (default: ${MODEL_BASE_URL_DEFAULT})
   --model-api-env VAR        Env var name for custom provider API key
   --runtime-mode MODE        Bridge runtime mode: secure_linux | native_windows_fast (default: ${RUNTIME_MODE_DEFAULT})
+  --default-cwd PATH         Bridge default cwd (default: ${DEFAULT_CWD_DEFAULT})
+  --auth-json-path PATH      Host auth.json path used by bridge (default: ${AUTH_JSON_PATH_DEFAULT})
+  --config-toml-path PATH    Host config.toml path used by bridge (default: ${CONFIG_TOML_PATH_DEFAULT})
   --local-codex-auth PATH    Local Codex auth.json path for API-key reuse
   --systemd-unit-path PATH   Override generated systemd user unit path
   --enable                   With install-systemd, run systemctl --user enable
@@ -483,6 +492,9 @@ render_config() {
     -e "s|__MODEL_BASE_URL__|$(sed_escape "${MODEL_BASE_URL}")|g" \
     -e "s|__MODEL_API_ENV_VAR__|$(sed_escape "${MODEL_API_ENV_VAR}")|g" \
     -e "s|__RUNTIME_MODE__|$(sed_escape "${RUNTIME_MODE}")|g" \
+    -e "s|__DEFAULT_CWD__|$(sed_escape "${DEFAULT_CWD}")|g" \
+    -e "s|__AUTH_JSON_PATH__|$(sed_escape "${AUTH_JSON_PATH}")|g" \
+    -e "s|__CONFIG_TOML_PATH__|$(sed_escape "${CONFIG_TOML_PATH}")|g" \
     "${CONFIG_TEMPLATE}")"
 
   printf '%s\n' "${rendered}" >"${CONFIG_OUT}"
@@ -910,6 +922,18 @@ parse_args() {
         ;;
       --runtime-mode)
         RUNTIME_MODE="$2"
+        shift 2
+        ;;
+      --default-cwd)
+        DEFAULT_CWD="$2"
+        shift 2
+        ;;
+      --auth-json-path)
+        AUTH_JSON_PATH="$2"
+        shift 2
+        ;;
+      --config-toml-path)
+        CONFIG_TOML_PATH="$2"
         shift 2
         ;;
       --local-codex-auth)
