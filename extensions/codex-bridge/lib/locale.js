@@ -1,6 +1,12 @@
 const DEFAULT_LOCALE = "en-US";
 const DEFAULT_MAX_CHANGED_FILES = 8;
-const HIDDEN_STATUS_HINT_PATTERNS = [/^(?:thread|turn|item)\./i];
+const HIDDEN_STATUS_HINT_PATTERNS = [
+  /^(?:thread|turn|item)\./i,
+  /^error$/i,
+  /^reconnecting/i,
+  /stream disconnected before completion/i,
+  /stream closed before response\.completed/i,
+];
 
 const TASK_STATUS_LABELS = {
   "zh-CN": {

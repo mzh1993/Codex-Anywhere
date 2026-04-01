@@ -7,7 +7,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { f as unregisterInternalHook, u as registerInternalHook } from "../../.runtime/openclaw-2026.3.22/node_modules/openclaw/dist/internal-hooks-D4lZfNM5.js";
 import { definePluginEntry } from "../../.runtime/openclaw-2026.3.22/node_modules/openclaw/dist/plugin-sdk/plugin-entry.js";
-import { sendCardFeishu, sendMessageFeishu } from "../../.runtime/openclaw-2026.3.22/node_modules/openclaw/dist/extensions/feishu/index.js";
+import {
+  editMessageFeishu,
+  sendCardFeishu,
+  sendMessageFeishu,
+  updateCardFeishu,
+} from "../../.runtime/openclaw-2026.3.22/node_modules/openclaw/dist/extensions/feishu/index.js";
 import { buildBridgeActionExecution } from "./lib/bridge-action-exec.js";
 import { buildCodexArgs, buildCodexEnv } from "./lib/codex-exec.js";
 import {
@@ -1751,9 +1756,11 @@ export class CodexBridge {
     task.lastStatusSentAtMs = now;
     task.updatedAt = new Date().toISOString();
     await this.saveTask(task);
-    await this.safeReply({
+    await this.upsertProgressReply(task, {
       accountId: task.accountId,
       conversationId: task.conversationId,
+      messageId: task.messageId,
+      renderHint: "task_progress",
       text: this.text.taskProgress(task.taskId, hint),
     });
   }
@@ -1763,16 +1770,29 @@ export class CodexBridge {
       const runtime = activeTasks.get(senderId);
       if (!runtime) return;
       const now = Date.now();
-      if (now - runtime.task.lastHeartbeatAtMs < this.settings.heartbeatMs) return;
+      const elapsedMs = now - Date.parse(runtime.task.startedAt);
+      const heartbeatIntervalMs = resolveHeartbeatIntervalMs(this.settings.heartbeatMs, elapsedMs);
+      if (now - runtime.task.lastHeartbeatAtMs < heartbeatIntervalMs) return;
       runtime.task.lastHeartbeatAtMs = now;
-      runtime.task.updatedAt = new Date().toISOString();
-      await this.saveTask(runtime.task);
       const elapsed = formatElapsed(runtime.task.startedAt);
       const visibleHint = getUserVisibleStatusHint(this.settings.locale, runtime.task.lastStatusHint);
+      const heartbeatBucket = resolveHeartbeatBucket(elapsedMs);
+      if (
+        runtime.task.lastHeartbeatBucket === heartbeatBucket &&
+        runtime.task.lastHeartbeatVisibleHint === visibleHint
+      ) {
+        return;
+      }
+      runtime.task.lastHeartbeatBucket = heartbeatBucket;
+      runtime.task.lastHeartbeatVisibleHint = visibleHint;
+      runtime.task.updatedAt = new Date().toISOString();
+      await this.saveTask(runtime.task);
       const suffix = visibleHint ? `\n${this.text.lastLabel}: ${visibleHint}` : "";
-      await this.safeReply({
+      await this.upsertProgressReply(runtime.task, {
         accountId: runtime.task.accountId,
         conversationId: runtime.task.conversationId,
+        messageId: runtime.task.messageId,
+        renderHint: "task_running",
         text: this.text.taskStillRunning(runtime.task.taskId, elapsed, suffix),
       });
     } catch (error) {
@@ -2069,17 +2089,39 @@ export class CodexBridge {
     try {
       const cfg = this.api.runtime.config.loadConfig();
       const prepared = this.prepareReply(params);
+      const updateMessageId = normalizeText(prepared.updateMessageId);
+      if (updateMessageId) {
+        try {
+          if (prepared.card) {
+            await updateCardFeishu({
+              cfg,
+              accountId: prepared.accountId,
+              messageId: updateMessageId,
+              card: prepared.card,
+            });
+          } else {
+            await editMessageFeishu({
+              cfg,
+              accountId: prepared.accountId,
+              messageId: updateMessageId,
+              text: prepared.text,
+            });
+          }
+          return { messageId: updateMessageId, updated: true };
+        } catch (error) {
+          this.api.logger.warn?.(`codex-bridge reply update failed: ${toErrorText(error)}; fallback to new reply`);
+        }
+      }
       if (prepared.card) {
-        await sendCardFeishu({
+        return await sendCardFeishu({
           cfg,
           accountId: prepared.accountId,
           to: prepared.conversationId,
           replyToMessageId: prepared.messageId || undefined,
           card: prepared.card,
         });
-        return;
       }
-      await sendMessageFeishu({
+      return await sendMessageFeishu({
         cfg,
         accountId: prepared.accountId,
         to: prepared.conversationId,
@@ -2088,6 +2130,21 @@ export class CodexBridge {
       });
     } catch (error) {
       this.api.logger.error(`codex-bridge reply failed: ${toErrorText(error)}`);
+      return null;
+    }
+  }
+
+  async upsertProgressReply(task, reply) {
+    const progressMessageId = normalizeText(task.progressMessageId);
+    const result = await this.safeReply({
+      ...reply,
+      ...(progressMessageId ? { updateMessageId: progressMessageId, messageId: undefined } : {}),
+    });
+    const resolvedMessageId = normalizeText(result?.messageId ?? "");
+    if (resolvedMessageId && task.progressMessageId !== resolvedMessageId) {
+      task.progressMessageId = resolvedMessageId;
+      task.updatedAt = new Date().toISOString();
+      await this.saveTask(task);
     }
   }
 
@@ -2902,6 +2959,10 @@ function resolveBridgeCardMeta(locale, renderHint) {
       return { title: zh ? "等待确认" : "Approval Needed", template: "orange" };
     case "task_started":
       return { title: zh ? "任务已启动" : "Task Started", template: "indigo" };
+    case "task_progress":
+      return { title: zh ? "任务进度" : "Task Progress", template: "wathet" };
+    case "task_running":
+      return { title: zh ? "执行中" : "Running", template: "turquoise" };
     case "task_finished":
       return { title: zh ? "本轮结果" : "Run Result", template: "green" };
     default:
@@ -3170,12 +3231,26 @@ function safeJsonParse(text) {
 }
 
 function extractStatusHint(event) {
+  if (!event || typeof event !== "object") return undefined;
+  const eventType = normalizeText(typeof event.type === "string" ? event.type : "").toLowerCase();
+  const errorMessage = normalizeText(
+    typeof event.message === "string"
+      ? event.message
+      : typeof event.text === "string"
+      ? event.text
+      : "",
+  );
+  if (eventType === "error") {
+    if (isTransientStreamErrorHint(errorMessage)) return undefined;
+    if (errorMessage) return errorMessage.length <= 180 ? errorMessage : truncate(errorMessage, 180);
+    return undefined;
+  }
   const candidates = [
     event.status,
     event.phase,
-    event.type,
     event.event,
     event.kind,
+    event.type,
     event.message,
     event.text,
     event.delta,
@@ -3192,6 +3267,31 @@ function extractStatusHint(event) {
     return truncate(normalized, 180);
   }
   return undefined;
+}
+
+function isTransientStreamErrorHint(text) {
+  const normalized = normalizeText(text).toLowerCase();
+  if (!normalized) return false;
+  return (
+    normalized.startsWith("reconnecting") ||
+    normalized.includes("stream disconnected before completion") ||
+    normalized.includes("stream closed before response.completed")
+  );
+}
+
+function resolveHeartbeatIntervalMs(baseHeartbeatMs, elapsedMs) {
+  const safeBase = Math.max(1000, Number.isFinite(baseHeartbeatMs) ? Math.trunc(baseHeartbeatMs) : 30000);
+  if (elapsedMs >= 10 * 60 * 1000) return Math.max(safeBase, 10 * 60 * 1000);
+  if (elapsedMs >= 3 * 60 * 1000) return Math.max(safeBase, 3 * 60 * 1000);
+  if (elapsedMs >= 60 * 1000) return Math.max(safeBase, 60 * 1000);
+  return safeBase;
+}
+
+function resolveHeartbeatBucket(elapsedMs) {
+  if (elapsedMs >= 10 * 60 * 1000) return "t10m+";
+  if (elapsedMs >= 3 * 60 * 1000) return "t3m-10m";
+  if (elapsedMs >= 60 * 1000) return "t1m-3m";
+  return "t0-1m";
 }
 
 function truncate(text, maxLength) {

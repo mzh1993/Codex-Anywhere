@@ -360,3 +360,162 @@ test("runtime/persistence/progress: internal item events stay silent and do not 
     __activeTasks.delete(senderId);
   }
 });
+
+test("runtime/persistence/progress: transient reconnect error event stays silent", async () => {
+  const { CodexBridge, __activeTasks } = await import("../index.js");
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-progress-transient-"));
+  const bridge = new CodexBridge(createFakeApi(tempRoot));
+
+  const senderId = "user-progress-transient";
+  const timestamp = "2026-03-24T07:00:00.000Z";
+  const taskId = "task-progress-transient";
+  const runId = "run-progress-transient";
+  const runDir = path.join(bridge.settings.runsRoot, runId);
+  await fs.mkdir(runDir, { recursive: true });
+
+  const task = createTaskRecord({
+    taskId,
+    locale: "zh-CN",
+    senderId,
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-1",
+    cwd: tempRoot,
+    mode: "new",
+    sessionId: null,
+    status: "running",
+    currentRunId: runId,
+    lastRunId: runId,
+    prompt: "帮我总结 README",
+    createdAt: timestamp,
+    startedAt: timestamp,
+    updatedAt: timestamp,
+  });
+  const run = createRunRecord({
+    runId,
+    taskId,
+    locale: "zh-CN",
+    senderId,
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-1",
+    cwd: tempRoot,
+    mode: "new",
+    sessionId: null,
+    status: "running",
+    prompt: "帮我总结 README",
+    createdAt: timestamp,
+    startedAt: timestamp,
+    updatedAt: timestamp,
+    stdoutLogPath: path.join(runDir, "stdout.jsonl"),
+    stderrLogPath: path.join(runDir, "stderr.log"),
+    lastMessagePath: path.join(runDir, "last-message.txt"),
+    runDir,
+    beforeSessions: new Set(),
+  });
+
+  __activeTasks.set(senderId, {
+    task,
+    run,
+    child: {
+      kill() {},
+    },
+    heartbeatTimer: null,
+    sessionPollTimer: null,
+    stdoutBuffer: "",
+    stderrBuffer: "",
+    stopping: false,
+  });
+
+  try {
+    await bridge.handleStdout(
+      senderId,
+      Buffer.from('{"type":"error","message":"Reconnecting... 1/5 (stream disconnected before completion: stream closed before response.completed)"}\n'),
+    );
+    assert.equal(__activeTasks.get(senderId)?.task.lastStatusHint ?? null, null);
+  } finally {
+    __activeTasks.delete(senderId);
+  }
+});
+
+test("runtime/persistence/heartbeat: same bucket and same status does not spam", async () => {
+  const { CodexBridge, __activeTasks } = await import("../index.js");
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-heartbeat-dedupe-"));
+  const bridge = new CodexBridge(createFakeApi(tempRoot));
+  const replies = [];
+  bridge.upsertProgressReply = async (task, payload) => {
+    replies.push({ taskId: task.taskId, text: payload.text });
+  };
+
+  const senderId = "user-heartbeat";
+  const now = Date.now();
+  const startedAt = new Date(now - 4 * 60 * 1000).toISOString();
+  const taskId = "task-heartbeat";
+  const runId = "run-heartbeat";
+  const runDir = path.join(bridge.settings.runsRoot, runId);
+  await fs.mkdir(runDir, { recursive: true });
+
+  const task = createTaskRecord({
+    taskId,
+    locale: "zh-CN",
+    senderId,
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-1",
+    cwd: tempRoot,
+    mode: "new",
+    sessionId: null,
+    status: "running",
+    currentRunId: runId,
+    lastRunId: runId,
+    prompt: "帮我总结 README",
+    createdAt: startedAt,
+    startedAt,
+    updatedAt: startedAt,
+    lastStatusHint: "run.interrupted",
+    lastHeartbeatAtMs: now - 10 * 60 * 1000,
+  });
+  const run = createRunRecord({
+    runId,
+    taskId,
+    locale: "zh-CN",
+    senderId,
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-1",
+    cwd: tempRoot,
+    mode: "new",
+    sessionId: null,
+    status: "running",
+    prompt: "帮我总结 README",
+    createdAt: startedAt,
+    startedAt,
+    updatedAt: startedAt,
+    stdoutLogPath: path.join(runDir, "stdout.jsonl"),
+    stderrLogPath: path.join(runDir, "stderr.log"),
+    lastMessagePath: path.join(runDir, "last-message.txt"),
+    runDir,
+    beforeSessions: new Set(),
+  });
+
+  __activeTasks.set(senderId, {
+    task,
+    run,
+    child: {
+      kill() {},
+    },
+    heartbeatTimer: null,
+    sessionPollTimer: null,
+    stdoutBuffer: "",
+    stderrBuffer: "",
+    stopping: false,
+  });
+
+  try {
+    await bridge.maybeSendHeartbeat(senderId);
+    await bridge.maybeSendHeartbeat(senderId);
+    assert.equal(replies.length, 1);
+  } finally {
+    __activeTasks.delete(senderId);
+  }
+});
