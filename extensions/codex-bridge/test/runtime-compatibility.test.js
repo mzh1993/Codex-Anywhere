@@ -3119,6 +3119,104 @@ test("runtime/protocol/finish_summary: changed files are extracted only from the
   }
 });
 
+test("runtime/protocol/presentation: finish updates the existing progress card instead of sending a second lifecycle card", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-finish-card-reuse-"));
+  const { bridge } = await createBridgeHarness(tempRoot);
+  const { __activeTasks } = await import("../index.js");
+  const runDir = path.join(tempRoot, "run-finish-card");
+  await fs.mkdir(runDir, { recursive: true });
+  const lastMessagePath = path.join(runDir, "last-message.txt");
+  const stdoutLogPath = path.join(runDir, "stdout.jsonl");
+  const stderrLogPath = path.join(runDir, "stderr.log");
+  await fs.writeFile(lastMessagePath, "**Summary**\n- 已完成");
+  await fs.writeFile(stdoutLogPath, "");
+  await fs.writeFile(stderrLogPath, "");
+
+  const replyEvents = [];
+  bridge.safeReply = async (params) => {
+    replyEvents.push(params);
+    return { messageId: params.updateMessageId ?? "progress-card-id" };
+  };
+
+  const task = createTaskRecord({
+    taskId: "task-finish-card",
+    locale: "zh-CN",
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-summary",
+    cwd: "/home/mzh",
+    mode: "resume",
+    status: "running",
+    currentRunId: "run-finish-card",
+    lastRunId: "run-finish-card",
+    sessionId: "session-summary",
+    progressMessageId: "progress-card-id",
+    prompt: "继续推进",
+    createdAt: "2026-03-30T02:28:36.005Z",
+    updatedAt: "2026-03-30T02:28:36.005Z",
+  });
+  const run = createRunRecord({
+    runId: "run-finish-card",
+    taskId: task.taskId,
+    locale: task.locale,
+    senderId: task.senderId,
+    accountId: task.accountId,
+    conversationId: task.conversationId,
+    messageId: task.messageId,
+    cwd: task.cwd,
+    mode: task.mode,
+    sessionId: task.sessionId,
+    prompt: task.prompt,
+    createdAt: "2026-03-30T02:28:36.005Z",
+    updatedAt: "2026-03-30T02:28:36.005Z",
+    stdoutLogPath,
+    stderrLogPath,
+    lastMessagePath,
+    runDir,
+    beforeSessions: new Set(),
+  });
+  const profile = {
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    defaultCwd: "/home/mzh",
+    activeTaskId: task.taskId,
+    lastTaskId: task.taskId,
+    lastSessionId: task.sessionId,
+    updatedAt: "2026-03-30T02:28:36.005Z",
+  };
+
+  try {
+    await bridge.saveTask(task);
+    await bridge.saveRun(run);
+    await bridge.saveProfile(profile);
+    __activeTasks.set("user-1", {
+      task,
+      run,
+      child: { kill() {} },
+      stdoutBuffer: "",
+      stderrBuffer: "",
+      stopping: false,
+      finishing: false,
+      heartbeatTimer: null,
+      sessionPollTimer: null,
+    });
+
+    await bridge.finishTask("user-1", {
+      exitCode: 0,
+      signal: null,
+      error: null,
+    });
+
+    assert.equal(replyEvents.length, 1);
+    assert.equal(replyEvents[0].updateMessageId, "progress-card-id");
+    assert.equal(replyEvents[0].renderHint, "task_finished");
+  } finally {
+    __activeTasks.clear();
+  }
+});
+
 test("runtime/protocol/command_surface/doctor: doctor reports concrete runtime readiness instead of only generic status", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-doctor-runtime-"));
   const { bridge, replies } = await createBridgeHarness(tempRoot);

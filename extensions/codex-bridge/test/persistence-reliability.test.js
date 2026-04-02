@@ -519,3 +519,82 @@ test("runtime/persistence/heartbeat: same bucket and same status does not spam",
     __activeTasks.delete(senderId);
   }
 });
+
+test("runtime/persistence/heartbeat: unchanged long-running status still refreshes within bounded silence", async () => {
+  const { CodexBridge, __activeTasks } = await import("../index.js");
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-heartbeat-liveness-"));
+  const bridge = new CodexBridge(createFakeApi(tempRoot));
+  const replies = [];
+  bridge.upsertProgressReply = async (task, payload) => {
+    replies.push({ taskId: task.taskId, text: payload.text });
+  };
+
+  const senderId = "user-heartbeat-liveness";
+  const now = Date.now();
+  const startedAt = new Date(now - 6 * 60 * 1000).toISOString();
+  const taskId = "task-heartbeat-liveness";
+  const runId = "run-heartbeat-liveness";
+  const runDir = path.join(bridge.settings.runsRoot, runId);
+  await fs.mkdir(runDir, { recursive: true });
+
+  const task = createTaskRecord({
+    taskId,
+    locale: "zh-CN",
+    senderId,
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-1",
+    cwd: tempRoot,
+    mode: "new",
+    status: "running",
+    currentRunId: runId,
+    lastRunId: runId,
+    prompt: "帮我总结 README",
+    createdAt: startedAt,
+    startedAt,
+    updatedAt: startedAt,
+    lastStatusHint: "run.interrupted",
+    lastHeartbeatAtMs: now - 2 * 60 * 1000,
+    lastHeartbeatBucket: "t3m-10m",
+    lastHeartbeatVisibleHint: "上一轮执行中断，请直接说明要继续做什么",
+  });
+  const run = createRunRecord({
+    runId,
+    taskId,
+    locale: "zh-CN",
+    senderId,
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-1",
+    cwd: tempRoot,
+    mode: "new",
+    status: "running",
+    prompt: "帮我总结 README",
+    createdAt: startedAt,
+    startedAt,
+    updatedAt: startedAt,
+    stdoutLogPath: path.join(runDir, "stdout.jsonl"),
+    stderrLogPath: path.join(runDir, "stderr.log"),
+    lastMessagePath: path.join(runDir, "last-message.txt"),
+    runDir,
+    beforeSessions: new Set(),
+  });
+
+  __activeTasks.set(senderId, {
+    task,
+    run,
+    child: { kill() {} },
+    heartbeatTimer: null,
+    sessionPollTimer: null,
+    stdoutBuffer: "",
+    stderrBuffer: "",
+    stopping: false,
+  });
+
+  try {
+    await bridge.maybeSendHeartbeat(senderId);
+    assert.equal(replies.length, 1);
+  } finally {
+    __activeTasks.delete(senderId);
+  }
+});

@@ -1687,7 +1687,7 @@ export class CodexBridge {
     await this.saveTask(task);
     await this.saveRun(run);
 
-    await this.safeReply({
+    await this.upsertProgressReply(task, {
       accountId: params.accountId,
       conversationId: params.conversationId,
       messageId: params.messageId,
@@ -1820,16 +1820,10 @@ export class CodexBridge {
       const elapsedMs = now - Date.parse(runtime.task.startedAt);
       const heartbeatIntervalMs = resolveHeartbeatIntervalMs(this.settings.heartbeatMs, elapsedMs);
       if (now - runtime.task.lastHeartbeatAtMs < heartbeatIntervalMs) return;
-      runtime.task.lastHeartbeatAtMs = now;
       const elapsed = formatElapsed(runtime.task.startedAt);
       const visibleHint = getUserVisibleStatusHint(this.settings.locale, runtime.task.lastStatusHint);
+      runtime.task.lastHeartbeatAtMs = now;
       const heartbeatBucket = resolveHeartbeatBucket(elapsedMs);
-      if (
-        runtime.task.lastHeartbeatBucket === heartbeatBucket &&
-        runtime.task.lastHeartbeatVisibleHint === visibleHint
-      ) {
-        return;
-      }
       runtime.task.lastHeartbeatBucket = heartbeatBucket;
       runtime.task.lastHeartbeatVisibleHint = visibleHint;
       runtime.task.updatedAt = new Date().toISOString();
@@ -1948,13 +1942,13 @@ export class CodexBridge {
       this.clearResetAbandonedTask(task);
       if (!abandonedByReset) {
         if (shouldPreserveTaskContinuityAfterStop(task.error) && runtime.stopping) {
-          await this.safeReply({
+          await this.replyOnTaskCard(nextTask, {
             accountId: nextTask.accountId,
             conversationId: nextTask.conversationId,
             text: this.text.interruptedTaskRequiresContinue(nextTask.taskId, nextTask.lastStatusHint),
           });
         } else {
-          await this.safeReply({
+          await this.replyOnTaskCard(nextTask, {
             accountId: nextTask.accountId,
             conversationId: nextTask.conversationId,
             renderHint: "task_finished",
@@ -2214,6 +2208,14 @@ export class CodexBridge {
       task.updatedAt = new Date().toISOString();
       await this.saveTask(task);
     }
+  }
+
+  async replyOnTaskCard(task, reply) {
+    const progressMessageId = normalizeText(task.progressMessageId);
+    return await this.safeReply({
+      ...reply,
+      ...(progressMessageId ? { updateMessageId: progressMessageId } : {}),
+    });
   }
 
   prepareReply(params) {
@@ -3530,8 +3532,6 @@ function isTransientStreamErrorHint(text) {
 
 function resolveHeartbeatIntervalMs(baseHeartbeatMs, elapsedMs) {
   const safeBase = Math.max(1000, Number.isFinite(baseHeartbeatMs) ? Math.trunc(baseHeartbeatMs) : 30000);
-  if (elapsedMs >= 10 * 60 * 1000) return Math.max(safeBase, 10 * 60 * 1000);
-  if (elapsedMs >= 3 * 60 * 1000) return Math.max(safeBase, 3 * 60 * 1000);
   if (elapsedMs >= 60 * 1000) return Math.max(safeBase, 60 * 1000);
   return safeBase;
 }
