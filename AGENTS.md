@@ -29,6 +29,11 @@ These add too much automation for a repo with remote execution, approval, and is
 - Use `--dry-run` first when you only need to inspect the proposed repair.
 - This tool is repo-local operations support only; do not expose it through bridge runtime or `/codex`.
 
+## Behavior Semantics Gate
+
+- If a change modifies behavior meaning in product boundary, permission boundary, continuity, observability, command surface, or cross-platform semantics, update `docs/contract-matrix.md` in the same change.
+- Keep this as development-time governance only; do not add runtime contract evaluation or thicken ordinary-text bridge semantics.
+
 ## High-signal references
 
 - `README.md`
