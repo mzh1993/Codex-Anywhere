@@ -406,6 +406,10 @@ test("runtime/protocol/approval: explicit native starts still persist a run-scop
     assert.equal(persistedApproval.approvalGrant.consumedAtMs, null);
     assert.equal(replies.length, 1);
   } finally {
+    const runtime = __activeTasks.get("user-1");
+    if (runtime?.heartbeatTimer) clearInterval(runtime.heartbeatTimer);
+    if (runtime?.sessionPollTimer) clearInterval(runtime.sessionPollTimer);
+    runtime?.child?.kill?.();
     __activeTasks.clear();
   }
 });
@@ -1955,6 +1959,77 @@ test("runtime/protocol/presentation: task lifecycle bridge notices render as lig
   assert.equal(started.card?.header?.title?.content, "任务已启动");
   assert.equal(finished.text, undefined);
   assert.equal(finished.card?.header?.title?.content, "本轮结果");
+});
+
+test("runtime/protocol/presentation: a new run on an existing task starts a fresh progress card on the latest inbound message", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-fresh-progress-card-"));
+  const { bridge } = await createBridgeHarness(tempRoot, {
+    pluginConfig: {
+      codexBin: "/bin/true",
+    },
+  });
+  bridge.ensureExecutionRuntimeReady = async () => ({ ok: true });
+  bridge.ensureCodexHome = async () => {};
+  bridge.finishTask = async () => {};
+  const { __activeTasks } = await import("../index.js");
+
+  const replyEvents = [];
+  bridge.safeReply = async (params) => {
+    replyEvents.push(params);
+    return { messageId: "progress-card-new" };
+  };
+
+  const existingTask = createTaskRecord({
+    taskId: "task-existing-progress-card",
+    locale: "zh-CN",
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-old",
+    cwd: tempRoot,
+    mode: "resume",
+    status: "awaiting_input",
+    currentRunId: null,
+    lastRunId: "run-old",
+    sessionId: "session-existing",
+    progressMessageId: "progress-card-old",
+    prompt: "继续推进旧任务",
+    createdAt: "2026-04-02T00:00:00.000Z",
+    updatedAt: "2026-04-02T00:10:00.000Z",
+  });
+  const profile = {
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    defaultCwd: tempRoot,
+    activeTaskId: existingTask.taskId,
+    lastTaskId: existingTask.taskId,
+    lastSessionId: existingTask.sessionId,
+    updatedAt: "2026-04-02T00:10:00.000Z",
+  };
+
+  try {
+    await bridge.startTask({
+      profile,
+      accountId: "default",
+      conversationId: "conv-1",
+      messageId: "msg-new",
+      mode: "resume",
+      cwd: tempRoot,
+      prompt: "继续推进",
+      existingTask,
+      runtimeCheck: { ok: true },
+    });
+
+    assert.equal(replyEvents.length >= 1, true);
+    assert.equal(replyEvents[0].updateMessageId, undefined);
+    assert.equal(replyEvents[0].messageId, "msg-new");
+
+    const persistedTask = await bridge.readTask(existingTask.taskId);
+    assert.equal(persistedTask.progressMessageId, "progress-card-new");
+  } finally {
+    __activeTasks.clear();
+  }
 });
 
 test("runtime/protocol/presentation: approval cards include click-to-approve actions", async () => {
