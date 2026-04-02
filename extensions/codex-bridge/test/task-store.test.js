@@ -211,6 +211,36 @@ test("protocol/persistence/task: aborted runs still terminalize the task", () =>
   assert.equal(run.finishedAt, timestamp);
 });
 
+test("protocol/persistence/task: gateway-stop interruption preserves task continuity", () => {
+  const timestamp = "2026-03-24T00:10:00.000Z";
+  const { task, run } = applyRunResultToPersistence({
+    task: buildTask({
+      currentRunId: "run_123",
+      lastRunId: "run_prev",
+      lastStatusHint: "turn.started",
+    }),
+    run: buildRun(),
+    result: { exitCode: null, signal: "SIGTERM", error: "gateway stop", stopping: true },
+    summary: null,
+    changedFiles: [],
+    nextSteps: [],
+    timestamp,
+    preserveTaskContinuity: true,
+    interruptionHint: "run.interrupted",
+  });
+
+  assert.equal(task.status, "awaiting_input");
+  assert.equal(task.currentRunId, null);
+  assert.equal(task.lastRunId, "run_123");
+  assert.equal(task.finishedAt, null);
+  assert.equal(task.requiresExplicitContinue, true);
+  assert.equal(task.lastStatusHint, "run.interrupted");
+  assert.equal(task.error, null);
+  assert.equal(run.status, "failed");
+  assert.equal(run.finishedAt, timestamp);
+  assert.equal(run.error, "gateway stop");
+});
+
 test("protocol/persistence/approval: approval-blocked tasks keep only lastRunId and no currentRunId", () => {
   const task = createAwaitingApprovalTaskRecord({
     taskId: "task_approval",

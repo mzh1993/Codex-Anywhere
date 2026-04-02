@@ -2817,6 +2817,203 @@ test("runtime/protocol/reset: an abandoned old lane does not send a finish tail 
   }
 });
 
+test("runtime/protocol/restart: gateway-stop interruption keeps the same task as the active continuity lane", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-gateway-stop-lane-"));
+  const { bridge, replies } = await createBridgeHarness(tempRoot);
+  const { __activeTasks } = await import("../index.js");
+  const runDir = path.join(tempRoot, "run-gateway-stop");
+  await fs.mkdir(runDir, { recursive: true });
+  const lastMessagePath = path.join(runDir, "last-message.txt");
+  const stdoutLogPath = path.join(runDir, "stdout.log");
+  const stderrLogPath = path.join(runDir, "stderr.log");
+  await fs.writeFile(lastMessagePath, "");
+  await fs.writeFile(stdoutLogPath, "");
+  await fs.writeFile(stderrLogPath, "");
+
+  const task = createTaskRecord({
+    taskId: "task-gateway-stop",
+    locale: "zh-CN",
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-old",
+    cwd: tempRoot,
+    mode: "resume",
+    status: "running",
+    currentRunId: "run-gateway-stop",
+    lastRunId: "run-prev",
+    sessionId: "session-old",
+    prompt: "继续推进",
+    createdAt: "2026-03-30T00:00:00.000Z",
+    startedAt: "2026-03-30T00:05:00.000Z",
+    updatedAt: "2026-03-30T00:05:00.000Z",
+  });
+  const run = createRunRecord({
+    runId: "run-gateway-stop",
+    taskId: task.taskId,
+    locale: task.locale,
+    senderId: task.senderId,
+    accountId: task.accountId,
+    conversationId: task.conversationId,
+    messageId: task.messageId,
+    cwd: task.cwd,
+    mode: task.mode,
+    sessionId: task.sessionId,
+    prompt: task.prompt,
+    createdAt: "2026-03-30T00:05:00.000Z",
+    updatedAt: "2026-03-30T00:05:00.000Z",
+    stdoutLogPath,
+    stderrLogPath,
+    lastMessagePath,
+    runDir,
+    beforeSessions: new Set(),
+  });
+  const profile = {
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    defaultCwd: tempRoot,
+    activeTaskId: task.taskId,
+    lastTaskId: task.taskId,
+    lastSessionId: task.sessionId,
+    updatedAt: "2026-03-30T00:05:00.000Z",
+  };
+
+  try {
+    await bridge.saveTask(task);
+    await bridge.saveRun(run);
+    await bridge.saveProfile(profile);
+    __activeTasks.set("user-1", {
+      task,
+      run,
+      child: { kill() {} },
+      stdoutBuffer: "",
+      stderrBuffer: "",
+      stopping: false,
+      finishing: false,
+      heartbeatTimer: null,
+      sessionPollTimer: null,
+    });
+
+    await bridge.stopTask(task, "gateway stop");
+    await bridge.finishTask("user-1", {
+      exitCode: 0,
+      signal: "SIGTERM",
+      error: null,
+    });
+
+    const persistedProfile = await bridge.loadProfile("user-1", null);
+    const persistedTask = await bridge.readTask(task.taskId);
+    const persistedRun = await bridge.readRun(run.runId);
+
+    assert.equal(replies.length, 1);
+    assert.match(replies[0], /本轮结果|上一轮执行中断/);
+    assert.equal(persistedProfile.activeTaskId, task.taskId);
+    assert.equal(persistedProfile.lastTaskId, task.taskId);
+    assert.equal(persistedProfile.lastSessionId, task.sessionId);
+    assert.equal(persistedTask.status, "awaiting_input");
+    assert.equal(persistedTask.cwd, tempRoot);
+    assert.equal(persistedTask.sessionId, task.sessionId);
+    assert.equal(persistedTask.requiresExplicitContinue, true);
+    assert.equal(persistedTask.error, null);
+    assert.equal(persistedRun.status, "failed");
+    assert.equal(persistedRun.error, "gateway stop");
+  } finally {
+    __activeTasks.clear();
+  }
+});
+
+test("runtime/protocol/restart: the first plain-text message after gateway-stop continues the same task", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-gateway-stop-continue-"));
+  const { bridge } = await createBridgeHarness(tempRoot);
+  const runDir = path.join(tempRoot, "run-recovered");
+  await fs.mkdir(runDir, { recursive: true });
+
+  const task = createTaskRecord({
+    taskId: "task-recovered",
+    locale: "zh-CN",
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-old",
+    cwd: tempRoot,
+    mode: "resume",
+    status: "running",
+    currentRunId: "run-recovered",
+    lastRunId: "run-prev",
+    sessionId: "session-recovered",
+    prompt: "继续推进",
+    createdAt: "2026-03-30T00:00:00.000Z",
+    startedAt: "2026-03-30T00:05:00.000Z",
+    updatedAt: "2026-03-30T00:05:00.000Z",
+    error: "gateway stop",
+  });
+  const run = createRunRecord({
+    runId: "run-recovered",
+    taskId: task.taskId,
+    locale: task.locale,
+    senderId: task.senderId,
+    accountId: task.accountId,
+    conversationId: task.conversationId,
+    messageId: task.messageId,
+    cwd: task.cwd,
+    mode: task.mode,
+    sessionId: task.sessionId,
+    prompt: task.prompt,
+    status: "running",
+    createdAt: "2026-03-30T00:05:00.000Z",
+    updatedAt: "2026-03-30T00:05:00.000Z",
+    stdoutLogPath: path.join(runDir, "stdout.log"),
+    stderrLogPath: path.join(runDir, "stderr.log"),
+    lastMessagePath: path.join(runDir, "last-message.txt"),
+    runDir,
+    beforeSessions: new Set(),
+    error: "gateway stop",
+  });
+  const profile = {
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    defaultCwd: path.join(tempRoot, "default-cwd"),
+    activeTaskId: task.taskId,
+    lastTaskId: task.taskId,
+    lastSessionId: task.sessionId,
+    updatedAt: "2026-03-30T00:05:00.000Z",
+  };
+  const queued = [];
+  bridge.queueOrStartTask = async (params) => {
+    queued.push({ cwd: params.cwd, mode: params.mode, prompt: params.prompt, taskId: params.existingTask?.taskId ?? null });
+  };
+
+  await fs.writeFile(run.lastMessagePath, "");
+  await fs.writeFile(run.stdoutLogPath, "");
+  await fs.writeFile(run.stderrLogPath, "");
+  await bridge.saveTask(task);
+  await bridge.saveRun(run);
+  await bridge.saveProfile(profile);
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-continue-after-restart",
+    text: "继续把剩下的问题收口",
+  });
+
+  const persistedTask = await bridge.readTask(task.taskId);
+  const persistedProfile = await bridge.loadProfile("user-1", null);
+
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].taskId, task.taskId);
+  assert.equal(queued[0].cwd, tempRoot);
+  assert.equal(queued[0].mode, "resume");
+  assert.equal(queued[0].prompt, "继续把剩下的问题收口");
+  assert.equal(persistedTask.status, "awaiting_input");
+  assert.equal(persistedTask.requiresExplicitContinue, true);
+  assert.equal(persistedProfile.activeTaskId, task.taskId);
+});
+
 test("runtime/protocol/finish_summary: changed files are extracted only from the explicit Changed Files section", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-finish-summary-"));
   const { bridge, replyEvents } = await createBridgeHarness(tempRoot);

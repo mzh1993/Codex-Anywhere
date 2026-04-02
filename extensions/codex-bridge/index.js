@@ -1920,6 +1920,12 @@ export class CodexBridge {
         changedFiles,
         nextSteps,
         sessionId: task.sessionId ?? run.sessionId ?? null,
+        preserveTaskContinuity:
+          runtime.stopping && !abandonedByReset && shouldPreserveTaskContinuityAfterStop(task.error),
+        interruptionHint:
+          runtime.stopping && !abandonedByReset && shouldPreserveTaskContinuityAfterStop(task.error)
+            ? inferRecoveredInterruptionHint(task, this.settings)
+            : null,
       });
       const nextTask = persisted.task;
       const nextRun = persisted.run;
@@ -1941,12 +1947,20 @@ export class CodexBridge {
       activeTasks.delete(senderId);
       this.clearResetAbandonedTask(task);
       if (!abandonedByReset) {
-        await this.safeReply({
-          accountId: nextTask.accountId,
-          conversationId: nextTask.conversationId,
-          renderHint: "task_finished",
-          text: this.text.taskFinished({ ...nextTask, runStatus: nextRun.status }),
-        });
+        if (shouldPreserveTaskContinuityAfterStop(task.error) && runtime.stopping) {
+          await this.safeReply({
+            accountId: nextTask.accountId,
+            conversationId: nextTask.conversationId,
+            text: this.text.interruptedTaskRequiresContinue(nextTask.taskId, nextTask.lastStatusHint),
+          });
+        } else {
+          await this.safeReply({
+            accountId: nextTask.accountId,
+            conversationId: nextTask.conversationId,
+            renderHint: "task_finished",
+            text: this.text.taskFinished({ ...nextTask, runStatus: nextRun.status }),
+          });
+        }
       }
     } catch (error) {
       runtime.finishing = false;
@@ -3118,6 +3132,10 @@ function inferRecoveredInterruptionHint(task, settings) {
     return "run.interrupted.bridge_self_restart";
   }
   return "run.interrupted";
+}
+
+function shouldPreserveTaskContinuityAfterStop(reason) {
+  return normalizeText(reason) === "gateway stop";
 }
 
 function isCodexCommand(text) {

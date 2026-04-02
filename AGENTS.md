@@ -23,6 +23,12 @@ These add too much automation for a repo with remote execution, approval, and is
 - Do not wire `superpowers` into Feishu, OpenClaw, or the bridge execution path.
 - Treat the bridge security boundary as intentional: isolated runtime, isolated `CODEX_HOME`, paired DM-only claim, approval gating, and auditability.
 
+## Repo-local ops hooks
+
+- When a historical bridge continuity lane must be revived, prefer `node tools/revive-task-lane.mjs --sender-id <sender> --task-id <task>` over hand-editing persisted state JSON.
+- Use `--dry-run` first when you only need to inspect the proposed repair.
+- This tool is repo-local operations support only; do not expose it through bridge runtime or `/codex`.
+
 ## High-signal references
 
 - `README.md`

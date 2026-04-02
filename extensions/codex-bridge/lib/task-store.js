@@ -180,7 +180,18 @@ export function serializeRunForStorage(run) {
   return serialized;
 }
 
-export function applyRunResultToPersistence({ task, run, result = {}, summary = null, changedFiles = [], nextSteps = [], timestamp, sessionId = null }) {
+export function applyRunResultToPersistence({
+  task,
+  run,
+  result = {},
+  summary = null,
+  changedFiles = [],
+  nextSteps = [],
+  timestamp,
+  sessionId = null,
+  preserveTaskContinuity = false,
+  interruptionHint = null,
+}) {
   const finishedAt = timestamp ?? new Date().toISOString();
   const transition = finishRunFromExecution(result);
   const nextRun = createRunRecord({
@@ -196,6 +207,22 @@ export function applyRunResultToPersistence({ task, run, result = {}, summary = 
     finishedAt,
     updatedAt: finishedAt,
   });
+  if (preserveTaskContinuity && transition.runStatus === "aborted") {
+    const recovered = recoverStaleRunningTask({
+      task,
+      run: nextRun,
+      timestamp: finishedAt,
+      interruptionHint,
+    });
+    return {
+      task: recovered.task,
+      run: recovered.run,
+      transition: {
+        taskStatus: recovered.task.status,
+        runStatus: recovered.run?.status ?? nextRun.status,
+      },
+    };
+  }
   const nextTask = createTaskRecord({
     ...task,
     status: transition.taskStatus,
