@@ -56,6 +56,16 @@ Windows 托管策略（默认）：优先 `NSSM` 注册服务；若未安装 `NS
 
 它的职责是把远程输入、状态回传和审批动作接到本机 `codex exec`，而不是扩展成一个通用 IM 平台或重新封装一套新的 Codex 主交互语义。`/codex doctor` 当前用于输出真实运行健康摘要（`Codex CLI`、`bwrap`、隔离 Feishu 凭据、gateway）。手机远程主路径收口为：显式启动持续会话，然后继续用普通文本和 `Codex` 对话。
 
+## `/codex` 速查（可直接复制）
+
+- 默认：直接发送自然语言给 `Codex`
+- 新任务：`/codex --cd <path> <prompt>`
+- 完全访问：`/codex --cd <path> --sandbox danger-full-access <prompt>`
+- 续写：`/codex resume <prompt>`
+- 健康检查：`/codex doctor`
+- 可选参数：`--model <model>` `--reasoning <level>` `--ask-for-approval <policy>`
+- 忘记命令时：发送 `/codex` 或 `/codex help`（两者返回同一份短速查）
+
 ## 仓库内容
 
 - `scripts/bootstrap-codex-feishu.sh`：安装隔离运行时、渲染配置、执行预检、启动 gateway

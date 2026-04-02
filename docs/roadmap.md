@@ -16,7 +16,7 @@
 
 - 顶层文档体系已完成重写收口；当前残余问题主要在措辞层，不再继续大改结构。
 - `codex-bridge` 已形成可回归的基础测试面；当前桥接测试基线为 `node --test extensions/codex-bridge/test/*.test.js`。
-- `/codex` 用户表面已完成一轮 native-first 收口：普通消息默认直达 `Codex`，显式入口优先支持 `/codex --cd ... [--model ...] [--reasoning ...] <prompt>`、`/codex resume [--model ...] [--reasoning ...] <prompt>` 与 `/codex doctor`。
+- `/codex` 用户表面已完成一轮 native-first 收口：普通消息默认直达 `Codex`，显式入口优先支持 `/codex --cd ... [--model ...] [--reasoning ...] [--sandbox ...] [--ask-for-approval ...] <prompt>`、`/codex resume [--model ...] [--reasoning ...] [--sandbox ...] [--ask-for-approval ...] <prompt>` 与 `/codex doctor`。
 - 未知 `/codex <subcommand>` 已不再回落旧帮助页，而是返回简短的 native-first 指引。
 - 历史 slash 命令 `help / status / abort / approve / cwd / pwd / continue` 已全部退出执行面，只保留 unknown / native-first 提示。
 - 受控执行已有最小 allow / approval / deny 边界与测试。
@@ -61,7 +61,7 @@
 - 顶层三件套与用户表面已完成第一轮对齐；`/codex new` 回落旧帮助页这一类明显偏差已被收口。
 - 当前主要矛盾已从“用户表面仍在教旧命令”转为“实现结构与测试权重仍保留旧时代中心性”。
 - `node --test extensions/codex-bridge/test/*.test.js` 全绿，只能证明当前实现自洽；不能自动证明当前测试权重已经完全服务新的顶层宪法。
-- 2026-03-26 实机核对 `codex --help` 后确认：当前原生 `Codex CLI` 明确存在 `resume`、`fork`、`--cd`、`--model`、`--sandbox`、`--ask-for-approval` 等表面；当前 bridge 用户表面则主动收口为 `--cd`、`--model`、`--reasoning` 三类显式启动参数，并不存在 `new / status / abort / approve / cwd / pwd / continue` 这组原生命令名。
+- 2026-03-26 实机核对 `codex --help` 后确认：当前原生 `Codex CLI` 明确存在 `resume`、`fork`、`--cd`、`--model`、`--sandbox`、`--ask-for-approval` 等表面；当前 bridge 用户表面则主动收口为 `/codex --cd ...`、`/codex resume ...`、`/codex doctor`，显式参数透传集中在 `--cd`、`--model`、`--reasoning`、`--sandbox`、`--ask-for-approval`，并不存在 `new / status / abort / approve / cwd / pwd / continue` 这组历史兼容命令。
 
 ## `/codex` 命令面对齐现状
 
