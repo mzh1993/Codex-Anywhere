@@ -3131,7 +3131,7 @@ function resolveBridgeCardMeta(locale, renderHint) {
     case "task_started":
       return { title: zh ? "任务已启动" : "Task Started", template: "indigo" };
     case "task_progress":
-      return { title: zh ? "任务进度" : "Task Progress", template: "wathet" };
+      return { title: zh ? "执行中" : "Running", template: "turquoise" };
     case "task_running":
       return { title: zh ? "执行中" : "Running", template: "turquoise" };
     case "task_finished":

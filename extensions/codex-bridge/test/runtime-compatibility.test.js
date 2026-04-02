@@ -3683,3 +3683,28 @@ test("runtime/protocol/command_surface/doctor: doctor reports concrete runtime r
   assert.match(replies[0], /Feishu 凭据：已就绪/);
   assert.match(replies[0], /Gateway：正常/);
 });
+
+test("runtime/protocol/presentation: progress and running updates keep the same running card style", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-card-style-stable-"));
+  const { bridge } = await createBridgeHarness(tempRoot);
+
+  const progressReply = bridge.prepareReply({
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-1",
+    renderHint: "task_progress",
+    text: "任务 task-1 进度\n准备中",
+  });
+  const runningReply = bridge.prepareReply({
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-1",
+    renderHint: "task_running",
+    text: "任务 task-1 仍在运行（1m 30s）。",
+  });
+
+  assert.equal(progressReply.card?.header?.title?.content, "执行中");
+  assert.equal(progressReply.card?.header?.template, "turquoise");
+  assert.equal(runningReply.card?.header?.title?.content, "执行中");
+  assert.equal(runningReply.card?.header?.template, "turquoise");
+});
