@@ -438,6 +438,88 @@ test("runtime/persistence/progress: transient reconnect error event stays silent
   }
 });
 
+test("runtime/persistence/progress: router stderr noise does not overwrite the last visible status hint", async () => {
+  const { CodexBridge, __activeTasks } = await import("../index.js");
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-progress-router-noise-"));
+  const bridge = new CodexBridge(createFakeApi(tempRoot));
+
+  const senderId = "user-progress-router-noise";
+  const timestamp = "2026-03-24T07:00:00.000Z";
+  const taskId = "task-progress-router-noise";
+  const runId = "run-progress-router-noise";
+  const runDir = path.join(bridge.settings.runsRoot, runId);
+  await fs.mkdir(runDir, { recursive: true });
+
+  const task = createTaskRecord({
+    taskId,
+    locale: "zh-CN",
+    senderId,
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-1",
+    cwd: tempRoot,
+    mode: "new",
+    sessionId: null,
+    status: "running",
+    currentRunId: runId,
+    lastRunId: runId,
+    prompt: "继续推进",
+    createdAt: timestamp,
+    startedAt: timestamp,
+    updatedAt: timestamp,
+    lastStatusHint: "run.interrupted",
+  });
+  const run = createRunRecord({
+    runId,
+    taskId,
+    locale: "zh-CN",
+    senderId,
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-1",
+    cwd: tempRoot,
+    mode: "new",
+    sessionId: null,
+    status: "running",
+    prompt: "继续推进",
+    createdAt: timestamp,
+    startedAt: timestamp,
+    updatedAt: timestamp,
+    stdoutLogPath: path.join(runDir, "stdout.jsonl"),
+    stderrLogPath: path.join(runDir, "stderr.log"),
+    lastMessagePath: path.join(runDir, "last-message.txt"),
+    runDir,
+    beforeSessions: new Set(),
+    lastStatusHint: "run.interrupted",
+  });
+
+  __activeTasks.set(senderId, {
+    task,
+    run,
+    child: {
+      kill() {},
+    },
+    heartbeatTimer: null,
+    sessionPollTimer: null,
+    stdoutBuffer: "",
+    stderrBuffer: "",
+    stopping: false,
+  });
+
+  try {
+    await bridge.handleStderr(
+      senderId,
+      Buffer.from(
+        '2026-03-31T06:16:46.460505Z ERROR codex_core::tools::router: error=exec_command failed for /bin/bash -lc "nvidia-smi": CreateProcess { message: "Codex(Sandbox(...)" }\n',
+      ),
+    );
+    assert.equal(__activeTasks.get(senderId)?.task.lastStatusHint ?? null, "run.interrupted");
+    assert.equal(__activeTasks.get(senderId)?.run.lastStatusHint ?? null, "run.interrupted");
+  } finally {
+    __activeTasks.delete(senderId);
+  }
+});
+
 test("runtime/persistence/heartbeat: same bucket and same status does not spam", async () => {
   const { CodexBridge, __activeTasks } = await import("../index.js");
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-heartbeat-dedupe-"));

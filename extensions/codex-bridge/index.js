@@ -3703,7 +3703,12 @@ function uniqueStrings(items) {
 
 function looksLikeBenignCodexWarning(line) {
   const lower = line.toLowerCase();
+  const isRouterExecNoise =
+    lower.includes("codex_core::tools::router") &&
+    lower.includes("exec_command failed") &&
+    lower.includes("createprocess");
   return (
+    isRouterExecNoise ||
     lower.includes("failed to delete shell snapshot") ||
     lower.includes("proceeding, even though we could not update path") ||
     lower.includes("state db discrepancy during") ||
