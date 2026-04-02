@@ -1374,6 +1374,60 @@ test("runtime/protocol/input: interrupted awaiting_input tasks accept plain text
   assert.equal(queued[0].prompt, "继续帮我总结 README");
 });
 
+test("runtime/protocol/continuity: missing activeTaskId auto-recovers from lastTaskId and keeps the same task lane", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-last-task-recover-"));
+  const { bridge, replies } = await createBridgeHarness(tempRoot);
+  const queued = [];
+  bridge.queueOrStartTask = async (params) => {
+    queued.push({ cwd: params.cwd, mode: params.mode, prompt: params.prompt, taskId: params.existingTask?.taskId ?? null });
+  };
+
+  const task = createTaskRecord({
+    taskId: "task-last-recover",
+    locale: "zh-CN",
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-old",
+    cwd: tempRoot,
+    mode: "new",
+    status: "awaiting_input",
+    currentRunId: null,
+    lastRunId: "run-old",
+    prompt: "旧任务",
+    createdAt: "2026-03-24T08:00:00.000Z",
+    updatedAt: "2026-03-24T08:00:00.000Z",
+  });
+  const profile = {
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    defaultCwd: tempRoot,
+    lastTaskId: task.taskId,
+    updatedAt: "2026-03-24T08:00:00.000Z",
+  };
+
+  await bridge.saveTask(task);
+  await bridge.saveProfile(profile);
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-continue",
+    text: "继续推进这条任务",
+  });
+
+  const persistedProfile = await bridge.loadProfile("user-1", null);
+  assert.equal(replies.length, 0);
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].taskId, "task-last-recover");
+  assert.equal(queued[0].mode, "new");
+  assert.equal(persistedProfile.activeTaskId, "task-last-recover");
+  assert.equal(persistedProfile.lastTaskId, "task-last-recover");
+});
+
 test("runtime/protocol/status: status output hides internal bridge event hints", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-status-hints-"));
   const { bridge } = await createBridgeHarness(tempRoot);

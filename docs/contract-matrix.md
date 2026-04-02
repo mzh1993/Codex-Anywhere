@@ -37,7 +37,7 @@ Field constraints:
 
 | contract_id | top_level_source | rule | visible_to_user | platform | required_tests | notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| CT-001 | v1:执行模型 | On gateway interruption, task continuity remains on the same active task lane; next plain text continues that task. | both | cross-platform | persistence, continuity, runtime_compat | Proof: `runtime/protocol/restart:*`, `protocol/persistence/task: gateway-stop interruption preserves task continuity` |
+| CT-001 | v1:执行模型 | On gateway interruption, task continuity remains on the same active task lane; next plain text continues that task. If `activeTaskId` is missing but `lastTaskId` still points to an active task, bridge auto-recovers the continuity lane. | both | cross-platform | persistence, continuity, runtime_compat | Proof: `runtime/protocol/restart:*`, `protocol/persistence/task: gateway-stop interruption preserves task continuity`, `runtime/protocol/continuity: missing activeTaskId auto-recovers from lastTaskId and keeps the same task lane` |
 | CT-002 | v1:执行模型 | `before_reset` must clear bridge continuity lane; next plain text starts fresh lane. | both | cross-platform | runtime_compat | Proof: `runtime/protocol/reset:*` |
 | CT-003 | v1:执行模型 | Approval completion starts a new run on the same task; it must not resume the blocked run. | both | cross-platform | routing, task_model, runtime_compat | Proof: `protocol/transition/approval:*`, `runtime/protocol/approval:*` |
 

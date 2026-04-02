@@ -2344,11 +2344,20 @@ export class CodexBridge {
     }
 
     const currentProfile = profile ?? (await this.loadProfile(senderId, null));
-    if (!currentProfile?.activeTaskId) return null;
+    const profileActiveTaskId = normalizeText(currentProfile?.activeTaskId);
+    const profileLastTaskId = normalizeText(currentProfile?.lastTaskId);
+    let candidateTaskId = profileActiveTaskId;
+    let recoveredFromLastTask = false;
+    if (!candidateTaskId && profileLastTaskId) {
+      candidateTaskId = profileLastTaskId;
+      recoveredFromLastTask = true;
+    }
+    if (!candidateTaskId) return null;
 
-    let task = await this.readTask(currentProfile.activeTaskId);
+    let task = await this.readTask(candidateTaskId);
     if (!task) {
-      delete currentProfile.activeTaskId;
+      if (profileActiveTaskId) delete currentProfile.activeTaskId;
+      if (recoveredFromLastTask) delete currentProfile.lastTaskId;
       if (currentProfile.pendingApprovalToken) delete currentProfile.pendingApprovalToken;
       currentProfile.updatedAt = new Date().toISOString();
       await this.saveProfile(currentProfile);
@@ -2379,9 +2388,17 @@ export class CodexBridge {
         if (recovered.run) await this.saveRun(recovered.run);
       }
 
-    if (isActiveTaskStatus(task.status)) return task;
+    if (isActiveTaskStatus(task.status)) {
+      if (recoveredFromLastTask && currentProfile.activeTaskId !== task.taskId) {
+        currentProfile.activeTaskId = task.taskId;
+        currentProfile.lastTaskId = task.taskId;
+        currentProfile.updatedAt = new Date().toISOString();
+        await this.saveProfile(currentProfile);
+      }
+      return task;
+    }
 
-    delete currentProfile.activeTaskId;
+    if (currentProfile.activeTaskId === task.taskId) delete currentProfile.activeTaskId;
     if (currentProfile.pendingApprovalToken === task.approvalToken) {
       delete currentProfile.pendingApprovalToken;
     }
