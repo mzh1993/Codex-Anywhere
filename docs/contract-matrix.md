@@ -45,7 +45,7 @@ Field constraints:
 
 | contract_id | top_level_source | rule | visible_to_user | platform | required_tests | notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| OB-001 | v1:执行模型 + 状态协议 | Long-running execution must keep one progress card and refresh within bounded silence (no 30s card spam). | both | cross-platform | persistence, presentation, runtime_compat | Proof: `runtime/persistence/heartbeat:*`, `runtime/protocol/presentation:*` |
+| OB-001 | v1:执行模型 + 状态协议 | Long-running execution must keep one progress card and refresh within bounded silence (no 30s card spam). | both | cross-platform | persistence, presentation, runtime_compat | Proof: `runtime/persistence/heartbeat:*`, `runtime/protocol/presentation:*`; known stderr router noise should not overwrite the last visible status hint (`runtime/persistence/progress: router stderr noise does not overwrite the last visible status hint`). |
 | OB-002 | v1:执行模型 | A new run on an existing task must create a fresh progress card anchored to the latest inbound message. | both | cross-platform | runtime_compat, presentation | Proof: `runtime/protocol/presentation: a new run on an existing task starts a fresh progress card on the latest inbound message` |
 | OB-003 | v1:状态协议 | Finish must update existing progress card instead of emitting duplicate lifecycle cards. | user-visible | cross-platform | runtime_compat, presentation | Proof: `runtime/protocol/presentation: finish updates the existing progress card instead of sending a second lifecycle card` |
 
