@@ -42,6 +42,9 @@ Windows 托管策略（默认）：优先 `NSSM` 注册服务；若未安装 `NS
 - 当前传输壳：OpenClaw
 - 当前稳定交互：文本、状态、审批
 - 自然语言是主路径；显式启动持续会话时再使用 `/codex ...`
+- 当前运行模式：
+  - `secure_linux`（默认）：安全优先，审批策略保持严格
+  - `native_windows_fast`：体验优先，允许在显式原生命令面下降低审批负担（仍保留审计）
 - bridge 只在显式 `/codex ...` 启动面，或自有审批 / 控制面闭环里做最薄 gate；普通文本语义默认仍归 `Codex`
 - paired bridge 私聊的 Full Access 现按 DM 级状态记住：一旦显式高权限获批，后续任务默认沿用，直到显式降权或 reset
 - 这里的“Full Access”只表示 bridge 会默认按高权限方式启动 `codex exec`；宿主 GPU / systemd / 设备可见性仍取决于当前运行时
@@ -49,6 +52,7 @@ Windows 托管策略（默认）：优先 `NSSM` 注册服务；若未安装 `NS
 - 若用户表面显示“新会话 / reset 完成”，执行层也必须真地切到新的 task / session lane，而不是只换聊天壳
 - 当前 reset 对齐依赖 OpenClaw 官方 `before_reset` 信号来清 lane，不靠 bridge 猜 `/new` / `/reset` 文本
 - 在这条 paired bridge 私聊表面，历史顶层 `/new` / `/reset` 已关闭；显式新任务请使用 `/codex --cd ...`，显式续写请使用 `/codex resume ...`
+- 历史 `/codex` 兼容命令（如 `help/status/abort/approve/cwd/pwd/continue`）已关闭执行，统一回到最短 native-first 指引
 
 它的职责是把远程输入、状态回传和审批动作接到本机 `codex exec`，而不是扩展成一个通用 IM 平台或重新封装一套新的 Codex 主交互语义。`/codex doctor` 当前用于输出真实运行健康摘要（`Codex CLI`、`bwrap`、隔离 Feishu 凭据、gateway）。手机远程主路径收口为：显式启动持续会话，然后继续用普通文本和 `Codex` 对话。
 
@@ -88,3 +92,4 @@ Windows 托管策略（默认）：优先 `NSSM` 注册服务；若未安装 `NS
 - 若本次变更涉及行为语义（边界/连续性/可观测性/命令面/跨平台语义），需在同一改动同步更新 `docs/contract-matrix.md`
 - CI 会执行 `scripts/review/check-contract-matrix.sh`：当核心行为语义文件改动且未同步更新 `docs/contract-matrix.md` 时会失败
 - 体验回归一键入口：`scripts/review/run-experience-regression.sh`
+- 体验回归可选全量模式：`RUN_FULL=1 scripts/review/run-experience-regression.sh`（含超时防挂尾）
