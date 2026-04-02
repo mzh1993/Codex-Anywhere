@@ -717,3 +717,81 @@ test("runtime/persistence/progress: repeated same visible hint is deduped and do
   assert.equal(replies.length, 1);
   assert.equal(task.lastStatusSentHint, "上一轮执行中断，请直接说明要继续做什么");
 });
+
+test("runtime/persistence/heartbeat: running text stays compact and heartbeat hint is truncated for stable card length", async () => {
+  const { CodexBridge, __activeTasks } = await import("../index.js");
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-heartbeat-compact-text-"));
+  const bridge = new CodexBridge(createFakeApi(tempRoot));
+  const replies = [];
+  bridge.upsertProgressReply = async (_task, payload) => {
+    replies.push(payload);
+  };
+
+  const senderId = "user-heartbeat-compact";
+  const now = Date.now();
+  const startedAt = new Date(now - 5 * 60 * 1000).toISOString();
+  const longHint =
+    "这是一个非常长的运行状态提示，用于验证心跳卡片里的最近状态文案会被截短，避免长任务执行期间文本长度持续抖动并影响可读性。";
+  const task = createTaskRecord({
+    taskId: "task-heartbeat-compact",
+    locale: "zh-CN",
+    senderId,
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-1",
+    cwd: tempRoot,
+    mode: "new",
+    status: "running",
+    currentRunId: "run-heartbeat-compact",
+    lastRunId: "run-heartbeat-compact",
+    prompt: "继续推进",
+    createdAt: startedAt,
+    startedAt,
+    updatedAt: startedAt,
+    lastStatusHint: longHint,
+    lastHeartbeatAtMs: now - 2 * 60 * 1000,
+  });
+  const run = createRunRecord({
+    runId: "run-heartbeat-compact",
+    taskId: task.taskId,
+    locale: task.locale,
+    senderId,
+    accountId: task.accountId,
+    conversationId: task.conversationId,
+    messageId: task.messageId,
+    cwd: task.cwd,
+    mode: task.mode,
+    sessionId: null,
+    status: "running",
+    prompt: task.prompt,
+    createdAt: startedAt,
+    startedAt,
+    updatedAt: startedAt,
+    stdoutLogPath: path.join(tempRoot, "stdout.log"),
+    stderrLogPath: path.join(tempRoot, "stderr.log"),
+    lastMessagePath: path.join(tempRoot, "last-message.txt"),
+    runDir: tempRoot,
+    beforeSessions: new Set(),
+  });
+
+  __activeTasks.set(senderId, {
+    task,
+    run,
+    child: { kill() {} },
+    heartbeatTimer: null,
+    sessionPollTimer: null,
+    stdoutBuffer: "",
+    stderrBuffer: "",
+    stopping: false,
+  });
+
+  try {
+    await bridge.maybeSendHeartbeat(senderId);
+    assert.equal(replies.length, 1);
+    assert.match(replies[0].text, /^任务运行中（/);
+    assert.ok(!replies[0].text.includes("task-heartbeat-compact"));
+    assert.ok((task.lastHeartbeatVisibleHint ?? "").length <= 72);
+  } finally {
+    __activeTasks.delete(senderId);
+  }
+});

@@ -1805,7 +1805,7 @@ export class CodexBridge {
     const now = Date.now();
     if (normalizeText(task.lastStatusSentHint) === visibleHint) return;
     if (
-      normalizeText(task.lastHeartbeatVisibleHint) === visibleHint &&
+      normalizeText(task.lastHeartbeatVisibleHint) === compactHeartbeatVisibleHint(visibleHint) &&
       Date.parse(task.startedAt) > 0 &&
       now - task.lastHeartbeatAtMs < resolveHeartbeatIntervalMs(this.settings.heartbeatMs, now - Date.parse(task.startedAt))
     ) {
@@ -1835,13 +1835,14 @@ export class CodexBridge {
       if (now - runtime.task.lastHeartbeatAtMs < heartbeatIntervalMs) return;
       const elapsed = formatElapsed(runtime.task.startedAt);
       const visibleHint = getUserVisibleStatusHint(this.settings.locale, runtime.task.lastStatusHint);
+      const compactVisibleHint = compactHeartbeatVisibleHint(visibleHint);
       runtime.task.lastHeartbeatAtMs = now;
       const heartbeatBucket = resolveHeartbeatBucket(elapsedMs);
       runtime.task.lastHeartbeatBucket = heartbeatBucket;
-      runtime.task.lastHeartbeatVisibleHint = visibleHint;
+      runtime.task.lastHeartbeatVisibleHint = compactVisibleHint;
       runtime.task.updatedAt = new Date().toISOString();
       await this.saveTask(runtime.task);
-      const suffix = visibleHint ? `\n${this.text.lastLabel}: ${visibleHint}` : "";
+      const suffix = compactVisibleHint ? `\n${this.text.lastLabel}: ${compactVisibleHint}` : "";
       await this.upsertProgressReply(runtime.task, {
         accountId: runtime.task.accountId,
         conversationId: runtime.task.conversationId,
@@ -3571,6 +3572,14 @@ function resolveHeartbeatBucket(elapsedMs) {
   if (elapsedMs >= 3 * 60 * 1000) return "t3m-10m";
   if (elapsedMs >= 60 * 1000) return "t1m-3m";
   return "t0-1m";
+}
+
+function compactHeartbeatVisibleHint(hint) {
+  const normalized = normalizeText(hint);
+  if (!normalized) return "";
+  const maxLength = 72;
+  if (normalized.length <= maxLength) return normalized;
+  return truncate(normalized, maxLength);
 }
 
 function truncate(text, maxLength) {
