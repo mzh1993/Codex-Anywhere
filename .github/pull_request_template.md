@@ -16,8 +16,10 @@ Does this change affect any of the following?
 - task / execution semantics
 - approval semantics
 - recovery semantics
+- command surface / observability / cross-platform semantics
 
 If yes, explain exactly how.
+If yes, also confirm `docs/contract-matrix.md` was updated in the same PR.
 
 ## Verification
 

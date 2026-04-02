@@ -85,3 +85,4 @@ Windows 托管策略（默认）：优先 `NSSM` 注册服务；若未安装 `NS
 - 本地推送前由 `pre-push` 自动执行 `repo` 扫描
 - GitHub Actions 会在 `push/pull_request` 执行 `repo + history` 双层扫描
 - 若本次变更涉及行为语义（边界/连续性/可观测性/命令面/跨平台语义），需在同一改动同步更新 `docs/contract-matrix.md`
+- CI 会执行 `scripts/review/check-contract-matrix.sh`：当核心行为语义文件改动且未同步更新 `docs/contract-matrix.md` 时会失败
