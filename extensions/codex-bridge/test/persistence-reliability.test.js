@@ -680,3 +680,40 @@ test("runtime/persistence/heartbeat: unchanged long-running status still refresh
     __activeTasks.delete(senderId);
   }
 });
+
+test("runtime/persistence/progress: repeated same visible hint is deduped and does not spam task_progress cards", async () => {
+  const { CodexBridge } = await import("../index.js");
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-progress-dedupe-"));
+  const bridge = new CodexBridge(createFakeApi(tempRoot));
+  const replies = [];
+  bridge.upsertProgressReply = async (_task, payload) => {
+    replies.push(payload);
+  };
+
+  const startedAt = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+  const task = createTaskRecord({
+    taskId: "task-progress-dedupe",
+    locale: "zh-CN",
+    senderId: "user-progress-dedupe",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-1",
+    cwd: tempRoot,
+    mode: "new",
+    status: "running",
+    currentRunId: "run-progress-dedupe",
+    lastRunId: "run-progress-dedupe",
+    prompt: "继续推进",
+    createdAt: startedAt,
+    startedAt,
+    updatedAt: startedAt,
+    lastStatusSentAtMs: 0,
+    lastStatusSentHint: null,
+  });
+
+  await bridge.maybeSendStatusHint(task, "run.interrupted");
+  await bridge.maybeSendStatusHint(task, "run.interrupted");
+
+  assert.equal(replies.length, 1);
+  assert.equal(task.lastStatusSentHint, "上一轮执行中断，请直接说明要继续做什么");
+});

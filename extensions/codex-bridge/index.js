@@ -1800,10 +1800,20 @@ export class CodexBridge {
   }
 
   async maybeSendStatusHint(task, hint) {
-    if (!getUserVisibleStatusHint(this.settings.locale, hint)) return;
+    const visibleHint = getUserVisibleStatusHint(this.settings.locale, hint);
+    if (!visibleHint) return;
     const now = Date.now();
+    if (normalizeText(task.lastStatusSentHint) === visibleHint) return;
+    if (
+      normalizeText(task.lastHeartbeatVisibleHint) === visibleHint &&
+      Date.parse(task.startedAt) > 0 &&
+      now - task.lastHeartbeatAtMs < resolveHeartbeatIntervalMs(this.settings.heartbeatMs, now - Date.parse(task.startedAt))
+    ) {
+      return;
+    }
     if (now - task.lastStatusSentAtMs < this.settings.statusThrottleMs) return;
     task.lastStatusSentAtMs = now;
+    task.lastStatusSentHint = visibleHint;
     task.updatedAt = new Date().toISOString();
     await this.saveTask(task);
     await this.upsertProgressReply(task, {

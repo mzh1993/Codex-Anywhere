@@ -33,6 +33,7 @@ export function createTaskRecord(input) {
     finishedAt: input.finishedAt ?? null,
     lastStatusHint: input.lastStatusHint ?? null,
     lastStatusSentAtMs: input.lastStatusSentAtMs ?? 0,
+    lastStatusSentHint: input.lastStatusSentHint ?? null,
     lastHeartbeatAtMs: input.lastHeartbeatAtMs ?? 0,
     progressMessageId: input.progressMessageId ?? null,
     lastHeartbeatBucket: input.lastHeartbeatBucket ?? null,
