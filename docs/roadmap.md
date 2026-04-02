@@ -30,6 +30,7 @@
 - `routing` 与 `runtime-control-plane` 测试已开始从 prompt 变体穷举，收向 lane contract 与 fallback contract 的主保护。
 - `/codex doctor` 已从最小入口升级为真实健康摘要：会汇总 `Codex CLI`、`bwrap`、隔离 Feishu 凭据与 gateway 状态。
 - 契约矩阵已进入开发治理门禁：PR 模板已要求语义变更时同步说明矩阵更新，CI 新增 `contract-matrix-guard` 自动校验核心语义文件变更与矩阵联动。
+- 体验回归清单已固定：新增 `docs/experience-regression-checklist.md` 与一键脚本 `scripts/review/run-experience-regression.sh`，把连续性/审批/重启恢复/长任务观测收敛成固定回归条目。
 
 ## 未落地
 

@@ -20,6 +20,7 @@ Does this change affect any of the following?
 
 If yes, explain exactly how.
 If yes, also confirm `docs/contract-matrix.md` was updated in the same PR.
+If yes, confirm `scripts/review/run-experience-regression.sh` was run and summarize the result.
 
 ## Verification
 

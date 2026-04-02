@@ -68,6 +68,7 @@ Windows 托管策略（默认）：优先 `NSSM` 注册服务；若未安装 `NS
 - `SECURITY_MODEL.md`：安全边界与隔离模型
 - `docs/feishu-codex-bridge-v1.md`：当前 Feishu Bridge V1 协议
 - `docs/contract-matrix.md`：顶层约束到测试映射的契约矩阵（仅开发治理层）
+- `docs/experience-regression-checklist.md`：连续性 / 审批 / 重启恢复 / 长任务观测体验回归清单
 - `docs/product-north-star.md`：产品北极星与第一原则
 - `docs/product-decision-baseline.md`：内部决策基线
 - `docs/roadmap.md`：能力缺口优先级路线图
@@ -86,3 +87,4 @@ Windows 托管策略（默认）：优先 `NSSM` 注册服务；若未安装 `NS
 - GitHub Actions 会在 `push/pull_request` 执行 `repo + history` 双层扫描
 - 若本次变更涉及行为语义（边界/连续性/可观测性/命令面/跨平台语义），需在同一改动同步更新 `docs/contract-matrix.md`
 - CI 会执行 `scripts/review/check-contract-matrix.sh`：当核心行为语义文件改动且未同步更新 `docs/contract-matrix.md` 时会失败
+- 体验回归一键入口：`scripts/review/run-experience-regression.sh`
