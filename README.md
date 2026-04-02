@@ -66,6 +66,15 @@ Windows 托管策略（默认）：优先 `NSSM` 注册服务；若未安装 `NS
 - 可选参数：`--model <model>` `--reasoning <level>` `--ask-for-approval <policy>`
 - 忘记命令时：发送 `/codex` 或 `/codex help`（两者返回同一份短速查）
 
+## 安装后自检与常用运维
+
+- Feishu 侧先发：`/codex doctor`
+- Linux 侧看服务状态：`systemctl --user status openclaw-codex-feishu.service`
+- Linux 侧看网关状态：`./scripts/bootstrap-codex-feishu.sh gateway-status`
+- Linux 侧重启服务：`systemctl --user restart openclaw-codex-feishu.service`
+- 若刚安装后无响应，先看：`.isolated/codex-feishu/state/install-health.json`
+- Windows 默认是托管模式（`NSSM` 或计划任务）；优先重新执行一次 `.\scripts\install.ps1` 完成修复与重建
+
 ## 仓库内容
 
 - `scripts/bootstrap-codex-feishu.sh`：安装隔离运行时、渲染配置、执行预检、启动 gateway
