@@ -451,7 +451,7 @@ test("allow/read/discussion: representative doc discussion prompts stay allowed"
     "summarize how sudo works in the Linux admin notes",
     "summarize the policy boundary section in docs/feishu-codex-bridge-v1.md",
     "summarize the Docker usage notes in README.md",
-    "summarize the git push workflow in CONTRIBUTING.md",
+    "summarize the git push workflow in README.md",
     "summarize the SSH setup guide in docs/setup.md",
     "summarize the cron setup notes in ops.md",
     "explain why openclaw-codex-feishu.service3 is a strange unit name",

@@ -76,7 +76,7 @@ git commit -m "docs: add contract matrix"
 
 - [ ] **Step 1: Add the matrix to the README reading order**
 
-Update the “继续阅读” / repo positioning sections so contributors see `docs/contract-matrix.md` as a first-class governance artifact.
+Update the “继续阅读” / repo positioning sections so readers see `docs/contract-matrix.md` as a first-class governance artifact.
 
 - [ ] **Step 2: Add a V1 protocol note that behavior-changing work must update the matrix**
 
@@ -168,7 +168,7 @@ git commit -m "docs: map initial contracts to bridge test families"
 Prefer repo-local guidance first:
 
 - `AGENTS.md`
-- contributor docs
+- repo docs
 - optional PR template only if one already fits the repo workflow
 
 - [ ] **Step 2: Add a minimal checklist line, not a new process framework**
@@ -210,7 +210,7 @@ Run:
 rg -n "contract matrix|docs/contract-matrix.md" README.md docs/feishu-codex-bridge-v1.md AGENTS.md docs/contract-matrix.md
 ```
 
-Expected: the matrix is referenced from contributor-facing guidance and protocol guidance.
+Expected: the matrix is referenced from repo guidance and protocol guidance.
 
 - [ ] **Step 2: Re-read the matrix against the hard boundary**
 
