@@ -6,11 +6,12 @@
 
 Every contract row must use this shape:
 
-| contract_id | top_level_source | rule | visible_to_user | platform | required_tests | notes |
-| --- | --- | --- | --- | --- | --- | --- |
+| contract_id | top_level_source | rule | status | visible_to_user | platform | required_tests | notes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
 
 Field constraints:
 
+- `status`: `active` | `future`
 - `visible_to_user`: `user-visible` | `internal-state` | `both`
 - `platform`: `cross-platform` | `linux-only` | `windows-only` | `allowed-diff`
 - `required_tests`: comma-separated families (for example `policy`, `routing`, `persistence`, `presentation`, `continuity`, `runtime_compat`)
@@ -19,55 +20,66 @@ Field constraints:
 
 ### Product Boundary
 
-| contract_id | top_level_source | rule | visible_to_user | platform | required_tests | notes |
-| --- | --- | --- | --- | --- | --- | --- |
-| PB-001 | product-north-star + v1:/codex 命令面 | Ordinary text remains Codex-owned; bridge must not claim ordinary text as bridge command semantics. | both | cross-platform | routing, runtime_compat | Proof: `runtime/protocol/plain_text:*`, `runtime/protocol/plain_text/protected_root_mentions:*` |
-| PB-002 | v1:/codex 命令面 | Bridge gating only applies on explicit `/codex ...` entry or bridge-owned approval/control loops. | both | cross-platform | routing, runtime_control_plane, runtime_compat | Prevents bridge semantic takeover of general Codex conversation. |
-| PB-003 | v1:/codex 命令面 | Closed legacy slash commands must stay closed and return native-first short hint only. | user-visible | cross-platform | routing, runtime_compat, command_fallback | Proof: `constitution/locale/unknown_command:*`, `runtime/protocol/command_surface/*` |
+| contract_id | top_level_source | rule | status | visible_to_user | platform | required_tests | notes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| PB-001 | product-north-star + v1:/codex 命令面 | Ordinary text remains Codex-owned; bridge must not claim ordinary text as bridge command semantics. | active | both | cross-platform | routing, runtime_compat | Proof: `runtime/protocol/plain_text:*`, `runtime/protocol/plain_text/protected_root_mentions:*` |
+| PB-002 | v1:/codex 命令面 | Bridge gating only applies on explicit `/codex ...` entry or bridge-owned approval/control loops. | active | both | cross-platform | routing, runtime_control_plane, runtime_compat | Prevents bridge semantic takeover of general Codex conversation. |
+| PB-003 | v1:/codex 命令面 | Closed legacy slash commands must stay closed and return native-first short hint only. | active | user-visible | cross-platform | routing, runtime_compat, command_fallback | Proof: `constitution/locale/unknown_command:*`, `runtime/protocol/command_surface/*` |
+| PB-004 | product-north-star + product-decision-baseline | Feishu is the primary closed-loop interaction surface, while Codex remains the only primary interaction object and bridge remains a thin closed-loop connection layer. | future | both | cross-platform | routing, presentation, runtime_compat | Future-governance row for reply-plane work; add runtime proof when closed-loop delivery behavior becomes part of V1/current behavior. |
+| PB-005 | product-decision-baseline + roadmap | Effective task status, final result, and user-consumable outputs should default back to the originating Feishu context; users should not repeatedly specify return targets on the main path. | active | user-visible | cross-platform | presentation, persistence, runtime_compat | Proof: `runtime/protocol/reply_plane: finish keeps the result card concise and sends declared deliverables back to the same origin`, `runtime/protocol/reply_plane: native_windows_fast keeps the same-origin delivery semantics`; current phase remains same-origin-only, while explicit redirect override stays a later audited extension. |
+| PB-006 | product-decision-baseline | Bridge may return task status/results/attachments to the current Feishu context, but must not become a Feishu business assistant or acquire business-object decision authority. | active | both | cross-platform | runtime_compat, presentation | Proof: current runtime reply-plane is limited to finish-card result anchoring plus same-origin native deliverable return; no new bridge command surface or business-object authority is added (`runtime/protocol/reply_plane:*`). |
+| PB-007 | reply-plane-origin-manifest-design + product-decision-baseline | Reply-plane deliverables are declaration-bound: bridge may only return summary and Codex-declared user-consumable outputs, and must not discover deliverables by workspace scan, diff inference, or semantic guess. | active | both | cross-platform | policy, runtime_compat, presentation | Proof: `runtime/exec/reply_plane: prompt requires a delivery manifest without target-address semantics`, `runtime/policy/reply_plane:*`, `runtime/protocol/reply_plane:*` |
 
 ### Permission Boundary
 
-| contract_id | top_level_source | rule | visible_to_user | platform | required_tests | notes |
-| --- | --- | --- | --- | --- | --- | --- |
-| PM-001 | v1:风控 + 最小策略矩阵 | Writes outside `cwd` require approval; reads outside `cwd` can remain allowed. | both | cross-platform | policy, runtime_compat | Proof: `approval/write/outside_cwd:*`, `allow/read/outside_cwd:*` |
-| PM-002 | v1:风控 + 最小策略矩阵 | Protected roots (`~/.openclaw`, `~/.codex`) use thin pre-start approval gate on explicit native entry, not direct denial. | both | cross-platform | policy, runtime_compat | Proof: `runtime/protocol/native_entry/protected_root:*` |
-| PM-003 | v1:运行模式配置 | `native_windows_fast` may intentionally bypass approval for explicit native full-access flags; this is an allowed platform difference. | both | allowed-diff | runtime_compat, codex_exec | Proof: `runtime/protocol/native_entry/permissions:*`, `runtime/exec/windows_fast:*` |
-| PM-004 | v1:执行模型 + /codex 命令面 | DM-scoped remembered `full_access` is inherited only when no explicit safer native sandbox override is present. Explicit `/codex ... --sandbox workspace-write ...` clears the remembered default for that DM; approval grant and `before_reset` remain the other two state transitions. | both | cross-platform | runtime_compat, persistence | Proof: `runtime/protocol/full_access:*` |
+| contract_id | top_level_source | rule | status | visible_to_user | platform | required_tests | notes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| PM-001 | v1:风控 + 最小策略矩阵 | Writes outside `cwd` require approval; reads outside `cwd` can remain allowed. | active | both | cross-platform | policy, runtime_compat | Proof: `approval/write/outside_cwd:*`, `allow/read/outside_cwd:*` |
+| PM-002 | v1:风控 + 最小策略矩阵 | Protected roots (`~/.openclaw`, `~/.codex`) use thin pre-start approval gate on explicit native entry, not direct denial. | active | both | cross-platform | policy, runtime_compat | Proof: `runtime/protocol/native_entry/protected_root:*` |
+| PM-003 | v1:运行模式配置 | `native_windows_fast` may intentionally bypass approval for explicit native full-access flags; this is an allowed platform difference. | active | both | allowed-diff | runtime_compat, codex_exec | Proof: `runtime/protocol/native_entry/permissions:*`, `runtime/exec/windows_fast:*` |
+| PM-004 | v1:执行模型 + /codex 命令面 | DM-scoped remembered `full_access` is inherited only when no explicit safer native sandbox override is present. Explicit `/codex ... --sandbox workspace-write ...` clears the remembered default for that DM; approval grant and `before_reset` remain the other two state transitions. | active | both | cross-platform | runtime_compat, persistence | Proof: `runtime/protocol/full_access:*` |
+| PM-005 | product-decision-baseline + reply-plane-origin-manifest-design | Reply-plane local deliverables should be limited to relative `cwd` paths that remain within task workspace after path normalization; illegal or out-of-bound deliverables must fail closed without blocking summary return. | active | both | cross-platform | policy, presentation, runtime_compat | Proof: `runtime/policy/reply_plane:*`, `runtime/protocol/reply_plane: summary still returns when deliverables fail closed or upload fails` |
 
 ### Continuity
 
-| contract_id | top_level_source | rule | visible_to_user | platform | required_tests | notes |
-| --- | --- | --- | --- | --- | --- | --- |
-| CT-001 | v1:执行模型 | On gateway interruption, task continuity remains on the same active task lane; next plain text continues that task. If `activeTaskId` is missing but `lastTaskId` still points to an active task, bridge auto-recovers the continuity lane. | both | cross-platform | persistence, continuity, runtime_compat | Proof: `runtime/protocol/restart:*`, `protocol/persistence/task: gateway-stop interruption preserves task continuity`, `runtime/protocol/continuity: missing activeTaskId auto-recovers from lastTaskId and keeps the same task lane` |
-| CT-002 | v1:执行模型 | `before_reset` must clear bridge continuity lane; next plain text starts fresh lane. | both | cross-platform | runtime_compat | Proof: `runtime/protocol/reset:*` |
-| CT-003 | v1:执行模型 | Approval completion starts a new run on the same task; it must not resume the blocked run. | both | cross-platform | routing, task_model, runtime_compat | Proof: `protocol/transition/approval:*`, `runtime/protocol/approval:*` |
+| contract_id | top_level_source | rule | status | visible_to_user | platform | required_tests | notes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| CT-001 | v1:执行模型 | On gateway interruption, task continuity remains on the same active task lane; next plain text continues that task. If `activeTaskId` is missing but `lastTaskId` still points to an active task, bridge auto-recovers the continuity lane. | active | both | cross-platform | persistence, continuity, runtime_compat | Proof: `runtime/protocol/restart:*`, `protocol/persistence/task: gateway-stop interruption preserves task continuity`, `runtime/protocol/continuity: missing activeTaskId auto-recovers from lastTaskId and keeps the same task lane` |
+| CT-002 | v1:执行模型 | `before_reset` must clear bridge continuity lane; next plain text starts fresh lane. | active | both | cross-platform | runtime_compat | Proof: `runtime/protocol/reset:*` |
+| CT-003 | v1:执行模型 | Approval completion starts a new run on the same task; it must not resume the blocked run. | active | both | cross-platform | routing, task_model, runtime_compat | Proof: `protocol/transition/approval:*`, `runtime/protocol/approval:*` |
+| CT-004 | product-decision-baseline + reply-plane-origin-manifest-design | Summary return and deliverable return for a task should remain bound to the same stored origin context; they must not drift to a different conversation/thread due to helper defaults, later profile changes, or transport-side fallback. | active | both | cross-platform | persistence, runtime_compat | Proof: `runtime/protocol/reply_plane: finish keeps the result card concise and sends declared deliverables back to the same origin`, `runtime/protocol/reply_plane: native_windows_fast keeps the same-origin delivery semantics` both assert delivery stays bound to the stored task origin rather than shadow run values or helper defaults. |
 
 ### Observability
 
-| contract_id | top_level_source | rule | visible_to_user | platform | required_tests | notes |
-| --- | --- | --- | --- | --- | --- | --- |
-| OB-001 | v1:执行模型 + 状态协议 | Long-running execution must keep one progress card and refresh within bounded silence (no 30s card spam). Progress updates and heartbeat updates must keep the same running-card visual style to avoid status-card drift. Repeated identical visible hints should be deduped to avoid status text jitter. Heartbeat copy should stay compact with bounded hint length to reduce text-length fluctuation. | both | cross-platform | persistence, presentation, runtime_compat | Proof: `runtime/persistence/heartbeat:*`, `runtime/protocol/presentation:*`; known stderr router noise should not overwrite the last visible status hint (`runtime/persistence/progress: router stderr noise does not overwrite the last visible status hint`); progress/heartbeat style consistency (`runtime/protocol/presentation: progress and running updates keep the same running card style`); repeated hint dedupe (`runtime/persistence/progress: repeated same visible hint is deduped and does not spam task_progress cards`); compact heartbeat text (`runtime/persistence/heartbeat: running text stays compact and heartbeat hint is truncated for stable card length`). |
-| OB-002 | v1:执行模型 | A new run on an existing task must create a fresh progress card anchored to the latest inbound message. | both | cross-platform | runtime_compat, presentation | Proof: `runtime/protocol/presentation: a new run on an existing task starts a fresh progress card on the latest inbound message` |
-| OB-003 | v1:状态协议 | Finish must update existing progress card instead of emitting duplicate lifecycle cards. | user-visible | cross-platform | runtime_compat, presentation | Proof: `runtime/protocol/presentation: finish updates the existing progress card instead of sending a second lifecycle card` |
+| contract_id | top_level_source | rule | status | visible_to_user | platform | required_tests | notes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| OB-001 | v1:执行模型 + 状态协议 | Long-running execution must keep one progress card and refresh within bounded silence (no 30s card spam). Progress updates and heartbeat updates must keep the same running-card visual style to avoid status-card drift. Repeated identical visible hints should be deduped to avoid status text jitter. Heartbeat copy should stay compact with bounded hint length to reduce text-length fluctuation. | active | both | cross-platform | persistence, presentation, runtime_compat | Proof: `runtime/persistence/heartbeat:*`, `runtime/protocol/presentation:*`; known stderr router noise should not overwrite the last visible status hint (`runtime/persistence/progress: router stderr noise does not overwrite the last visible status hint`); progress/heartbeat style consistency (`runtime/protocol/presentation: progress and running updates keep the same running card style`); repeated hint dedupe (`runtime/persistence/progress: repeated same visible hint is deduped and does not spam task_progress cards`); compact heartbeat text (`runtime/persistence/heartbeat: running text stays compact and heartbeat hint is truncated for stable card length`). |
+| OB-002 | v1:执行模型 | A new run on an existing task must create a fresh progress card anchored to the latest inbound message. | active | both | cross-platform | runtime_compat, presentation | Proof: `runtime/protocol/presentation: a new run on an existing task starts a fresh progress card on the latest inbound message` |
+| OB-003 | v1:状态协议 | Finish must update existing progress card instead of emitting duplicate lifecycle cards. | active | user-visible | cross-platform | runtime_compat, presentation | Proof: `runtime/protocol/presentation: finish updates the existing progress card instead of sending a second lifecycle card` |
+| OB-004 | v1:状态协议 | Finished result cards must render structured result sections only once: persisted `task.summary` stores only the summary block, while changed files and next steps remain separately extracted and shown without duplicated suffix-path artifacts. | active | both | cross-platform | runtime_compat, presentation, persistence | Proof: `runtime/protocol/finish_summary: finish cards persist only the summary section and keep unique changed files` |
+| OB-005 | reply-plane-origin-manifest-design + product-decision-baseline | In reply-plane delivery, the finish card should remain a concise result anchor: no deliverable counts, no duplicated deliverable descriptions, and only minimal aggregated failure hints; successful deliverables should appear as native Feishu messages in the same origin context. | active | user-visible | cross-platform | presentation, runtime_compat, persistence | Proof: `runtime/protocol/reply_plane: finish keeps the result card concise and sends declared deliverables back to the same origin`, `runtime/protocol/reply_plane: summary still returns when deliverables fail closed or upload fails`, `runtime/presentation/reply_plane: delivery failure summary stays short and aggregated` |
 
 ### Command Surface
 
-| contract_id | top_level_source | rule | visible_to_user | platform | required_tests | notes |
-| --- | --- | --- | --- | --- | --- | --- |
-| CS-001 | v1:/codex 命令面 | `/codex --cd <path> <prompt>` starts a normal task in target cwd, not a pure directory switch command. | both | cross-platform | runtime_compat | Proof: `runtime/protocol/native_entry/new: minimal prompt like entering directory still starts a normal codex task` |
-| CS-002 | v1:/codex 命令面 | `/codex resume <prompt>` is explicit continue entry; missing prompt returns native usage and fail-closed. | both | cross-platform | routing, runtime_compat | Proof: `runtime/protocol/native_entry/resume:*`, `runtime/protocol/native_entry/usage:*` |
-| CS-003 | v1:/codex 命令面 | `/codex doctor` must return concrete runtime readiness summary, not generic/noisy status fallback. | user-visible | cross-platform | runtime_compat, command_fallback | Proof: `runtime/protocol/command_surface/doctor:*`, `constitution/command_fallback/doctor:*` |
+| contract_id | top_level_source | rule | status | visible_to_user | platform | required_tests | notes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| CS-001 | v1:/codex 命令面 | `/codex --cd <path> <prompt>` starts a normal task in target cwd, not a pure directory switch command. | active | both | cross-platform | runtime_compat | Proof: `runtime/protocol/native_entry/new: minimal prompt like entering directory still starts a normal codex task` |
+| CS-002 | v1:/codex 命令面 | `/codex resume <prompt>` is explicit continue entry; missing prompt returns native usage and fail-closed. | active | both | cross-platform | routing, runtime_compat | Proof: `runtime/protocol/native_entry/resume:*`, `runtime/protocol/native_entry/usage:*` |
+| CS-003 | v1:/codex 命令面 | `/codex doctor` must return concrete runtime readiness summary, not generic/noisy status fallback. | active | user-visible | cross-platform | runtime_compat, command_fallback | Proof: `runtime/protocol/command_surface/doctor:*`, `constitution/command_fallback/doctor:*` |
 
 ### Cross-Platform Semantics
 
-| contract_id | top_level_source | rule | visible_to_user | platform | required_tests | notes |
-| --- | --- | --- | --- | --- | --- | --- |
-| XP-001 | v1:运行模式配置 + 执行模型 | Task continuity and restart-recovery contract must hold in both `secure_linux` and `native_windows_fast`. | both | cross-platform | runtime_compat, persistence | Proof: `runtime/protocol/restart:*` includes windows-fast variants. |
-| XP-002 | v1:运行模式配置 | Runtime preflight/compat checks are strict in Linux mode and intentionally bypass bwrap checks in `native_windows_fast`. | both | allowed-diff | runtime_compat, runtime_contract | Difference is allowed but must remain explicit and tested. |
-| XP-003 | v1:/codex 命令面 | Windows path parsing for explicit native start preserves backslashes and quoted-space paths. | user-visible | windows-only | runtime_compat | Proof: `runtime/protocol/native_entry/new: unquoted Windows cwd keeps backslashes intact`, `...quoted Windows cwd with spaces...` |
+| contract_id | top_level_source | rule | status | visible_to_user | platform | required_tests | notes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| XP-001 | v1:运行模式配置 + 执行模型 | Task continuity and restart-recovery contract must hold in both `secure_linux` and `native_windows_fast`. | active | both | cross-platform | runtime_compat, persistence | Proof: `runtime/protocol/restart:*` includes windows-fast variants. |
+| XP-002 | v1:运行模式配置 | Runtime preflight/compat checks are strict in Linux mode and intentionally bypass bwrap checks in `native_windows_fast`. | active | both | allowed-diff | runtime_compat, runtime_contract | Difference is allowed but must remain explicit and tested. |
+| XP-003 | v1:/codex 命令面 | Windows path parsing for explicit native start preserves backslashes and quoted-space paths. | active | user-visible | windows-only | runtime_compat | Proof: `runtime/protocol/native_entry/new: unquoted Windows cwd keeps backslashes intact`, `...quoted Windows cwd with spaces...` |
+| XP-004 | reply-plane-origin-manifest-design + roadmap | Reply-plane origin semantics and manifest semantics should remain consistent across `secure_linux` and `native_windows_fast`; transport differences are allowed, but default same-origin delivery behavior and fail-closed deliverable validation must not diverge by platform. | active | both | cross-platform | runtime_compat, persistence, presentation | Proof: `runtime/protocol/reply_plane: finish keeps the result card concise and sends declared deliverables back to the same origin`, `runtime/protocol/reply_plane: native_windows_fast keeps the same-origin delivery semantics`, `runtime/policy/reply_plane:*` |
 
 ## Review Gate (Lightweight)
 
 - If behavior meaning changes in product boundary, permission boundary, continuity, observability, command surface, or cross-platform semantics, update this matrix in the same change.
+- `active` rows describe current guarded behavior and should carry current proof.
+- `future` rows describe approved governance direction that is not yet part of current V1/runtime behavior; convert them to `active` in the same change that lands proof.
 - For risky rows, proof should cover both user-visible behavior and internal-state correctness where applicable.
 - This gate is review-time only; do not implement runtime contract evaluation in bridge code.

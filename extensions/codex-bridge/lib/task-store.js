@@ -42,6 +42,8 @@ export function createTaskRecord(input) {
     summary: input.summary ?? null,
     changedFiles: input.changedFiles ?? [],
     nextSteps: input.nextSteps ?? [],
+    deliverables: input.deliverables ?? [],
+    deliveryFailureHint: input.deliveryFailureHint ?? null,
     error: input.error ?? null,
   };
 }
@@ -83,6 +85,8 @@ export function createRunRecord(input) {
     summary: input.summary ?? null,
     changedFiles: input.changedFiles ?? [],
     nextSteps: input.nextSteps ?? [],
+    deliverables: input.deliverables ?? [],
+    deliveryFailureHint: input.deliveryFailureHint ?? null,
     error: input.error ?? null,
   };
 }
@@ -141,6 +145,8 @@ export function createDeniedTaskPersistenceRecords(input) {
     summary: null,
     changedFiles: [],
     nextSteps: [],
+    deliverables: [],
+    deliveryFailureHint: null,
     error: null,
   };
   return {
@@ -188,6 +194,8 @@ export function applyRunResultToPersistence({
   summary = null,
   changedFiles = [],
   nextSteps = [],
+  deliverables = [],
+  deliveryFailureHint = null,
   timestamp,
   sessionId = null,
   preserveTaskContinuity = false,
@@ -205,6 +213,8 @@ export function applyRunResultToPersistence({
     summary: summary || null,
     changedFiles,
     nextSteps,
+    deliverables,
+    deliveryFailureHint,
     finishedAt,
     updatedAt: finishedAt,
   });
@@ -234,6 +244,8 @@ export function applyRunResultToPersistence({
     summary: summary || null,
     changedFiles,
     nextSteps,
+    deliverables,
+    deliveryFailureHint,
     error: result.error ?? task.error ?? null,
     finishedAt: isTerminalTaskStatus(transition.taskStatus) ? finishedAt : null,
     updatedAt: finishedAt,

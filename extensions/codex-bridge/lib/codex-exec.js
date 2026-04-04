@@ -39,6 +39,13 @@ export function buildBridgeTaskPrompt({ task, settings = {} }) {
     "If asked about the current model, reasoning effort, or working directory, answer from the execution metadata above.",
     "Treat this as a bounded execution task, not a persona chat.",
     "Return a concise final answer with: summary, changed files, and next steps.",
+    "At the end of the final answer, include a section named `Delivery Manifest` with a JSON code block.",
+    "The `Delivery Manifest` JSON must contain `summary` and may contain `deliverables` plus optional `note`.",
+    "Do not include target addresses or delivery-routing fields.",
+    "Only declare final user-consumable outputs that should come back to the current Feishu origin.",
+    "For `file`, `image`, `audio`, and `video`, only declare paths relative to the working directory.",
+    "Do not declare absolute paths, `..` paths, temporary files, scratch outputs, or undeclared guesses.",
+    "For `link`, use a `url` field.",
     getResponseLanguageInstruction(task.locale ?? settings.locale),
   ];
   if (task.riskLevel === "high") {

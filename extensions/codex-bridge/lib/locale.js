@@ -366,6 +366,10 @@ export function getLocaleText(locale) {
           lines.push("");
           lines.push(task.summary);
         }
+        if (task.deliveryFailureHint) {
+          lines.push("");
+          lines.push(task.deliveryFailureHint);
+        }
         if (task.changedFiles.length > 0) {
           lines.push("");
           lines.push("改动文件：");
@@ -557,13 +561,17 @@ export function getLocaleText(locale) {
       else lines.push(`Codex task failed: ${task.taskId}`);
       lines.push(`cwd: \`${task.cwd}\``);
       if (task.sessionId) lines.push(`session_id: ${task.sessionId}`);
-      if (task.summary) {
-        lines.push("");
-        lines.push(task.summary);
-      }
-      if (task.changedFiles.length > 0) {
-        lines.push("");
-        lines.push("Changed files:");
+    if (task.summary) {
+      lines.push("");
+      lines.push(task.summary);
+    }
+    if (task.deliveryFailureHint) {
+      lines.push("");
+      lines.push(task.deliveryFailureHint);
+    }
+    if (task.changedFiles.length > 0) {
+      lines.push("");
+      lines.push("Changed files:");
         for (const file of task.changedFiles.slice(0, DEFAULT_MAX_CHANGED_FILES)) lines.push(`- \`${file}\``);
       }
       if (task.nextSteps.length > 0) {

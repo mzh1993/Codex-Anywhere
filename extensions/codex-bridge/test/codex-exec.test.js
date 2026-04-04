@@ -123,3 +123,26 @@ test("runtime/exec/prompt_metadata: prompt includes effective model, reasoning, 
   assert.equal(prompt.includes("Working directory: /home/mzh"), true);
   assert.equal(prompt.includes("If asked about the current model, reasoning effort, or working directory, answer from the execution metadata above."), true);
 });
+
+test("runtime/exec/reply_plane: prompt requires a delivery manifest without target-address semantics", () => {
+  const args = buildCodexArgs({
+    task: {
+      mode: "new",
+      cwd: "/repo/worktree",
+      prompt: "整理报告并把最终产物带回来",
+    },
+    settings: { locale: "zh-CN" },
+  });
+
+  const prompt = args.at(-1);
+  assert.equal(prompt.includes("Delivery Manifest"), true);
+  assert.equal(
+    prompt.includes("At the end of the final answer, include a section named `Delivery Manifest` with a JSON code block."),
+    true,
+  );
+  assert.equal(prompt.includes("Do not include target addresses or delivery-routing fields."), true);
+  assert.equal(
+    prompt.includes("For `file`, `image`, `audio`, and `video`, only declare paths relative to the working directory."),
+    true,
+  );
+});

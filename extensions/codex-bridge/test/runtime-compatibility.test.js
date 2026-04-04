@@ -3496,25 +3496,35 @@ test("runtime/protocol/restart: native_windows_fast continues the same task on t
   assert.equal(persistedProfile.activeTaskId, task.taskId);
 });
 
-test("runtime/protocol/finish_summary: changed files are extracted only from the explicit Changed Files section", async () => {
+test("runtime/protocol/finish_summary: finish cards persist only the summary section and keep unique changed files", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-finish-summary-"));
-  const { bridge, replyEvents } = await createBridgeHarness(tempRoot);
+  const { bridge, replyEvents, replies } = await createBridgeHarness(tempRoot);
   const { __activeTasks } = await import("../index.js");
   const runDir = path.join(tempRoot, "run-summary");
   await fs.mkdir(runDir, { recursive: true });
   const lastMessagePath = path.join(runDir, "last-message.txt");
   const stdoutLogPath = path.join(runDir, "stdout.jsonl");
   const stderrLogPath = path.join(runDir, "stderr.log");
-  await fs.writeFile(lastMessagePath, `**Summary**
-- 模型：\`GPT-5.2\`
-- 思考等级（reasoning effort）：\`high\`
-- 工作目录（cwd）：\`/home/mzh\`
+  await fs.writeFile(lastMessagePath, `Summary
+已先优化“标注口径”，暂时不改数据库结构，避免你正在标的数据被打断。
+我新增了一份正式口径文档：\`multimodal-agent-research/specs/2026-04-04-monitor-audio-labeling-guideline-v1.md:1\`
+核心对齐结论已经固化到工作台里：
+大多数监控样本优先标 \`far-field\`
+只有噪声压过人声才标 \`noisy\`
+只有确实听得较清楚才标 \`clear\`
+同时把这套规则同步进了前端提示，避免你边标边回忆口径：
+\`multimodal-agent-research/annotation-workbench/templates/index.html:80\`
+\`multimodal-agent-research/annotation-workbench/static/app.js:83\`
 
-**Changed Files**
-- 无
+Changed Files
+\`multimodal-agent-research/specs/2026-04-04-monitor-audio-labeling-guideline-v1.md:1\`
+\`multimodal-agent-research/annotation-workbench/templates/index.html:80\`
+\`multimodal-agent-research/annotation-workbench/static/app.css:128\`
+\`multimodal-agent-research/annotation-workbench/static/app.js:83\`
 
-**Next Steps**
-- 如需我切到其他目录或检查某个路径占用，告诉我目标路径即可。`);
+Next Steps
+你现在可以继续按这版口径人工标注，尤其是像 \`nas_gray_002\` 这类样本，优先把它视作“远场 + 混说 + 离散对话”场景。
+如果你点头，我下一步就做第二层优化：把现在单一的 \`quality_tag\` 拆成更合理的三段式字段。`);
   await fs.writeFile(stdoutLogPath, "");
   await fs.writeFile(stderrLogPath, "");
 
@@ -3589,13 +3599,448 @@ test("runtime/protocol/finish_summary: changed files are extracted only from the
     });
 
     const persistedTask = await bridge.readTask(task.taskId);
-    assert.deepEqual(persistedTask.changedFiles, []);
+    assert.equal(
+      persistedTask.summary,
+      [
+        "已先优化“标注口径”，暂时不改数据库结构，避免你正在标的数据被打断。",
+        "我新增了一份正式口径文档：`multimodal-agent-research/specs/2026-04-04-monitor-audio-labeling-guideline-v1.md:1`",
+        "核心对齐结论已经固化到工作台里：",
+        "大多数监控样本优先标 `far-field`",
+        "只有噪声压过人声才标 `noisy`",
+        "只有确实听得较清楚才标 `clear`",
+        "同时把这套规则同步进了前端提示，避免你边标边回忆口径：",
+        "`multimodal-agent-research/annotation-workbench/templates/index.html:80`",
+        "`multimodal-agent-research/annotation-workbench/static/app.js:83`",
+      ].join("\n"),
+    );
+    assert.deepEqual(persistedTask.changedFiles, [
+      "multimodal-agent-research/specs/2026-04-04-monitor-audio-labeling-guideline-v1.md:1",
+      "multimodal-agent-research/annotation-workbench/templates/index.html:80",
+      "multimodal-agent-research/annotation-workbench/static/app.css:128",
+      "multimodal-agent-research/annotation-workbench/static/app.js:83",
+    ]);
     assert.deepEqual(persistedTask.nextSteps, [
-      "如需我切到其他目录或检查某个路径占用，告诉我目标路径即可。",
+      "你现在可以继续按这版口径人工标注，尤其是像 `nas_gray_002` 这类样本，优先把它视作“远场 + 混说 + 离散对话”场景。",
+      "如果你点头，我下一步就做第二层优化：把现在单一的 `quality_tag` 拆成更合理的三段式字段。",
     ]);
     assert.equal(replyEvents.length, 1);
     assert.ok(replyEvents[0].card);
     assert.equal(replyEvents[0].card?.header?.title?.content, "本轮结果");
+    assert.equal((replies[0].match(/改动文件：/g) ?? []).length, 1);
+    assert.equal((replies[0].match(/下一步：/g) ?? []).length, 1);
+    assert.doesNotMatch(replies[0], /Changed Files|Next Steps/);
+  } finally {
+    await cleanupActiveTaskRuntimes(__activeTasks);
+  }
+});
+
+test("runtime/protocol/reply_plane: finish keeps the result card concise and sends declared deliverables back to the same origin", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-reply-plane-finish-"));
+  const { bridge, replies } = await createBridgeHarness(tempRoot);
+  const { __activeTasks } = await import("../index.js");
+  const workspace = path.join(tempRoot, "workspace");
+  const reportsDir = path.join(workspace, "reports");
+  const runDir = path.join(tempRoot, "run-reply-plane");
+  await fs.mkdir(reportsDir, { recursive: true });
+  await fs.mkdir(runDir, { recursive: true });
+  const reportPath = path.join(reportsDir, "final-report.pdf");
+  await fs.writeFile(reportPath, "report");
+
+  const lastMessagePath = path.join(runDir, "last-message.txt");
+  const stdoutLogPath = path.join(runDir, "stdout.jsonl");
+  const stderrLogPath = path.join(runDir, "stderr.log");
+  await fs.writeFile(
+    lastMessagePath,
+    `Summary
+已完成报告整理。
+
+Changed Files
+\`notes/internal-plan.md:1\`
+
+Next Steps
+- 如需继续，我可以再补一页执行摘要。
+
+Delivery Manifest
+\`\`\`json
+{
+  "summary": "已完成报告整理。",
+  "deliverables": [
+    { "kind": "file", "path": "reports/final-report.pdf" },
+    { "kind": "link", "url": "https://example.com/final-report" }
+  ]
+}
+\`\`\`
+`,
+  );
+  await fs.writeFile(stdoutLogPath, "");
+  await fs.writeFile(stderrLogPath, "");
+
+  const replyEvents = [];
+  const nativeEvents = [];
+  bridge.safeReply = async (params) => {
+    const prepared = bridge.prepareReply(params);
+    replyEvents.push(prepared);
+    replies.push(renderReplyText(prepared));
+    return { messageId: params.updateMessageId ?? "progress-card-id" };
+  };
+  bridge.sendNativeMediaReply = async (params) => {
+    nativeEvents.push({ type: "media", ...params });
+    return { messageId: "native-media-1" };
+  };
+  bridge.sendNativeTextReply = async (params) => {
+    nativeEvents.push({ type: "text", ...params });
+    return { messageId: "native-text-1" };
+  };
+
+  const task = createTaskRecord({
+    taskId: "task-reply-plane",
+    locale: "zh-CN",
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-origin",
+    cwd: workspace,
+    mode: "resume",
+    status: "running",
+    currentRunId: "run-reply-plane",
+    lastRunId: "run-reply-plane",
+    sessionId: "session-reply-plane",
+    progressMessageId: "progress-card-id",
+    prompt: "整理报告并把最终结果带回来",
+    createdAt: "2026-04-04T00:00:00.000Z",
+    updatedAt: "2026-04-04T00:00:00.000Z",
+  });
+  const run = createRunRecord({
+    runId: "run-reply-plane",
+    taskId: task.taskId,
+    locale: task.locale,
+    senderId: task.senderId,
+    accountId: task.accountId,
+    conversationId: "conv-shadow",
+    messageId: "msg-shadow",
+    cwd: task.cwd,
+    mode: task.mode,
+    sessionId: task.sessionId,
+    prompt: task.prompt,
+    createdAt: "2026-04-04T00:00:00.000Z",
+    updatedAt: "2026-04-04T00:00:00.000Z",
+    stdoutLogPath,
+    stderrLogPath,
+    lastMessagePath,
+    runDir,
+    beforeSessions: new Set(),
+  });
+
+  try {
+    await bridge.saveTask(task);
+    await bridge.saveRun(run);
+    __activeTasks.set("user-1", {
+      task,
+      run,
+      child: { kill() {} },
+      stdoutBuffer: "",
+      stderrBuffer: "",
+      stopping: false,
+      finishing: false,
+      heartbeatTimer: null,
+      sessionPollTimer: null,
+    });
+
+    await bridge.finishTask("user-1", {
+      exitCode: 0,
+      signal: null,
+      error: null,
+    });
+
+    assert.equal(replyEvents.length, 1);
+    assert.equal(replyEvents[0].updateMessageId, "progress-card-id");
+    assert.equal(replyEvents[0].renderHint, "task_finished");
+    assert.doesNotMatch(replies[0], /final-report\.pdf/);
+    assert.doesNotMatch(replies[0], /example\.com\/final-report/);
+
+    assert.equal(nativeEvents.length, 2);
+    assert.deepEqual(
+      nativeEvents.map((entry) => ({
+        type: entry.type,
+        accountId: entry.accountId,
+        conversationId: entry.conversationId,
+        messageId: entry.messageId,
+      })),
+      [
+        {
+          type: "media",
+          accountId: "default",
+          conversationId: "conv-1",
+          messageId: "msg-origin",
+        },
+        {
+          type: "text",
+          accountId: "default",
+          conversationId: "conv-1",
+          messageId: "msg-origin",
+        },
+      ],
+    );
+  } finally {
+    await cleanupActiveTaskRuntimes(__activeTasks);
+  }
+});
+
+test("runtime/protocol/reply_plane: native_windows_fast keeps the same-origin delivery semantics", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-reply-plane-winfast-"));
+  const { bridge, replies } = await createBridgeHarness(tempRoot, {
+    pluginConfig: {
+      runtimeMode: "native_windows_fast",
+    },
+  });
+  const { __activeTasks } = await import("../index.js");
+  const workspace = path.join(tempRoot, "workspace");
+  const reportsDir = path.join(workspace, "reports");
+  const runDir = path.join(tempRoot, "run-reply-plane-winfast");
+  await fs.mkdir(reportsDir, { recursive: true });
+  await fs.mkdir(runDir, { recursive: true });
+  const reportPath = path.join(reportsDir, "final-report.pdf");
+  await fs.writeFile(reportPath, "report");
+
+  const lastMessagePath = path.join(runDir, "last-message.txt");
+  const stdoutLogPath = path.join(runDir, "stdout.jsonl");
+  const stderrLogPath = path.join(runDir, "stderr.log");
+  await fs.writeFile(
+    lastMessagePath,
+    `Summary
+已完成报告整理。
+
+Delivery Manifest
+\`\`\`json
+{
+  "summary": "已完成报告整理。",
+  "deliverables": [
+    { "kind": "file", "path": "reports/final-report.pdf" }
+  ]
+}
+\`\`\`
+`,
+  );
+  await fs.writeFile(stdoutLogPath, "");
+  await fs.writeFile(stderrLogPath, "");
+
+  const replyEvents = [];
+  const nativeEvents = [];
+  bridge.safeReply = async (params) => {
+    const prepared = bridge.prepareReply(params);
+    replyEvents.push(prepared);
+    replies.push(renderReplyText(prepared));
+    return { messageId: params.updateMessageId ?? "progress-card-id" };
+  };
+  bridge.sendNativeMediaReply = async (params) => {
+    nativeEvents.push(params);
+    return { messageId: "native-media-1" };
+  };
+
+  const task = createTaskRecord({
+    taskId: "task-reply-plane-winfast",
+    locale: "zh-CN",
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-origin",
+    cwd: workspace,
+    mode: "resume",
+    status: "running",
+    currentRunId: "run-reply-plane-winfast",
+    lastRunId: "run-reply-plane-winfast",
+    sessionId: "session-reply-plane",
+    progressMessageId: "progress-card-id",
+    prompt: "整理报告并把最终结果带回来",
+    createdAt: "2026-04-04T00:00:00.000Z",
+    updatedAt: "2026-04-04T00:00:00.000Z",
+  });
+  const run = createRunRecord({
+    runId: "run-reply-plane-winfast",
+    taskId: task.taskId,
+    locale: task.locale,
+    senderId: task.senderId,
+    accountId: task.accountId,
+    conversationId: "conv-shadow",
+    messageId: "msg-shadow",
+    cwd: task.cwd,
+    mode: task.mode,
+    sessionId: task.sessionId,
+    prompt: task.prompt,
+    createdAt: "2026-04-04T00:00:00.000Z",
+    updatedAt: "2026-04-04T00:00:00.000Z",
+    stdoutLogPath,
+    stderrLogPath,
+    lastMessagePath,
+    runDir,
+    beforeSessions: new Set(),
+  });
+
+  try {
+    await bridge.saveTask(task);
+    await bridge.saveRun(run);
+    __activeTasks.set("user-1", {
+      task,
+      run,
+      child: { kill() {} },
+      stdoutBuffer: "",
+      stderrBuffer: "",
+      stopping: false,
+      finishing: false,
+      heartbeatTimer: null,
+      sessionPollTimer: null,
+    });
+
+    await bridge.finishTask("user-1", {
+      exitCode: 0,
+      signal: null,
+      error: null,
+    });
+
+    assert.equal(replyEvents.length, 1);
+    assert.equal(replyEvents[0].renderHint, "task_finished");
+    assert.equal(nativeEvents.length, 1);
+    assert.deepEqual(
+      {
+        accountId: nativeEvents[0].accountId,
+        conversationId: nativeEvents[0].conversationId,
+        messageId: nativeEvents[0].messageId,
+      },
+      {
+        accountId: "default",
+        conversationId: "conv-1",
+        messageId: "msg-origin",
+      },
+    );
+  } finally {
+    await cleanupActiveTaskRuntimes(__activeTasks);
+  }
+});
+
+test("runtime/protocol/reply_plane: summary still returns when deliverables fail closed or upload fails", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-reply-plane-failure-"));
+  const { bridge, replies } = await createBridgeHarness(tempRoot);
+  const { __activeTasks } = await import("../index.js");
+  const workspace = path.join(tempRoot, "workspace");
+  const reportsDir = path.join(workspace, "reports");
+  const runDir = path.join(tempRoot, "run-reply-plane-failure");
+  await fs.mkdir(reportsDir, { recursive: true });
+  await fs.mkdir(runDir, { recursive: true });
+  const reportPath = path.join(reportsDir, "final-report.pdf");
+  const imagePath = path.join(reportsDir, "chart.png");
+  await fs.writeFile(reportPath, "report");
+  await fs.writeFile(imagePath, "png");
+
+  const lastMessagePath = path.join(runDir, "last-message.txt");
+  const stdoutLogPath = path.join(runDir, "stdout.jsonl");
+  const stderrLogPath = path.join(runDir, "stderr.log");
+  await fs.writeFile(
+    lastMessagePath,
+    `Summary
+已完成报告整理。
+
+Delivery Manifest
+\`\`\`json
+{
+  "summary": "已完成报告整理。",
+  "deliverables": [
+    { "kind": "file", "path": "reports/final-report.pdf" },
+    { "kind": "image", "path": "reports/chart.png" },
+    { "kind": "file", "path": "/etc/passwd" }
+  ]
+}
+\`\`\`
+`,
+  );
+  await fs.writeFile(stdoutLogPath, "");
+  await fs.writeFile(stderrLogPath, "");
+
+  const replyEvents = [];
+  const nativeEvents = [];
+  bridge.safeReply = async (params) => {
+    const prepared = bridge.prepareReply(params);
+    replyEvents.push(prepared);
+    replies.push(renderReplyText(prepared));
+    return { messageId: params.updateMessageId ?? "progress-card-id" };
+  };
+  bridge.sendNativeMediaReply = async (params) => {
+    nativeEvents.push({ type: "media", ...params });
+    if (params.filePath?.endsWith("chart.png")) throw new Error("upload failed");
+    return { messageId: params.filePath?.endsWith("final-report.pdf") ? "native-media-1" : "native-media-2" };
+  };
+  bridge.sendNativeTextReply = async (params) => {
+    nativeEvents.push({ type: "text", ...params });
+    return { messageId: "native-text-1" };
+  };
+
+  const task = createTaskRecord({
+    taskId: "task-reply-plane-failure",
+    locale: "zh-CN",
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-origin",
+    cwd: workspace,
+    mode: "resume",
+    status: "running",
+    currentRunId: "run-reply-plane-failure",
+    lastRunId: "run-reply-plane-failure",
+    sessionId: "session-reply-plane",
+    progressMessageId: "progress-card-id",
+    prompt: "整理报告并把最终结果带回来",
+    createdAt: "2026-04-04T00:00:00.000Z",
+    updatedAt: "2026-04-04T00:00:00.000Z",
+  });
+  const run = createRunRecord({
+    runId: "run-reply-plane-failure",
+    taskId: task.taskId,
+    locale: task.locale,
+    senderId: task.senderId,
+    accountId: task.accountId,
+    conversationId: task.conversationId,
+    messageId: task.messageId,
+    cwd: task.cwd,
+    mode: task.mode,
+    sessionId: task.sessionId,
+    prompt: task.prompt,
+    createdAt: "2026-04-04T00:00:00.000Z",
+    updatedAt: "2026-04-04T00:00:00.000Z",
+    stdoutLogPath,
+    stderrLogPath,
+    lastMessagePath,
+    runDir,
+    beforeSessions: new Set(),
+  });
+
+  try {
+    await bridge.saveTask(task);
+    await bridge.saveRun(run);
+    __activeTasks.set("user-1", {
+      task,
+      run,
+      child: { kill() {} },
+      stdoutBuffer: "",
+      stderrBuffer: "",
+      stopping: false,
+      finishing: false,
+      heartbeatTimer: null,
+      sessionPollTimer: null,
+    });
+
+    await bridge.finishTask("user-1", {
+      exitCode: 0,
+      signal: null,
+      error: null,
+    });
+
+    assert.equal(replyEvents.length, 2);
+    assert.equal(replyEvents[0].updateMessageId, "progress-card-id");
+    assert.equal(replyEvents[1].updateMessageId, "progress-card-id");
+    assert.match(replies.at(-1), /2 个产物未回传：路径越界、上传失败/);
+
+    assert.equal(nativeEvents.length, 2);
+    assert.equal(nativeEvents[0].filePath?.endsWith("final-report.pdf"), true);
+    assert.equal(nativeEvents[1].filePath?.endsWith("chart.png"), true);
   } finally {
     await cleanupActiveTaskRuntimes(__activeTasks);
   }

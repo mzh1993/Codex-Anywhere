@@ -11,6 +11,7 @@ import { definePluginEntry } from "../../.runtime/openclaw-2026.3.22/node_module
 import {
   editMessageFeishu,
   sendCardFeishu,
+  sendMediaFeishu,
   sendMessageFeishu,
   updateCardFeishu,
 } from "../../.runtime/openclaw-2026.3.22/node_modules/openclaw/dist/extensions/feishu/index.js";
@@ -36,6 +37,11 @@ import {
   classifyOwnedBridgeActionRequest,
   POLICY_DECISIONS,
 } from "./lib/policy.js";
+import {
+  parseDeliveryManifest,
+  summarizeDeliveryFailures,
+  validateDeclaredDeliverables,
+} from "./lib/reply-plane.js";
 import { detectExecutionRuntimeCompatibility } from "./lib/runtime-compatibility.js";
 import { resolveSettings } from "./lib/settings.js";
 import {
@@ -1934,9 +1940,22 @@ export class CodexBridge {
       }
 
       const lastMessage = await readText(run.lastMessagePath);
-      const finalSummary = normalizeText(lastMessage);
-      const changedFiles = extractChangedFiles(finalSummary);
-      const nextSteps = extractNextSteps(finalSummary);
+      const parsedManifest = parseDeliveryManifest(lastMessage);
+      if (parsedManifest.errorCode) {
+        this.api.logger.warn?.(`codex-bridge reply-plane manifest ignored: ${parsedManifest.errorCode}`);
+      }
+      const finalSummary = extractSummarySection(lastMessage) ?? parsedManifest.manifest?.summary ?? null;
+      const changedFiles = extractChangedFiles(lastMessage);
+      const nextSteps = extractNextSteps(lastMessage);
+      const validatedDeliverables = await validateDeclaredDeliverables({
+        cwd: task.cwd,
+        deliverables: parsedManifest.manifest?.deliverables ?? [],
+      });
+      const initialDeliveryFailureHint =
+        summarizeDeliveryFailures({
+          locale: task.locale ?? this.settings.locale,
+          failures: validatedDeliverables.failures,
+        }) || null;
       const persisted = applyRunResultToPersistence({
         task,
         run,
@@ -1947,6 +1966,8 @@ export class CodexBridge {
         summary: finalSummary,
         changedFiles,
         nextSteps,
+        deliverables: [],
+        deliveryFailureHint: initialDeliveryFailureHint,
         sessionId: task.sessionId ?? run.sessionId ?? null,
         preserveTaskContinuity:
           runtime.stopping && !abandonedByReset && shouldPreserveTaskContinuityAfterStop(task.error),
@@ -1988,6 +2009,30 @@ export class CodexBridge {
             renderHint: "task_finished",
             text: this.text.taskFinished({ ...nextTask, runStatus: nextRun.status }),
           });
+          if (validatedDeliverables.accepted.length > 0) {
+            const deliveryResult = await this.deliverReplyPlaneDeliverables(nextTask, validatedDeliverables.accepted);
+            const combinedFailures = [...validatedDeliverables.failures, ...deliveryResult.failures];
+            nextTask.deliverables = deliveryResult.delivered;
+            nextRun.deliverables = deliveryResult.delivered;
+            nextTask.deliveryFailureHint =
+              summarizeDeliveryFailures({
+                locale: nextTask.locale ?? this.settings.locale,
+                failures: combinedFailures,
+              }) || null;
+            nextRun.deliveryFailureHint = nextTask.deliveryFailureHint;
+            nextTask.updatedAt = new Date().toISOString();
+            nextRun.updatedAt = nextTask.updatedAt;
+            await this.saveTask(nextTask);
+            await this.saveRun(nextRun);
+            if (deliveryResult.failures.length > 0) {
+              await this.replyOnTaskCard(nextTask, {
+                accountId: nextTask.accountId,
+                conversationId: nextTask.conversationId,
+                renderHint: "task_finished",
+                text: this.text.taskFinished({ ...nextTask, runStatus: nextRun.status }),
+              });
+            }
+          }
         }
       }
     } catch (error) {
@@ -2228,6 +2273,62 @@ export class CodexBridge {
       this.api.logger.error(`codex-bridge reply failed: ${toErrorText(error)}`);
       return null;
     }
+  }
+
+  async sendNativeMediaReply(params) {
+    const cfg = this.api.runtime.config.loadConfig();
+    return await sendMediaFeishu({
+      cfg,
+      accountId: params.accountId,
+      to: params.conversationId,
+      replyToMessageId: params.messageId || undefined,
+      mediaUrl: params.filePath,
+      mediaLocalRoots: [params.cwd ?? path.dirname(params.filePath)],
+    });
+  }
+
+  async sendNativeTextReply(params) {
+    const cfg = this.api.runtime.config.loadConfig();
+    return await sendMessageFeishu({
+      cfg,
+      accountId: params.accountId,
+      to: params.conversationId,
+      replyToMessageId: params.messageId || undefined,
+      text: params.text,
+    });
+  }
+
+  async deliverReplyPlaneDeliverables(task, deliverables) {
+    const delivered = [];
+    const failures = [];
+    for (const deliverable of Array.isArray(deliverables) ? deliverables : []) {
+      try {
+        if (deliverable.kind === "link") {
+          await this.sendNativeTextReply({
+            accountId: task.accountId,
+            conversationId: task.conversationId,
+            messageId: task.messageId,
+            text: formatReplyPlaneLinkText(deliverable),
+          });
+        } else {
+          await this.sendNativeMediaReply({
+            accountId: task.accountId,
+            conversationId: task.conversationId,
+            messageId: task.messageId,
+            cwd: task.cwd,
+            filePath: deliverable.resolvedPath,
+          });
+        }
+        delivered.push(toPersistedDeliverable(deliverable));
+      } catch (error) {
+        this.api.logger.warn?.(`codex-bridge reply-plane delivery failed: ${toErrorText(error)}`);
+        failures.push({
+          ...deliverable,
+          code: "upload_failed",
+        });
+      }
+    }
+    return { delivered, failures };
   }
 
   async upsertProgressReply(task, reply) {
@@ -3078,6 +3179,22 @@ function requestMessageTarget(params) {
   };
 }
 
+function toPersistedDeliverable(deliverable) {
+  return {
+    kind: normalizeText(deliverable?.kind).toLowerCase(),
+    path: normalizeText(deliverable?.path),
+    url: normalizeText(deliverable?.url),
+    note: normalizeText(deliverable?.note),
+  };
+}
+
+function formatReplyPlaneLinkText(deliverable) {
+  const note = normalizeText(deliverable?.note);
+  const url = normalizeText(deliverable?.url);
+  if (note) return `${note}\n${url}`;
+  return url;
+}
+
 function buildBridgePresentationCard({ locale, renderHint, text }) {
   const normalizedLocale = /^zh(?:[-_].*)?$/i.test(normalizeText(locale)) ? "zh-CN" : "en-US";
   const cardMeta = resolveBridgeCardMeta(normalizedLocale, renderHint);
@@ -3697,32 +3814,26 @@ function formatElapsed(startedAt) {
 
 function extractChangedFiles(text) {
   if (!text) return [];
-  const lines = text.split(/\r?\n/).map((line) => line.trim());
+  const lines = collectNamedSectionLines(text, "changed");
+  if (lines.length === 0) return [];
   const matches = new Set();
-  const patterns = [
-    /`([^`\n]+\.[A-Za-z0-9]+(?::\d+(?::\d+)?)?)`/g,
-    /\b(?:\/|\.{0,2}\/)[^\s`]+?\.[A-Za-z0-9]+\b/g,
-  ];
-  let collecting = false;
   for (const line of lines) {
-    const normalizedLine = normalizeHeadingLine(line);
-    if (!collecting && /^(changed\s+files?|changed\s+file|改动文件|修改文件)\b[:：]?/i.test(normalizedLine)) {
-      collecting = true;
-      continue;
-    }
-    if (!collecting) continue;
-    if (!line) break;
-    if (/^(next(?:\s+steps?)?|下一步|后续建议)\b[:：]?/i.test(normalizedLine)) break;
-    if (/^(?:[-*]\s+)?(?:无|none|n\/a)$/i.test(normalizedLine)) continue;
-    for (const pattern of patterns) {
-      let match;
-      while ((match = pattern.exec(line)) !== null) {
-        const candidate = normalizeText(match[1] ?? match[0]);
-        if (!candidate) continue;
-        if (candidate.length > 200) continue;
+    const normalizedLine = normalizeText(line.replace(/^[-*]\s+/, ""));
+    if (!normalizedLine) continue;
+    if (/^(?:无|none|n\/a)$/i.test(normalizedLine)) continue;
+    const fencedMatches = Array.from(normalizedLine.matchAll(/`([^`\n]+)`/g), (match) => normalizeText(match[1]));
+    if (fencedMatches.length > 0) {
+      for (const candidate of fencedMatches) {
+        if (!candidate || candidate.length > 200) continue;
         matches.add(candidate);
         if (matches.size >= DEFAULT_MAX_CHANGED_FILES) return Array.from(matches);
       }
+      continue;
+    }
+    if (!looksLikeFilePathCandidate(normalizedLine)) continue;
+    matches.add(normalizedLine);
+    if (matches.size >= DEFAULT_MAX_CHANGED_FILES) {
+      return Array.from(matches);
     }
   }
   return Array.from(matches);
@@ -3730,23 +3841,77 @@ function extractChangedFiles(text) {
 
 function extractNextSteps(text) {
   if (!text) return [];
-  const lines = text.split(/\r?\n/).map((line) => line.trim());
+  const lines = collectNamedSectionLines(text, "next");
+  if (lines.length === 0) return [];
   const output = [];
-  let collecting = false;
   for (const line of lines) {
-    const normalizedLine = normalizeHeadingLine(line);
-    if (!collecting && /^(next(?:\s+steps?)?|下一步|后续建议)\b[:：]?/i.test(normalizedLine)) {
-      collecting = true;
-      const cleaned = normalizedLine.replace(/^(next(?:\s+steps?)?|下一步|后续建议)\b[:：]?\s*/i, "").trim();
-      if (cleaned) output.push(cleaned);
-      continue;
-    }
-    if (!collecting) continue;
-    if (!line) break;
+    const normalizedLine = normalizeText(line);
+    if (!normalizedLine) continue;
     if (/^[-*]\s+/.test(normalizedLine)) output.push(normalizedLine.replace(/^[-*]\s+/, "").trim());
-    else if (output.length > 0) break;
+    else output.push(normalizedLine);
   }
   return uniqueStrings(output.filter(Boolean));
+}
+
+function extractSummarySection(text) {
+  if (!text) return null;
+  const explicitSummary = collectNamedSectionLines(text, "summary");
+  if (explicitSummary.length > 0) {
+    return normalizeText(explicitSummary.join("\n")) || null;
+  }
+  const lines = text.split(/\r?\n/);
+  const firstStructuredSectionIndex = lines.findIndex((line) => {
+    const kind = resolveStructuredSectionKind(normalizeHeadingLine(line.trim()));
+    return kind === "changed" || kind === "next" || kind === "manifest";
+  });
+  const leadingText = lines.slice(0, firstStructuredSectionIndex >= 0 ? firstStructuredSectionIndex : lines.length).join("\n");
+  return normalizeText(leadingText) || null;
+}
+
+function collectNamedSectionLines(text, targetKind) {
+  if (!text) return [];
+  const lines = text.split(/\r?\n/);
+  const output = [];
+  let collecting = false;
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+    const normalizedLine = normalizeHeadingLine(trimmed);
+    const kind = resolveStructuredSectionKind(normalizedLine);
+    if (kind) {
+      if (collecting && kind !== targetKind) break;
+      if (kind === targetKind) {
+        collecting = true;
+        const cleaned = stripStructuredSectionHeading(normalizedLine, kind);
+        if (cleaned) output.push(cleaned);
+      }
+      continue;
+    }
+    if (collecting) output.push(trimmed);
+  }
+  return trimSectionLines(output);
+}
+
+function resolveStructuredSectionKind(line) {
+  if (/^(summary|摘要|总结)\b[:：]?/i.test(line)) return "summary";
+  if (/^(changed\s+files?|changed\s+file|改动文件|修改文件)\b[:：]?/i.test(line)) return "changed";
+  if (/^(next(?:\s+steps?)?|下一步|后续建议)\b[:：]?/i.test(line)) return "next";
+  if (/^(delivery\s+manifest|交付清单|回传清单)\b[:：]?/i.test(line)) return "manifest";
+  return null;
+}
+
+function stripStructuredSectionHeading(line, kind) {
+  if (kind === "summary") return line.replace(/^(summary|摘要|总结)\b[:：]?\s*/i, "").trim();
+  if (kind === "changed") return line.replace(/^(changed\s+files?|changed\s+file|改动文件|修改文件)\b[:：]?\s*/i, "").trim();
+  if (kind === "next") return line.replace(/^(next(?:\s+steps?)?|下一步|后续建议)\b[:：]?\s*/i, "").trim();
+  if (kind === "manifest") return line.replace(/^(delivery\s+manifest|交付清单|回传清单)\b[:：]?\s*/i, "").trim();
+  return line.trim();
+}
+
+function trimSectionLines(lines) {
+  const output = [...lines];
+  while (output.length > 0 && !normalizeText(output[0])) output.shift();
+  while (output.length > 0 && !normalizeText(output[output.length - 1])) output.pop();
+  return output;
 }
 
 function normalizeHeadingLine(line) {
@@ -3755,6 +3920,11 @@ function normalizeHeadingLine(line) {
 
 function uniqueStrings(items) {
   return Array.from(new Set(items));
+}
+
+function looksLikeFilePathCandidate(value) {
+  if (!value || value.length > 200) return false;
+  return /(?:^|[\\/])[^\\/\s`]+(?:[\\/][^\\/\s`]+)*\.[A-Za-z0-9]+(?::\d+(?::\d+)?)?$/.test(value) || /^[^/\s`]+\.[A-Za-z0-9]+(?::\d+(?::\d+)?)?$/.test(value);
 }
 
 function looksLikeBenignCodexWarning(line) {
