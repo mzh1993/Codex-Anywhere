@@ -30,6 +30,13 @@
 - 跨平台部署：Linux 与 Windows 都有可落地安装路径  
 - 隔离执行：结合 OpenClaw + runtime 策略约束执行边界  
 
+## 最低基础设施
+
+- Linux 主机的 `/usr/bin/bwrap >= 0.9.0`
+- `codex-cli 0.116.0` 是当前验证基线；当前版本会直接调用系统 `/usr/bin/bwrap`
+- `bootstrap` / `preflight` 会额外执行一次 `codex sandbox linux -- /bin/true` 实探
+- 如果执行环境不满足最低要求，bridge 会在任务启动前直接拒绝，而不是进入假运行态
+
 ## 快速开始
 
 Linux:
