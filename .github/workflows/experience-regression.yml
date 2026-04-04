@@ -1,0 +1,32 @@
+name: experience-regression
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ensure executable
+        run: chmod +x scripts/review/check-contract-matrix.sh scripts/review/run-experience-regression.sh
+
+      - name: Experience regression (pull_request)
+        if: github.event_name == 'pull_request'
+        run: scripts/review/run-experience-regression.sh "${{ github.event.pull_request.base.sha }}...${{ github.sha }}"
+
+      - name: Experience regression (push)
+        if: github.event_name == 'push'
+        run: |
+          if [ "${{ github.event.before }}" = "0000000000000000000000000000000000000000" ]; then
+            scripts/review/run-experience-regression.sh
+          else
+            scripts/review/run-experience-regression.sh "${{ github.event.before }}...${{ github.sha }}"
+          fi

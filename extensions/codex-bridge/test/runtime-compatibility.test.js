@@ -43,6 +43,16 @@ function createFakeApi(stateDir, pluginConfigOverrides = {}) {
   };
 }
 
+async function cleanupActiveTaskRuntimes(activeTaskMap = null) {
+  const taskMap = activeTaskMap ?? (await import("../index.js")).__activeTasks;
+  for (const runtime of taskMap.values()) {
+    if (runtime?.heartbeatTimer) clearInterval(runtime.heartbeatTimer);
+    if (runtime?.sessionPollTimer) clearInterval(runtime.sessionPollTimer);
+    runtime?.child?.kill?.();
+  }
+  taskMap.clear();
+}
+
 function createBridgeHarness(tempRoot, options = {}) {
   const pluginConfig = options.pluginConfig ?? {};
   return import("../index.js").then(({ CodexBridge }) => {
@@ -68,6 +78,10 @@ function renderReplyText(params) {
     .filter(Boolean)
     .join("\n");
 }
+
+test.afterEach(async () => {
+  await cleanupActiveTaskRuntimes();
+});
 
 test("runtime/compat/version: runtime compatibility version parsing accepts 0.9.0 and rejects older versions", async () => {
   const { parseVersionString, isVersionAtLeast } = await import("../lib/runtime-compatibility.js");
@@ -187,6 +201,51 @@ test("runtime/compat/probe: runtime compatibility detection fails when codex san
   assert.equal(sandboxProbeFailure.ok, false);
   assert.equal(sandboxProbeFailure.reasonCode, "sandbox_probe_failed");
   assert.match(sandboxProbeFailure.message, /Unknown option --argv0/);
+});
+
+test("runtime/test_harness: active task cleanup clears timers created by startTask", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-active-task-cleanup-"));
+  const { bridge } = await createBridgeHarness(tempRoot, {
+    pluginConfig: {
+      codexBin: "/bin/true",
+      heartbeatMs: 60_000,
+    },
+  });
+  const { __activeTasks } = await import("../index.js");
+
+  bridge.ensureExecutionRuntimeReady = async () => ({ ok: true });
+  bridge.ensureCodexHome = async () => {};
+  bridge.finishTask = async () => {};
+
+  await bridge.startTask({
+    profile: {
+      senderId: "user-1",
+      accountId: "default",
+      conversationId: "conv-1",
+      defaultCwd: tempRoot,
+      updatedAt: "2026-04-04T00:00:00.000Z",
+    },
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-cleanup",
+    mode: "new",
+    prompt: "检查 cleanup",
+    cwd: tempRoot,
+    senderName: "tester",
+    policyDecision: "allowed",
+    reasonCodes: [],
+    runtimeCheck: { ok: true },
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  const runtime = __activeTasks.get("user-1");
+  assert.ok(runtime?.heartbeatTimer);
+  assert.ok(runtime?.sessionPollTimer);
+
+  await cleanupActiveTaskRuntimes(__activeTasks);
+  assert.equal(runtime.heartbeatTimer?._destroyed, true);
+  assert.equal(runtime.sessionPollTimer?._destroyed, true);
+  assert.equal(__activeTasks.size, 0);
 });
 
 test("runtime/compat/fail_closed: new task start fails closed before creating task state when runtime is incompatible", async () => {
@@ -375,7 +434,7 @@ test("runtime/protocol/approval: explicit native starts still persist a run-scop
   const { __activeTasks } = await import("../index.js");
 
   try {
-    __activeTasks.clear();
+    await cleanupActiveTaskRuntimes(__activeTasks);
 
     await bridge.routeInbound({
       senderId: "user-1",
@@ -406,11 +465,7 @@ test("runtime/protocol/approval: explicit native starts still persist a run-scop
     assert.equal(persistedApproval.approvalGrant.consumedAtMs, null);
     assert.equal(replies.length, 1);
   } finally {
-    const runtime = __activeTasks.get("user-1");
-    if (runtime?.heartbeatTimer) clearInterval(runtime.heartbeatTimer);
-    if (runtime?.sessionPollTimer) clearInterval(runtime.sessionPollTimer);
-    runtime?.child?.kill?.();
-    __activeTasks.clear();
+    await cleanupActiveTaskRuntimes(__activeTasks);
   }
 });
 
@@ -520,6 +575,99 @@ test("runtime/protocol/full_access: explicit new task inherits DM-scoped full ac
 
   assert.equal(started.length, 1);
   assert.equal(started[0].riskLevel, "high");
+});
+
+test("runtime/protocol/full_access: explicit new task with workspace-write clears remembered full access", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-full-access-downgrade-new-"));
+  const { bridge } = await createBridgeHarness(tempRoot);
+
+  bridge.ensureExecutionRuntimeReady = async () => ({ ok: true });
+
+  await bridge.saveProfile({
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    defaultCwd: tempRoot,
+    accessMode: "full_access",
+    updatedAt: "2026-03-31T00:00:00.000Z",
+  });
+
+  const started = [];
+  bridge.startTask = async (params) => {
+    started.push(params);
+  };
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-explicit-downgrade-new",
+    text: `/codex --cd ${tempRoot} --sandbox workspace-write 帮我看看空间占用`,
+  });
+
+  const persistedProfile = await bridge.loadProfile("user-1", null);
+  assert.equal(started.length, 1);
+  assert.equal(started[0].riskLevel, "normal");
+  assert.equal(started[0].executionOptions?.sandbox, "workspace-write");
+  assert.notEqual(persistedProfile?.accessMode, "full_access");
+});
+
+test("runtime/protocol/full_access: explicit resume with workspace-write clears remembered full access", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-full-access-downgrade-resume-"));
+  const { bridge } = await createBridgeHarness(tempRoot);
+
+  bridge.ensureExecutionRuntimeReady = async () => ({ ok: true });
+
+  const task = createTaskRecord({
+    taskId: "task-awaiting-input",
+    locale: "zh-CN",
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-old",
+    cwd: tempRoot,
+    mode: "resume",
+    sessionId: "session-1",
+    status: "awaiting_input",
+    currentRunId: null,
+    lastRunId: "run-old",
+    prompt: "旧任务",
+    createdAt: "2026-03-31T00:00:00.000Z",
+    updatedAt: "2026-03-31T00:00:00.000Z",
+  });
+  await bridge.saveTask(task);
+  await bridge.saveProfile({
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    defaultCwd: tempRoot,
+    activeTaskId: task.taskId,
+    lastTaskId: task.taskId,
+    accessMode: "full_access",
+    updatedAt: "2026-03-31T00:00:00.000Z",
+  });
+
+  const started = [];
+  bridge.startTask = async (params) => {
+    started.push(params);
+  };
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-explicit-downgrade-resume",
+    text: "/codex resume --sandbox workspace-write 继续推进",
+  });
+
+  const persistedProfile = await bridge.loadProfile("user-1", null);
+  assert.equal(started.length, 1);
+  assert.equal(started[0].mode, "resume");
+  assert.equal(started[0].riskLevel, "normal");
+  assert.equal(started[0].executionOptions?.sandbox, "workspace-write");
+  assert.notEqual(persistedProfile?.accessMode, "full_access");
 });
 
 test("runtime/protocol/full_access: before_reset clears DM-scoped full access", async () => {
@@ -2082,7 +2230,7 @@ test("runtime/protocol/presentation: a new run on an existing task starts a fres
     const persistedTask = await bridge.readTask(existingTask.taskId);
     assert.equal(persistedTask.progressMessageId, "progress-card-new");
   } finally {
-    __activeTasks.clear();
+    await cleanupActiveTaskRuntimes(__activeTasks);
   }
 });
 
@@ -2825,7 +2973,7 @@ test("runtime/protocol/reset: upstream before_reset stops continuing a running b
     assert.equal(queued[0].mode, "new");
     assert.equal(queued[0].existingTask, undefined);
   } finally {
-    __activeTasks.clear();
+    await cleanupActiveTaskRuntimes(__activeTasks);
   }
 });
 
@@ -2942,7 +3090,7 @@ test("runtime/protocol/reset: an abandoned old lane does not send a finish tail 
     assert.equal(persistedOldTask.status, "aborted");
     assert.equal(persistedOldRun.status, "aborted");
   } finally {
-    __activeTasks.clear();
+    await cleanupActiveTaskRuntimes(__activeTasks);
   }
 });
 
@@ -3048,7 +3196,7 @@ test("runtime/protocol/restart: gateway-stop interruption keeps the same task as
     assert.equal(persistedRun.status, "failed");
     assert.equal(persistedRun.error, "gateway stop");
   } finally {
-    __activeTasks.clear();
+    await cleanupActiveTaskRuntimes(__activeTasks);
   }
 });
 
@@ -3158,7 +3306,7 @@ test("runtime/protocol/restart: native_windows_fast keeps the same task as the a
     assert.equal(persistedRun.status, "failed");
     assert.equal(persistedRun.error, "gateway stop");
   } finally {
-    __activeTasks.clear();
+    await cleanupActiveTaskRuntimes(__activeTasks);
   }
 });
 
@@ -3449,7 +3597,7 @@ test("runtime/protocol/finish_summary: changed files are extracted only from the
     assert.ok(replyEvents[0].card);
     assert.equal(replyEvents[0].card?.header?.title?.content, "本轮结果");
   } finally {
-    __activeTasks.clear();
+    await cleanupActiveTaskRuntimes(__activeTasks);
   }
 });
 
@@ -3547,7 +3695,7 @@ test("runtime/protocol/presentation: finish updates the existing progress card i
     assert.equal(replyEvents[0].updateMessageId, "progress-card-id");
     assert.equal(replyEvents[0].renderHint, "task_finished");
   } finally {
-    __activeTasks.clear();
+    await cleanupActiveTaskRuntimes(__activeTasks);
   }
 });
 
@@ -3649,7 +3797,7 @@ test("runtime/protocol/presentation: native_windows_fast finish updates the exis
     assert.equal(replyEvents[0].updateMessageId, "progress-card-id");
     assert.equal(replyEvents[0].renderHint, "task_finished");
   } finally {
-    __activeTasks.clear();
+    await cleanupActiveTaskRuntimes(__activeTasks);
   }
 });
 

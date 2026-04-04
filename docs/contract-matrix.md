@@ -32,6 +32,7 @@ Field constraints:
 | PM-001 | v1:风控 + 最小策略矩阵 | Writes outside `cwd` require approval; reads outside `cwd` can remain allowed. | both | cross-platform | policy, runtime_compat | Proof: `approval/write/outside_cwd:*`, `allow/read/outside_cwd:*` |
 | PM-002 | v1:风控 + 最小策略矩阵 | Protected roots (`~/.openclaw`, `~/.codex`) use thin pre-start approval gate on explicit native entry, not direct denial. | both | cross-platform | policy, runtime_compat | Proof: `runtime/protocol/native_entry/protected_root:*` |
 | PM-003 | v1:运行模式配置 | `native_windows_fast` may intentionally bypass approval for explicit native full-access flags; this is an allowed platform difference. | both | allowed-diff | runtime_compat, codex_exec | Proof: `runtime/protocol/native_entry/permissions:*`, `runtime/exec/windows_fast:*` |
+| PM-004 | v1:执行模型 + /codex 命令面 | DM-scoped remembered `full_access` is inherited only when no explicit safer native sandbox override is present. Explicit `/codex ... --sandbox workspace-write ...` clears the remembered default for that DM; approval grant and `before_reset` remain the other two state transitions. | both | cross-platform | runtime_compat, persistence | Proof: `runtime/protocol/full_access:*` |
 
 ### Continuity
 

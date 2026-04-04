@@ -60,6 +60,15 @@ $env:CODEX_FEISHU_APP_SECRET = "xxx"
 
 如果三步都得到预期响应，说明消息链路和执行链路都已通。
 
+## 当前执行语义
+
+- 自然语言是主路径；只有显式启动或续写持续会话时才使用 `/codex ...`
+- bridge 只在显式 `/codex ...` 启动面，或自有审批 / 控制面闭环里做最薄 gate；普通文本语义默认仍归 `Codex`
+- paired bridge 私聊的 Full Access 按 DM 级状态记住：显式高权限获批后，后续任务默认沿用，直到显式降权或 reset
+- 显式申请 Full Access：`/codex --cd <path> --sandbox danger-full-access <prompt>`
+- 显式降回普通默认权限：下一次显式 `/codex` 启动或续写时带 `--sandbox workspace-write`
+- `--ask-for-approval never` 只影响审批策略，不等于 Full Access，也不替代 `--sandbox` 的选择
+
 ## 常用命令
 
 - 新任务：`/codex --cd <path> <prompt>`
@@ -90,5 +99,5 @@ Windows 常见噪声（非阻断）：
 
 README 头图的可编辑版本在：
 
-- `imgs/codex_anywhere_hero_refined.html`（HTML 动图模板）
+- `imgs/codex_anywhere.html`（HTML 动图模板）
 - `imgs/codex_anywhere.gif`（README 当前展示动图）

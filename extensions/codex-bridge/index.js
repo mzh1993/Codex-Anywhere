@@ -77,7 +77,13 @@ function normalizeAccessMode(value) {
   return value === "full_access" ? "full_access" : "normal";
 }
 
-function resolveProfileRiskLevel(profile, existingTask = null) {
+function hasExplicitSafeSandboxOverride(executionOptions) {
+  const sandbox = normalizeText(executionOptions?.sandbox);
+  return Boolean(sandbox) && sandbox !== "danger-full-access";
+}
+
+function resolveProfileRiskLevel(profile, existingTask = null, executionOptions = null) {
+  if (hasExplicitSafeSandboxOverride(executionOptions)) return "normal";
   if (existingTask?.riskLevel) return existingTask.riskLevel;
   return normalizeAccessMode(profile?.accessMode) === "full_access" ? "high" : "normal";
 }
@@ -1190,6 +1196,11 @@ export class CodexBridge {
   }
 
   async queueOrStartTask(params) {
+    await this.clearRememberedFullAccessForExplicitSafeSandbox(params.profile, {
+      entrySurface: params.entrySurface,
+      executionOptions: params.executionOptions,
+    });
+
     const cwd = expandUserPath(params.cwd, this.settings.defaultCwd);
     await assertAllowedCwd(cwd, this.settings);
     const decision = resolveStartEntryDecision({
@@ -1316,8 +1327,17 @@ export class CodexBridge {
       cwd,
       policyDecision: decision.kind,
       reasonCodes,
-      riskLevel: resolveProfileRiskLevel(params.profile, params.existingTask),
+      riskLevel: resolveProfileRiskLevel(params.profile, params.existingTask, params.executionOptions),
     });
+  }
+
+  async clearRememberedFullAccessForExplicitSafeSandbox(profile, { entrySurface, executionOptions } = {}) {
+    if (normalizeEntrySurface(entrySurface) !== "explicit_codex_command") return;
+    if (normalizeAccessMode(profile?.accessMode) !== "full_access") return;
+    if (!hasExplicitSafeSandboxOverride(executionOptions)) return;
+    delete profile.accessMode;
+    profile.updatedAt = new Date().toISOString();
+    await this.saveProfile(profile);
   }
 
   async persistDeniedTask(params, { cwd, decision }) {
@@ -1557,7 +1577,7 @@ export class CodexBridge {
       status: "running",
       currentRunId: runId,
       lastRunId: runId,
-      riskLevel: params.riskLevel ?? resolveProfileRiskLevel(params.profile, params.existingTask),
+      riskLevel: params.riskLevel ?? resolveProfileRiskLevel(params.profile, params.existingTask, params.executionOptions),
       executionOptions: params.executionOptions ?? params.existingTask?.executionOptions ?? null,
       approvalToken: params.approvalToken ?? null,
       policyDecision: params.policyDecision ?? params.existingTask?.policyDecision ?? POLICY_DECISIONS.ALLOWED,

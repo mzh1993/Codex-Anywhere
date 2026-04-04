@@ -9,6 +9,11 @@ RUN_FULL="${RUN_FULL:-0}"
 FULL_TIMEOUT_SECONDS="${FULL_TIMEOUT_SECONDS:-180}"
 SUITE_TIMEOUT_SECONDS="${SUITE_TIMEOUT_SECONDS:-180}"
 
+suite_has_completed_success_summary() {
+  local log_path="$1"
+  rg -n "^# tests [1-9][0-9]*$" "${log_path}" >/dev/null && rg -n "^# fail 0$" "${log_path}" >/dev/null
+}
+
 run_suite_with_timeout() {
   local label="$1"
   shift
@@ -27,8 +32,12 @@ run_suite_with_timeout() {
   fi
 
   if [[ "${exit_code}" == "124" ]]; then
-    echo "[experience-regression] warn: ${label} timed out (known tail-hang pattern) but no failing tests were found."
-    return 0
+    if suite_has_completed_success_summary "${log_path}"; then
+      echo "[experience-regression] warn: ${label} timed out after a completed success summary (known tail-hang pattern)."
+      return 0
+    fi
+    echo "[experience-regression] fail: ${label} timed out before a completed success summary was observed."
+    exit 1
   fi
   if [[ "${exit_code}" != "0" ]]; then
     echo "[experience-regression] fail: ${label} exited with code ${exit_code}."
@@ -62,8 +71,14 @@ if [[ "${RUN_FULL}" == "1" ]]; then
   fi
 
   if [[ "${EXIT_CODE}" == "124" ]]; then
-    echo "[experience-regression] warn: full suite timed out (known tail-hang pattern) but no failing tests were found."
-    tail -n 20 "${LOG_PATH}" || true
+    if suite_has_completed_success_summary "${LOG_PATH}"; then
+      echo "[experience-regression] warn: full suite timed out after a completed success summary (known tail-hang pattern)."
+      tail -n 20 "${LOG_PATH}" || true
+    else
+      echo "[experience-regression] fail: full suite timed out before a completed success summary was observed."
+      tail -n 80 "${LOG_PATH}" || true
+      exit 1
+    fi
   elif [[ "${EXIT_CODE}" != "0" ]]; then
     echo "[experience-regression] fail: full suite exited with code ${EXIT_CODE}."
     tail -n 80 "${LOG_PATH}" || true
