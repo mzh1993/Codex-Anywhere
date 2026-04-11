@@ -94,10 +94,16 @@ post_install_health_check() {
     else
       SERVICE_ACTIVE="no"
     fi
+  else
+    SERVICE_ACTIVE="skipped"
   fi
 
   if [[ "${GATEWAY_LISTENING}" == "yes" ]] || [[ "${SERVICE_ACTIVE}" == "yes" ]]; then
     record_health "ok" "install_completed"
+  elif [[ "${HOSTING_MODE}" == "foreground" ]]; then
+    record_health "warn" "foreground_manual_start_required"
+    log "post-check: foreground hosting is not started automatically"
+    log "next: ${BOOTSTRAP_SCRIPT} gateway-run --base-port ${BASE_PORT} --runtime-mode ${RUNTIME_MODE}"
   else
     record_health "warn" "service_not_active_after_install"
     log "post-check warning: gateway not confirmed as listening yet"

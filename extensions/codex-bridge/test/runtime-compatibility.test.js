@@ -79,6 +79,29 @@ function renderReplyText(params) {
     .join("\n");
 }
 
+const NO_ANGLE_PLACEHOLDER_RE = /<path>|<prompt>|<model>|<level>|<policy>/;
+const ZH_NEW_TASK_EXAMPLE_RE = /`\/codex --cd \. 帮我看看当前目录`/;
+const ZH_FULL_ACCESS_EXAMPLE_RE = /`\/codex --cd \. --sandbox danger-full-access 帮我看看当前目录`/;
+const ZH_RESUME_EXAMPLE_RE = /`\/codex resume 继续`/;
+const ZH_OPTIONAL_FLAGS_EXAMPLE_RE = /`--model gpt-5\.2` `--reasoning medium` `--ask-for-approval never`/;
+const ZH_DEFAULT_CWD_TEXT_RE = /默认工作目录：当前私聊最近一次目录；若没有，则使用默认目录（通常是当前用户主目录）/;
+
+function assertZhNativeShortHelp(text) {
+  assert.match(text, /默认直接发送自然语言给 Codex/);
+  assert.match(text, ZH_NEW_TASK_EXAMPLE_RE);
+  assert.match(text, ZH_FULL_ACCESS_EXAMPLE_RE);
+  assert.match(text, ZH_RESUME_EXAMPLE_RE);
+  assert.match(text, ZH_OPTIONAL_FLAGS_EXAMPLE_RE);
+  assert.match(text, /`\/codex doctor`/);
+  assert.match(text, ZH_DEFAULT_CWD_TEXT_RE);
+  assert.doesNotMatch(text, NO_ANGLE_PLACEHOLDER_RE);
+}
+
+async function readGreyStoryFixture(...segments) {
+  const fixturePath = path.join("extensions", "codex-bridge", "test", "fixtures", "grey-stories", ...segments);
+  return await fs.readFile(fixturePath, "utf8");
+}
+
 test.afterEach(async () => {
   await cleanupActiveTaskRuntimes();
 });
@@ -125,6 +148,13 @@ test("runtime/cwd/fallback: existing requested cwd remains unchanged", async () 
   assert.equal(resolved, preferred);
 });
 
+test("runtime/settings/default_cwd: missing configured default cwd falls back to the current user home", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-default-cwd-home-"));
+  const { bridge } = await createBridgeHarness(tempRoot);
+
+  assert.equal(bridge.settings.defaultCwd, os.homedir());
+});
+
 test("runtime/compat/detect: runtime compatibility detection reports missing commands and unsupported bubblewrap", async () => {
   const { detectExecutionRuntimeCompatibility } = await import("../lib/runtime-compatibility.js");
 
@@ -144,7 +174,7 @@ test("runtime/compat/detect: runtime compatibility detection reports missing com
     runtimeMode: "secure_linux",
     runCommand: async (command) => {
       if (command === "/usr/bin/bwrap") throw Object.assign(new Error("not found"), { code: "ENOENT" });
-      return { stdout: "codex-cli 0.116.0\n", stderr: "" };
+      return { stdout: "codex-cli 0.120.0\n", stderr: "" };
     },
   });
   assert.equal(missingBwrap.ok, false);
@@ -155,7 +185,7 @@ test("runtime/compat/detect: runtime compatibility detection reports missing com
     runtimeMode: "secure_linux",
     runCommand: async (command) => {
       if (command === "/usr/bin/bwrap") return { stdout: "bubblewrap 0.4.0\n", stderr: "" };
-      return { stdout: "codex-cli 0.116.0\n", stderr: "" };
+      return { stdout: "codex-cli 0.120.0\n", stderr: "" };
     },
   });
   assert.equal(unsupportedBwrap.ok, false);
@@ -805,8 +835,7 @@ test("runtime/protocol/command_surface/approve: legacy approve with trailing tex
   assert.equal(persistedTask.status, "awaiting_approval");
   assert.equal(persistedProfile.pendingApprovalToken, "TOKEN1");
   assert.notEqual(persistedApproval, null);
-  assert.match(replies[0], /默认直接发送自然语言给 Codex/);
-  assert.match(replies[0], /`\/codex --cd <path> <prompt>`/);
+  assertZhNativeShortHelp(replies[0]);
   assert.doesNotMatch(replies[0], /未找到审批令牌|执行环境|bubblewrap|基础设施/);
 });
 
@@ -853,9 +882,8 @@ test("runtime/protocol/command_surface/approve: legacy approve is closed even wh
   });
 
   assert.equal(replies.length, 1);
-  assert.match(replies[0], /默认直接发送自然语言给 Codex/);
-  assert.match(replies[0], /`\/codex resume <prompt>`/);
-  assert.doesNotMatch(replies[0], /`\/codex continue <prompt>`/);
+  assertZhNativeShortHelp(replies[0]);
+  assert.doesNotMatch(replies[0], /`\/codex continue .+`/);
   assert.doesNotMatch(replies[0], /未找到审批令牌|task_not_waiting_approval|等待输入/);
 });
 
@@ -1720,9 +1748,7 @@ test("runtime/protocol/command_surface/cwd: legacy cwd no longer mutates bridge 
   const persistedProfile = await bridge.loadProfile("user-1", null);
   assert.equal(persistedProfile.defaultCwd, activeCwd);
   assert.equal(replies.length, 1);
-  assert.match(replies[0], /默认直接发送自然语言给 Codex/);
-  assert.match(replies[0], /`\/codex --cd <path> <prompt>`/);
-  assert.match(replies[0], /`\/codex doctor`/);
+  assertZhNativeShortHelp(replies[0]);
 
   await bridge.routeInbound({
     senderId: "user-1",
@@ -1734,9 +1760,7 @@ test("runtime/protocol/command_surface/cwd: legacy cwd no longer mutates bridge 
   });
 
   assert.equal(replies.length, 2);
-  assert.match(replies[1], /默认直接发送自然语言给 Codex/);
-  assert.match(replies[1], /`\/codex resume <prompt>`/);
-  assert.match(replies[1], /`\/codex doctor`/);
+  assertZhNativeShortHelp(replies[1]);
 });
 
 test("runtime/protocol/command_surface/abort: legacy abort is closed and falls back to the native-first unknown-command hint", async () => {
@@ -1807,8 +1831,7 @@ test("runtime/protocol/command_surface/abort: legacy abort is closed and falls b
   assert.equal(persistedProfile.activeTaskId, task.taskId);
   assert.equal(persistedProfile.pendingApprovalToken, "TOKEN1");
   assert.notEqual(persistedApproval, null);
-  assert.match(replies[0], /默认直接发送自然语言给 Codex/);
-  assert.match(replies[0], /`\/codex --cd <path> <prompt>`/);
+  assertZhNativeShortHelp(replies[0]);
 });
 
 test("runtime/protocol/command_surface/status: legacy status is closed and falls back to the native-first unknown-command hint while awaiting approval", async () => {
@@ -1874,8 +1897,7 @@ test("runtime/protocol/command_surface/status: legacy status is closed and falls
     text: "/codex status",
   });
 
-  assert.match(replies[0], /默认直接发送自然语言给 Codex/);
-  assert.match(replies[0], /`\/codex --cd <path> <prompt>`/);
+  assertZhNativeShortHelp(replies[0]);
   assert.doesNotMatch(replies[0], /活动任务：task-awaiting-approval/);
   assert.doesNotMatch(replies[0], /待审批令牌：TOKEN1/);
 });
@@ -1893,10 +1915,8 @@ test("runtime/protocol/command_surface/status: legacy status is closed and falls
     text: "/codex status",
   });
 
-  assert.match(replies[0], /默认直接发送自然语言给 Codex/);
-  assert.match(replies[0], /`\/codex --cd <path> <prompt>`/);
+  assertZhNativeShortHelp(replies[0]);
   assert.doesNotMatch(replies[0], /当前没有活动任务|这个私聊还没有记录/);
-  assert.match(replies[0], /默认工作目录：/);
 });
 
 test("runtime/protocol/command_surface/pwd: legacy pwd no longer exposes bridge-managed cwd state and falls back to the native-first unknown-command hint", async () => {
@@ -1947,10 +1967,8 @@ test("runtime/protocol/command_surface/pwd: legacy pwd no longer exposes bridge-
   });
 
   assert.equal(replies.length, 1);
-  assert.match(replies[0], /默认直接发送自然语言给 Codex/);
-  assert.match(replies[0], /`\/codex --cd <path> <prompt>`/);
-  assert.match(replies[0], /`\/codex doctor`/);
-  assert.match(replies[0], new RegExp(defaultCwd.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assertZhNativeShortHelp(replies[0]);
+  assert.doesNotMatch(replies[0], new RegExp(defaultCwd.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   assert.doesNotMatch(replies[0], new RegExp(activeCwd.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 });
 
@@ -1989,11 +2007,7 @@ test("runtime/protocol/command_surface/help: /codex help falls back to the same 
   });
 
   assert.equal(replies.length, 1);
-  assert.match(replies[0], /默认直接发送自然语言给 Codex/);
-  assert.match(replies[0], /`\/codex --cd <path> <prompt>`/);
-  assert.match(replies[0], /`\/codex --cd <path> --sandbox danger-full-access <prompt>`/);
-  assert.match(replies[0], /`\/codex resume <prompt>`/);
-  assert.match(replies[0], /`\/codex doctor`/);
+  assertZhNativeShortHelp(replies[0]);
   assert.doesNotMatch(replies[0], /已关闭|不再执行|兼容/);
   assert.ok(replyEvents[0].card);
   assert.equal(replyEvents[0].text, undefined);
@@ -2066,9 +2080,7 @@ test("runtime/protocol/command_surface/approve: legacy approve is closed and doe
   assert.equal(persistedTask.status, "awaiting_approval");
   assert.equal(persistedProfile.pendingApprovalToken, "TOKEN1");
   assert.notEqual(persistedApproval, null);
-  assert.match(replies[0], /默认直接发送自然语言给 Codex/);
-  assert.match(replies[0], /`\/codex --cd <path> <prompt>`/);
-  assert.match(replies[0], /`\/codex resume <prompt>`/);
+  assertZhNativeShortHelp(replies[0]);
   assert.ok(!/已关闭|不再执行/.test(replies[0]));
 });
 
@@ -2086,10 +2098,7 @@ test("runtime/protocol/command_surface/unknown: unknown /codex subcommands retur
   });
 
   assert.equal(replies.length, 1);
-  assert.match(replies[0], /默认直接发送自然语言给 Codex/);
-  assert.match(replies[0], /`\/codex --cd <path> <prompt>`/);
-  assert.match(replies[0], /`\/codex --cd <path> --sandbox danger-full-access <prompt>`/);
-  assert.match(replies[0], /`\/codex doctor`/);
+  assertZhNativeShortHelp(replies[0]);
   assert.doesNotMatch(replies[0], /已关闭|不再执行/);
   assert.doesNotMatch(replies[0], /bridge/i);
   assert.doesNotMatch(replies[0], /Codex Runner 命令/);
@@ -2338,6 +2347,32 @@ test("runtime/protocol/native_entry/protected_root: explicit native cwd into ~/.
   assert.deepEqual(task.reasonCodes, ["protected_root_requires_approval"]);
   assert.equal(task.status, "awaiting_approval");
   assert.equal(task.cwd, path.join(os.homedir(), ".openclaw"));
+});
+
+test("runtime/protocol/native_entry/host_codex_root: explicit native cwd into ~/.codex requires approval instead of direct denial", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-native-host-codex-cwd-"));
+  const { bridge, replies } = await createBridgeHarness(tempRoot);
+  bridge.startTask = async () => {
+    throw new Error("host-codex native entry must not start directly");
+  };
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-native-codex",
+    text: "/codex --cd ~/.codex summarize config",
+  });
+
+  const profile = await bridge.loadProfile("user-1", null);
+  const task = await bridge.readTask(profile.activeTaskId);
+
+  assert.equal(replies.length, 1);
+  assert.match(replies[0], /高风险操作，请确认|审批|同意|不要执行/);
+  assert.deepEqual(task.reasonCodes, ["host_codex_boundary_requires_approval"]);
+  assert.equal(task.status, "awaiting_approval");
+  assert.equal(task.cwd, path.join(os.homedir(), ".codex"));
 });
 
 test("runtime/protocol/plain_text/protected_root_mentions: ordinary text mentioning protected roots or model knobs still stays on the Codex lane", async () => {
@@ -2599,7 +2634,9 @@ test("runtime/protocol/native_entry/usage: explicit resume without a prompt retu
 
   assert.equal(replies.length, 1);
   assert.match(replies[0], /用法：`\/codex resume/);
-  assert.doesNotMatch(replies[0], /`\/codex continue <prompt>`/);
+  assert.match(replies[0], /`\/codex resume 继续`/);
+  assert.doesNotMatch(replies[0], NO_ANGLE_PLACEHOLDER_RE);
+  assert.doesNotMatch(replies[0], /`\/codex continue .+`/);
 });
 
 test("runtime/protocol/native_entry/usage: missing flag values fail closed with native usage", async () => {
@@ -2617,7 +2654,8 @@ test("runtime/protocol/native_entry/usage: missing flag values fail closed with 
 
   assert.equal(replies.length, 1);
   assert.match(replies[0], /缺少 `--model` 的参数值/);
-  assert.match(replies[0], /用法：`\/codex \[--cd <path>\]/);
+  assert.match(replies[0], /用法：`\/codex --cd \. 帮我看看当前目录`/);
+  assert.doesNotMatch(replies[0], NO_ANGLE_PLACEHOLDER_RE);
   assert.equal(await bridge.loadProfile("user-1", null), null);
 });
 
@@ -2896,9 +2934,7 @@ test("runtime/protocol/legacy_top_level/new: top-level /new is claimed and close
 
   assert.deepEqual(handled, { handled: true });
   assert.equal(replies.length, 1);
-  assert.match(replies[0], /默认直接发送自然语言给 Codex/);
-  assert.match(replies[0], /`\/codex --cd <path> <prompt>`/);
-  assert.match(replies[0], /`\/codex doctor`/);
+  assertZhNativeShortHelp(replies[0]);
 });
 
 test("runtime/protocol/reset: upstream before_reset stops continuing a running bridge lane on the next plain text", async () => {
@@ -3661,7 +3697,7 @@ test("runtime/protocol/reply_plane: finish keeps the result card concise and sen
   const stderrLogPath = path.join(runDir, "stderr.log");
   await fs.writeFile(
     lastMessagePath,
-    `Summary
+    `**Summary**
 已完成报告整理。
 
 Changed Files
@@ -3670,13 +3706,13 @@ Changed Files
 Next Steps
 - 如需继续，我可以再补一页执行摘要。
 
-Delivery Manifest
+**Delivery Manifest**
 \`\`\`json
 {
   "summary": "已完成报告整理。",
   "deliverables": [
-    { "kind": "file", "path": "reports/final-report.pdf" },
-    { "kind": "link", "url": "https://example.com/final-report" }
+    { "type": "file", "path": "reports/final-report.pdf" },
+    { "type": "link", "url": "https://example.com/final-report" }
   ]
 }
 \`\`\`
@@ -4051,6 +4087,269 @@ Delivery Manifest
     assert.equal(nativeEvents.length, 2);
     assert.equal(nativeEvents[0].filePath?.endsWith("final-report.pdf"), true);
     assert.equal(nativeEvents[1].filePath?.endsWith("chart.png"), true);
+  } finally {
+    await cleanupActiveTaskRuntimes(__activeTasks);
+  }
+});
+
+test("runtime/protocol/reply_plane: finish-card strips markdown image embeds and downgrades svg deliverables to file delivery", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-reply-plane-svg-finish-"));
+  const { bridge, replies } = await createBridgeHarness(tempRoot);
+  const { __activeTasks } = await import("../index.js");
+  const workspace = path.join(tempRoot, "workspace");
+  const reportsDir = path.join(workspace, "reports");
+  const runDir = path.join(tempRoot, "run-reply-plane-svg-finish");
+  await fs.mkdir(reportsDir, { recursive: true });
+  await fs.mkdir(runDir, { recursive: true });
+  const diagramPath = path.join(reportsDir, "architecture.svg");
+  const notesPath = path.join(reportsDir, "architecture-notes.md");
+  await fs.writeFile(diagramPath, "<svg></svg>");
+  await fs.writeFile(notesPath, "# notes");
+
+  const lastMessagePath = path.join(runDir, "last-message.txt");
+  const stdoutLogPath = path.join(runDir, "stdout.jsonl");
+  const stderrLogPath = path.join(runDir, "stderr.log");
+  await fs.writeFile(
+    lastMessagePath,
+    `**Summary**
+- 技术架构总图已经生成，你先看这张：
+
+![技术架构总图](reports/architecture.svg)
+
+- 配套说明文档也已经整理好。
+
+**Delivery Manifest**
+\`\`\`json
+{
+  "summary": "已交付技术架构总图和配套说明。",
+  "deliverables": [
+    { "type": "image", "path": "reports/architecture.svg" },
+    { "type": "file", "path": "reports/architecture-notes.md" }
+  ]
+}
+\`\`\`
+`,
+  );
+  await fs.writeFile(stdoutLogPath, "");
+  await fs.writeFile(stderrLogPath, "");
+
+  const replyEvents = [];
+  const nativeEvents = [];
+  bridge.safeReply = async (params) => {
+    const prepared = bridge.prepareReply(params);
+    replyEvents.push(prepared);
+    replies.push(renderReplyText(prepared));
+    return { messageId: params.updateMessageId ?? "progress-card-id" };
+  };
+  bridge.sendNativeMediaReply = async (params) => {
+    nativeEvents.push({ type: "media", ...params });
+    return { messageId: `native-${nativeEvents.length}` };
+  };
+
+  const task = createTaskRecord({
+    taskId: "task-reply-plane-svg-finish",
+    locale: "zh-CN",
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-origin",
+    cwd: workspace,
+    mode: "resume",
+    status: "running",
+    currentRunId: "run-reply-plane-svg-finish",
+    lastRunId: "run-reply-plane-svg-finish",
+    sessionId: "session-reply-plane",
+    progressMessageId: "progress-card-id",
+    prompt: "把图和说明带回来",
+    createdAt: "2026-04-04T00:00:00.000Z",
+    updatedAt: "2026-04-04T00:00:00.000Z",
+  });
+  const run = createRunRecord({
+    runId: "run-reply-plane-svg-finish",
+    taskId: task.taskId,
+    locale: task.locale,
+    senderId: task.senderId,
+    accountId: task.accountId,
+    conversationId: "conv-shadow",
+    messageId: "msg-shadow",
+    cwd: task.cwd,
+    mode: task.mode,
+    sessionId: task.sessionId,
+    prompt: task.prompt,
+    createdAt: "2026-04-04T00:00:00.000Z",
+    updatedAt: "2026-04-04T00:00:00.000Z",
+    stdoutLogPath,
+    stderrLogPath,
+    lastMessagePath,
+    runDir,
+    beforeSessions: new Set(),
+  });
+
+  try {
+    await bridge.saveTask(task);
+    await bridge.saveRun(run);
+    __activeTasks.set("user-1", {
+      task,
+      run,
+      child: { kill() {} },
+      stdoutBuffer: "",
+      stderrBuffer: "",
+      stopping: false,
+      finishing: false,
+      heartbeatTimer: null,
+      sessionPollTimer: null,
+    });
+
+    await bridge.finishTask("user-1", {
+      exitCode: 0,
+      signal: null,
+      error: null,
+    });
+
+    assert.equal(replyEvents.length, 1);
+    assert.equal(replyEvents[0].renderHint, "task_finished");
+    assert.equal(replyEvents[0].updateMessageId, "progress-card-id");
+    assert.doesNotMatch(replies[0], /!\[/);
+    assert.equal(nativeEvents.length, 2);
+    assert.deepEqual(
+      nativeEvents.map((entry) => ({
+        type: entry.type,
+        accountId: entry.accountId,
+        conversationId: entry.conversationId,
+        messageId: entry.messageId,
+        fileName: path.basename(entry.filePath),
+      })),
+      [
+        {
+          type: "media",
+          accountId: "default",
+          conversationId: "conv-1",
+          messageId: "msg-origin",
+          fileName: "architecture.svg",
+        },
+        {
+          type: "media",
+          accountId: "default",
+          conversationId: "conv-1",
+          messageId: "msg-origin",
+          fileName: "architecture-notes.md",
+        },
+      ],
+    );
+
+    const persistedTask = await bridge.readTask(task.taskId);
+    assert.equal(persistedTask.deliveryFailureHint, null);
+  } finally {
+    await cleanupActiveTaskRuntimes(__activeTasks);
+  }
+});
+
+test("runtime/protocol/reply_plane: grey-story replay keeps an image request on the primary deliverable only", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-reply-plane-primary-only-"));
+  const { bridge, replies } = await createBridgeHarness(tempRoot);
+  const { __activeTasks } = await import("../index.js");
+  const workspace = path.join(tempRoot, "workspace");
+  const reportsDir = path.join(workspace, "multimodal-agent-research", "reports", "diagrams");
+  const runDir = path.join(tempRoot, "run-reply-plane-primary-only");
+  await fs.mkdir(reportsDir, { recursive: true });
+  await fs.mkdir(runDir, { recursive: true });
+  await fs.writeFile(path.join(reportsDir, "2026-04-04-audio-mainline-architecture.svg"), "<svg></svg>");
+  await fs.writeFile(path.join(reportsDir, "2026-04-04-audio-mainline-architecture-notes.md"), "# notes");
+
+  const lastMessagePath = path.join(runDir, "last-message.txt");
+  const stdoutLogPath = path.join(runDir, "stdout.jsonl");
+  const stderrLogPath = path.join(runDir, "stderr.log");
+  await fs.writeFile(
+    lastMessagePath,
+    await readGreyStoryFixture("2026-04-04-image-request-primary-only", "last-message.txt"),
+  );
+  await fs.writeFile(stdoutLogPath, "");
+  await fs.writeFile(stderrLogPath, "");
+
+  const replyEvents = [];
+  const nativeEvents = [];
+  bridge.safeReply = async (params) => {
+    const prepared = bridge.prepareReply(params);
+    replyEvents.push(prepared);
+    replies.push(renderReplyText(prepared));
+    return { messageId: params.updateMessageId ?? "progress-card-id" };
+  };
+  bridge.sendNativeMediaReply = async (params) => {
+    nativeEvents.push({ type: "media", ...params });
+    return { messageId: `native-${nativeEvents.length}` };
+  };
+
+  const task = createTaskRecord({
+    taskId: "task-reply-plane-primary-only",
+    locale: "zh-CN",
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-origin",
+    cwd: workspace,
+    mode: "resume",
+    status: "running",
+    currentRunId: "run-reply-plane-primary-only",
+    lastRunId: "run-reply-plane-primary-only",
+    sessionId: "session-reply-plane",
+    progressMessageId: "progress-card-id",
+    prompt: "继续拆音频主线细图，然后同样发给我",
+    createdAt: "2026-04-04T00:00:00.000Z",
+    updatedAt: "2026-04-04T00:00:00.000Z",
+  });
+  const run = createRunRecord({
+    runId: "run-reply-plane-primary-only",
+    taskId: task.taskId,
+    locale: task.locale,
+    senderId: task.senderId,
+    accountId: task.accountId,
+    conversationId: "conv-shadow",
+    messageId: "msg-shadow",
+    cwd: task.cwd,
+    mode: task.mode,
+    sessionId: task.sessionId,
+    prompt: task.prompt,
+    createdAt: "2026-04-04T00:00:00.000Z",
+    updatedAt: "2026-04-04T00:00:00.000Z",
+    stdoutLogPath,
+    stderrLogPath,
+    lastMessagePath,
+    runDir,
+    beforeSessions: new Set(),
+  });
+
+  try {
+    await bridge.saveTask(task);
+    await bridge.saveRun(run);
+    __activeTasks.set("user-1", {
+      task,
+      run,
+      child: { kill() {} },
+      stdoutBuffer: "",
+      stderrBuffer: "",
+      stopping: false,
+      finishing: false,
+      heartbeatTimer: null,
+      sessionPollTimer: null,
+    });
+
+    await bridge.finishTask("user-1", {
+      exitCode: 0,
+      signal: null,
+      error: null,
+    });
+
+    assert.equal(replyEvents.length, 1);
+    assert.equal(replyEvents[0].renderHint, "task_finished");
+    assert.doesNotMatch(replies[0], /audio-mainline-architecture-notes\.md/);
+    assert.equal(nativeEvents.length, 1);
+    assert.equal(path.basename(nativeEvents[0].filePath), "2026-04-04-audio-mainline-architecture.svg");
+
+    const persistedTask = await bridge.readTask(task.taskId);
+    assert.deepEqual(
+      persistedTask.deliverables.map((entry) => path.basename(entry.path)),
+      ["2026-04-04-audio-mainline-architecture.svg"],
+    );
   } finally {
     await cleanupActiveTaskRuntimes(__activeTasks);
   }

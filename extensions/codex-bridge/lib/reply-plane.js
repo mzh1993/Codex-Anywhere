@@ -8,6 +8,7 @@ const SUPPORTED_KINDS = new Set([...LOCAL_KINDS, "link"]);
 const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".ico", ".tiff"]);
 const AUDIO_EXTENSIONS = new Set([".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".opus"]);
 const VIDEO_EXTENSIONS = new Set([".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v"]);
+const FILE_ONLY_IMAGE_EXTENSIONS = new Set([".svg"]);
 
 export function parseDeliveryManifest(text) {
   const section = extractDeliveryManifestSection(text);
@@ -86,13 +87,15 @@ export async function validateDeclaredDeliverables({ cwd, deliverables }) {
       continue;
     }
 
-    if (!matchesDeclaredKind(deliverable.kind, resolvedPath)) {
+    const normalizedDeliverable = normalizeDeliverableForTransport(deliverable, resolvedPath);
+
+    if (!matchesDeclaredKind(normalizedDeliverable.kind, resolvedPath)) {
       failures.push({ ...deliverable, code: "kind_mismatch" });
       continue;
     }
 
     accepted.push({
-      ...deliverable,
+      ...normalizedDeliverable,
       resolvedPath,
       fileName: path.basename(resolvedPath),
     });
@@ -116,8 +119,10 @@ export function summarizeDeliveryFailures({ locale, failures }) {
 function extractDeliveryManifestSection(text) {
   const normalized = typeof text === "string" ? text : "";
   if (!normalized) return "";
-  const match = normalized.match(/(?:^|\n)\s*(?:Delivery Manifest|交付清单|回传清单)\s*\n([\s\S]*)$/i);
-  return match?.[1]?.trim() ?? "";
+  const lines = normalized.split(/\r?\n/);
+  const startIndex = lines.findIndex((line) => /^(delivery\s+manifest|交付清单|回传清单)\b[:：]?$/i.test(normalizeHeadingLine(line)));
+  if (startIndex < 0) return "";
+  return lines.slice(startIndex + 1).join("\n").trim();
 }
 
 function extractJsonBlock(section) {
@@ -131,15 +136,30 @@ function normalizeDeliverable(entry) {
     return { kind: "", path: "", url: "", note: "" };
   }
   return {
-    kind: normalizeText(entry.kind).toLowerCase(),
+    kind: normalizeText(entry.kind ?? entry.type).toLowerCase(),
     path: normalizeText(entry.path),
     url: normalizeText(entry.url),
     note: normalizeText(entry.note),
   };
 }
 
+function normalizeHeadingLine(line) {
+  return normalizeText(line).replace(/^[*_#\s`]+/, "").replace(/[*_`#\s]+$/, "").trim();
+}
+
 function hasParentTraversal(value) {
   return /(?:^|[\\/])\.\.(?:[\\/]|$)/.test(value);
+}
+
+function normalizeDeliverableForTransport(deliverable, filePath) {
+  const extension = path.extname(filePath).toLowerCase();
+  if (deliverable.kind === "image" && FILE_ONLY_IMAGE_EXTENSIONS.has(extension)) {
+    return {
+      ...deliverable,
+      kind: "file",
+    };
+  }
+  return deliverable;
 }
 
 function matchesDeclaredKind(kind, filePath) {

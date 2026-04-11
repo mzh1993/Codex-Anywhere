@@ -136,6 +136,55 @@ function formatReasonLine(locale, reasonCode) {
   return `- ${reasonCode}: ${localizeReason(locale, reasonCode)}`;
 }
 
+function getDefaultResumeCommand(locale) {
+  return normalizeLocale(locale) === "zh-CN" ? "/codex resume 继续" : "/codex resume continue";
+}
+
+function getNativeUsageNew(locale) {
+  return normalizeLocale(locale) === "zh-CN"
+    ? "用法：`/codex --cd . 帮我看看当前目录`"
+    : "Usage: `/codex --cd . summarize the current directory`";
+}
+
+function getNativeUsageResume(locale) {
+  return normalizeLocale(locale) === "zh-CN" ? "用法：`/codex resume 继续`" : "Usage: `/codex resume continue`";
+}
+
+function getNativeOptionalFlagsExample(locale) {
+  return normalizeLocale(locale) === "zh-CN"
+    ? "可选参数：`--model gpt-5.2` `--reasoning medium` `--ask-for-approval never`"
+    : "Optional flags: `--model gpt-5.2` `--reasoning medium` `--ask-for-approval never`";
+}
+
+function getDefaultCwdHint(locale) {
+  return normalizeLocale(locale) === "zh-CN"
+    ? "默认工作目录：当前私聊最近一次目录；若没有，则使用默认目录（通常是当前用户主目录）"
+    : "Default cwd: most recent cwd in this DM; otherwise the default directory (usually the current user's home directory).";
+}
+
+function getNativeHelpLines(locale) {
+  if (normalizeLocale(locale) === "zh-CN") {
+    return [
+      "默认直接发送自然语言给 Codex。",
+      "新任务：`/codex --cd . 帮我看看当前目录`",
+      "完全访问：`/codex --cd . --sandbox danger-full-access 帮我看看当前目录`",
+      "续写：`/codex resume 继续`",
+      getNativeOptionalFlagsExample(locale),
+      "健康检查：`/codex doctor`",
+      getDefaultCwdHint(locale),
+    ];
+  }
+  return [
+    "For normal work, just send a plain message to Codex.",
+    "New task: `/codex --cd . summarize the current directory`",
+    "Full access: `/codex --cd . --sandbox danger-full-access summarize the current directory`",
+    "Resume: `/codex resume continue`",
+    getNativeOptionalFlagsExample(locale),
+    "Health check: `/codex doctor`",
+    getDefaultCwdHint(locale),
+  ];
+}
+
 function getActiveTaskDetails(input, status) {
   if (typeof input === "object" && input !== null) return input;
   return { taskId: input, status };
@@ -143,7 +192,8 @@ function getActiveTaskDetails(input, status) {
 
 function getActiveTaskActionLine(locale, details) {
   const normalized = normalizeLocale(locale);
-  const command = details.suggestedCommand ?? "/codex resume <prompt>";
+  const defaultResumeCommand = getDefaultResumeCommand(normalized);
+  const command = details.suggestedCommand ?? defaultResumeCommand;
   const status = details.status ?? "";
   if (normalized === "zh-CN") {
     if (status === "running") {
@@ -155,7 +205,7 @@ function getActiveTaskActionLine(locale, details) {
     if (status === "awaiting_input") {
       return "当前任务正在等待你的下一条输入，你可以直接回复。";
     }
-    if (command === "/codex resume <prompt>") {
+    if (command === defaultResumeCommand) {
       return `你也可以使用 \`${command}\` 显式续写。`;
     }
     return `请先使用 \`${command}\` 处理当前任务。`;
@@ -169,7 +219,7 @@ function getActiveTaskActionLine(locale, details) {
   if (status === "awaiting_input") {
     return "This task is waiting for your next message. You can reply directly.";
   }
-  if (command === "/codex resume <prompt>") {
+  if (command === defaultResumeCommand) {
     return `You can also use \`${command}\` for an explicit resume.`;
   }
   return `Use \`${command}\` to handle the current task first.`;
@@ -177,14 +227,15 @@ function getActiveTaskActionLine(locale, details) {
 
 function getActiveTaskFallbackLine(locale, details) {
   const status = details.status ?? "";
+  const resumeCommand = getDefaultResumeCommand(locale);
   if (normalizeLocale(locale) === "zh-CN") {
     if (status === "awaiting_input") {
-      return "如需兜底，也可以使用 `/codex resume <prompt>`。";
+      return `如需兜底，也可以使用 \`${resumeCommand}\`。`;
     }
     return "";
   }
   if (status === "awaiting_input") {
-    return "If needed, you can also use `/codex resume <prompt>` as a fallback.";
+    return `If needed, you can also use \`${resumeCommand}\` as a fallback.`;
   }
   return "";
 }
@@ -194,8 +245,8 @@ export function getLocaleText(locale) {
   if (normalized === "zh-CN") {
     return {
       locale: normalized,
-      usageNativeNew: "用法：`/codex [--cd <path>] [--model <model>] [--reasoning <level>] <prompt>`",
-      usageNativeResume: "用法：`/codex resume [--model <model>] [--reasoning <level>] <prompt>`",
+      usageNativeNew: getNativeUsageNew(normalized),
+      usageNativeResume: getNativeUsageResume(normalized),
       noPreviousSession: "当前没有可继续的活动任务。",
       noActiveTaskToContinue: "当前没有可继续的活动任务。",
       noPendingApproval: "当前没有待审批的活动任务。",
@@ -251,7 +302,7 @@ export function getLocaleText(locale) {
       interruptedTaskRequiresContinue: (taskId, hint = "run.interrupted") => [
         `任务 ${taskId} 的上一轮执行已中断。`,
         getUserVisibleStatusHint(normalized, hint),
-        "如需兜底，也可以使用 `/codex resume <prompt>`。",
+        `如需兜底，也可以使用 \`${getDefaultResumeCommand(normalized)}\`。`,
       ].join("\n"),
       approvalTokenDifferentDm: "这个审批令牌属于另一个私聊。",
       noBridgeState: "这个私聊还没有记录任何 Codex bridge 状态。",
@@ -270,24 +321,8 @@ export function getLocaleText(locale) {
         "命令前不要加多余前缀。",
         `请直接使用 \`${command}\`。`,
       ].join("\n"),
-      help: (cwd) => [
-        "默认直接发送自然语言给 Codex。",
-        "新任务：`/codex --cd <path> <prompt>`",
-        "完全访问：`/codex --cd <path> --sandbox danger-full-access <prompt>`",
-        "续写：`/codex resume <prompt>`",
-        "可选参数：`--model <model>` `--reasoning <level>` `--ask-for-approval <policy>`",
-        "健康检查：`/codex doctor`",
-        `默认工作目录：\`${cwd}\``,
-      ].join("\n"),
-      unknownCommand: (_command, cwd) => [
-        "默认直接发送自然语言给 Codex。",
-        "新任务：`/codex --cd <path> <prompt>`",
-        "完全访问：`/codex --cd <path> --sandbox danger-full-access <prompt>`",
-        "续写：`/codex resume <prompt>`",
-        "可选参数：`--model <model>` `--reasoning <level>` `--ask-for-approval <policy>`",
-        "健康检查：`/codex doctor`",
-        `默认工作目录：\`${cwd}\``,
-      ].join("\n"),
+      help: (_cwd) => getNativeHelpLines(normalized).join("\n"),
+      unknownCommand: (_command, _cwd) => getNativeHelpLines(normalized).join("\n"),
       doctorSummary: ({ codex, bridge, runtime, codexVersion, bwrapVersion, feishu, gateway, runtimeMessage, nextStep }) => [
         "健康摘要",
         `Codex：${codex}`,
@@ -391,10 +426,8 @@ export function getLocaleText(locale) {
 
   return {
     locale: normalized,
-    usageNativeNew:
-      "Usage: `/codex [--cd <path>] [--model <model>] [--reasoning <level>] <prompt>`",
-    usageNativeResume:
-      "Usage: `/codex resume [--model <model>] [--reasoning <level>] <prompt>`",
+    usageNativeNew: getNativeUsageNew(normalized),
+    usageNativeResume: getNativeUsageResume(normalized),
     noPreviousSession: "No active task to continue.",
     noActiveTaskToContinue: "No active task to continue.",
     noPendingApproval: "No active task awaiting approval.",
@@ -450,7 +483,7 @@ export function getLocaleText(locale) {
     interruptedTaskRequiresContinue: (taskId, hint = "run.interrupted") => [
       `Previous run interrupted for task ${taskId}.`,
       getUserVisibleStatusHint(normalized, hint),
-      "If needed, you can also use `/codex resume <prompt>`.",
+      `If needed, you can also use \`${getDefaultResumeCommand(normalized)}\`.`,
     ].join("\n"),
     approvalTokenDifferentDm: "This approval token belongs to a different DM.",
     noBridgeState: "No Codex bridge state recorded for this DM.",
@@ -469,24 +502,8 @@ export function getLocaleText(locale) {
       "Do not prefix Codex commands with extra punctuation.",
       `Use \`${command}\` directly.`,
     ].join("\n"),
-    help: (cwd) => [
-      "For normal work, just send a plain message to Codex.",
-      "New task: `/codex --cd <path> <prompt>`",
-      "Full access: `/codex --cd <path> --sandbox danger-full-access <prompt>`",
-      "Resume: `/codex resume <prompt>`",
-      "Optional flags: `--model <model>` `--reasoning <level>` `--ask-for-approval <policy>`",
-      "Health check: `/codex doctor`",
-      `Default cwd: \`${cwd}\``,
-    ].join("\n"),
-    unknownCommand: (_command, cwd) => [
-      "For normal work, just send a plain message to Codex.",
-      "New task: `/codex --cd <path> <prompt>`",
-      "Full access: `/codex --cd <path> --sandbox danger-full-access <prompt>`",
-      "Resume: `/codex resume <prompt>`",
-      "Optional flags: `--model <model>` `--reasoning <level>` `--ask-for-approval <policy>`",
-      "Health check: `/codex doctor`",
-      `Default cwd: \`${cwd}\``,
-    ].join("\n"),
+    help: (_cwd) => getNativeHelpLines(normalized).join("\n"),
+    unknownCommand: (_command, _cwd) => getNativeHelpLines(normalized).join("\n"),
     doctorSummary: ({ codex, bridge, runtime, codexVersion, bwrapVersion, feishu, gateway, runtimeMessage, nextStep }) => [
       "Health Summary",
       `Codex: ${codex}`,

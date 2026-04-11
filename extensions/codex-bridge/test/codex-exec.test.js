@@ -145,4 +145,16 @@ test("runtime/exec/reply_plane: prompt requires a delivery manifest without targ
     prompt.includes("For `file`, `image`, `audio`, and `video`, only declare paths relative to the working directory."),
     true,
   );
+  assert.equal(
+    prompt.includes("When the user explicitly asks for one primary output, declare only that primary deliverable by default."),
+    true,
+  );
+  assert.equal(
+    prompt.includes("Keep supporting notes or companion docs in `summary` unless the user explicitly asks for them to be returned too."),
+    true,
+  );
+  assert.equal(
+    prompt.includes("Do not declare supporting artifacts just because they were created during the task."),
+    true,
+  );
 });

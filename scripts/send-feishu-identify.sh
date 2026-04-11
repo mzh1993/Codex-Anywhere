@@ -7,7 +7,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CLI="${SCRIPT_DIR}/openclaw-isolated.sh"
 SYSTEMD_UNIT="openclaw-codex-feishu.service"
 
-DEFAULT_MESSAGE='请严格原样只输出这一句，不要添加任何前后文：这是新的隔离 Codex Feishu 机器人（AppID 后四位 bbd8，端口 19789）。请在这个会话里回复“你好”或发送 /acp doctor。'
+DEFAULT_MESSAGE='请严格原样只输出这一句，不要添加任何前后文：这是新的隔离 Codex Feishu 机器人。请在这个会话里回复“你好”或发送 /codex doctor。'
 MESSAGE="${DEFAULT_MESSAGE}"
 TARGET=""
 WAIT_SECONDS=18

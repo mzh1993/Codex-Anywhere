@@ -2003,11 +2003,18 @@ export class CodexBridge {
             text: this.text.interruptedTaskRequiresContinue(nextTask.taskId, nextTask.lastStatusHint),
           });
         } else {
+          const finishCardTask =
+            validatedDeliverables.accepted.length > 0
+              ? {
+                  ...nextTask,
+                  changedFiles: [],
+                }
+              : nextTask;
           await this.replyOnTaskCard(nextTask, {
             accountId: nextTask.accountId,
             conversationId: nextTask.conversationId,
             renderHint: "task_finished",
-            text: this.text.taskFinished({ ...nextTask, runStatus: nextRun.status }),
+            text: this.text.taskFinished({ ...finishCardTask, runStatus: nextRun.status }),
           });
           if (validatedDeliverables.accepted.length > 0) {
             const deliveryResult = await this.deliverReplyPlaneDeliverables(nextTask, validatedDeliverables.accepted);
@@ -2029,7 +2036,7 @@ export class CodexBridge {
                 accountId: nextTask.accountId,
                 conversationId: nextTask.conversationId,
                 renderHint: "task_finished",
-                text: this.text.taskFinished({ ...nextTask, runStatus: nextRun.status }),
+                text: this.text.taskFinished({ ...finishCardTask, deliveryFailureHint: nextTask.deliveryFailureHint, runStatus: nextRun.status }),
               });
             }
           }
@@ -3199,7 +3206,10 @@ function buildBridgePresentationCard({ locale, renderHint, text }) {
   const normalizedLocale = /^zh(?:[-_].*)?$/i.test(normalizeText(locale)) ? "zh-CN" : "en-US";
   const cardMeta = resolveBridgeCardMeta(normalizedLocale, renderHint);
   const approvalActions = renderHint === "approval" ? buildApprovalCardActions(normalizedLocale) : null;
-  const markdownText = renderHint === "approval" ? approvalCardWarningText(normalizedLocale) : text;
+  const markdownText =
+    renderHint === "approval"
+      ? approvalCardWarningText(normalizedLocale)
+      : sanitizeBridgeCardMarkdown(renderHint, text);
   const elements = [
     {
       tag: "markdown",
@@ -3265,6 +3275,13 @@ function buildApprovalCardActions(locale) {
 function approvalCardWarningText(locale) {
   if (locale === "zh-CN") return "⚠️ 高风险操作，请确认。";
   return "⚠️ High-risk operation. Please confirm.";
+}
+
+function sanitizeBridgeCardMarkdown(renderHint, text) {
+  const normalized = normalizeText(text);
+  if (!normalized) return "";
+  if (renderHint !== "task_finished") return normalized;
+  return normalized.replace(/!\[[^\]]*]\(([^)\n]+)\)/g, "").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 function resolveBridgeCardMeta(locale, renderHint) {

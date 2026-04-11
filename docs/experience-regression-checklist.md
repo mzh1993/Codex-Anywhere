@@ -44,10 +44,20 @@ scripts/review/run-experience-regression.sh
 
 契约映射：`OB-001` `OB-002` `OB-003`
 
+## E. 部署契约（Deployment）
+
+- [ ] Linux bootstrap 默认路径不绑定作者机器：默认 `cwd` 与 `~/.codex` 路径来自当前用户家目录。
+- [ ] Windows `-BasePort` 会真实进入生成的 launcher，不会悄悄回落到硬编码端口。
+- [ ] repo-local 识别/运维辅助脚本保持当前 `/codex` 命令面，不夹带旧命令或 app-specific 指纹。
+- [ ] Linux `--no-systemd` 安装会把 `install-health.json` 写成前台人工启动语义，而不是含糊的 service unknown。
+
+契约映射：`XP-005` `XP-006` `XP-007` `XP-008`
+
 ## 自动回归命令（当前固定）
 
 - `node --test extensions/codex-bridge/test/runtime-compatibility.test.js`
 - `node --test extensions/codex-bridge/test/persistence-reliability.test.js`
+- `node --test extensions/codex-bridge/test/runtime-contract.test.js`
 - `scripts/review/check-contract-matrix.sh origin/main...HEAD`
 
 ## 结果记录模板

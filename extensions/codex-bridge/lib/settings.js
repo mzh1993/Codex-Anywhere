@@ -6,7 +6,6 @@ const DEFAULT_HEARTBEAT_MS = 30000;
 const DEFAULT_APPROVAL_TTL_MS = 10 * 60 * 1000;
 const DEFAULT_CODEX_BIN = "codex";
 const DEFAULT_CODEX_HOME_DIRNAME = "codex-home";
-const DEFAULT_DEFAULT_CWD = "/home/neousys";
 const DEFAULT_LOCALE = "en-US";
 const DEFAULT_BRIDGE_SERVICE_UNIT_NAMES = ["openclaw-codex-feishu.service"];
 const DEFAULT_RUNTIME_MODE = "secure_linux";
@@ -20,7 +19,7 @@ export function resolveSettings(api) {
     normalizePathSetting(api.runtime.config.loadConfig()?.gateway?.stateDir);
   const resolvedStateDir = isolatedStateDir || api.runtime.state.resolveStateDir(api.runtime.config.loadConfig?.() ?? api.config);
   const stateRoot = path.join(resolvedStateDir, "codex-bridge");
-  const defaultCwd = normalizePathSetting(pluginConfig.defaultCwd) || DEFAULT_DEFAULT_CWD;
+  const defaultCwd = normalizePathSetting(pluginConfig.defaultCwd) || os.homedir();
   const hostCodexRoot = path.join(os.homedir(), ".codex");
   const openclawRoot = path.join(os.homedir(), ".openclaw");
   const codexHome = normalizePathSetting(pluginConfig.codexHome) || path.join(stateRoot, DEFAULT_CODEX_HOME_DIRNAME);

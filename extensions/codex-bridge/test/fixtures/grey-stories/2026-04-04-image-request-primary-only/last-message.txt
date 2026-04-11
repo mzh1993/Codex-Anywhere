@@ -1,0 +1,27 @@
+**Summary**
+- 音频主线细图已经拆好，直接发图如下：
+
+![音频主线细图](multimodal-agent-research/reports/diagrams/2026-04-04-audio-mainline-architecture.svg)
+
+- 配套说明文档也已经整理好；如果你要，我下一条可以再发。
+
+**Changed Files**
+- `multimodal-agent-research/reports/diagrams/2026-04-04-audio-mainline-architecture.svg`
+- `multimodal-agent-research/reports/diagrams/2026-04-04-audio-mainline-architecture-notes.md`
+
+**Next Steps**
+- 你先看这张音频主线细图。
+- 如果这张图也对齐了，我下一步就直接回到主线，做 `music/tv` 误判样本和 `粤普混说` 样本的定点复盘。
+
+**Delivery Manifest**
+```json
+{
+  "summary": "已交付音频主线细图。",
+  "deliverables": [
+    {
+      "type": "image",
+      "path": "multimodal-agent-research/reports/diagrams/2026-04-04-audio-mainline-architecture.svg"
+    }
+  ]
+}
+```

@@ -16,9 +16,26 @@ if [[ -z "${RANGE}" ]]; then
   fi
 fi
 
-mapfile -t CHANGED < <(git diff --name-only "${RANGE}" || true)
+declare -A SEEN=()
+declare -a CHANGED=()
+
+collect_changed_files() {
+  while IFS= read -r file; do
+    [[ -n "${file}" ]] || continue
+    if [[ -z "${SEEN["${file}"]+x}" ]]; then
+      SEEN["${file}"]=1
+      CHANGED+=("${file}")
+    fi
+  done
+}
+
+collect_changed_files < <(git diff --name-only "${RANGE}" || true)
+collect_changed_files < <(git diff --cached --name-only || true)
+collect_changed_files < <(git diff --name-only || true)
+collect_changed_files < <(git ls-files --others --exclude-standard || true)
+
 if [[ ${#CHANGED[@]} -eq 0 ]]; then
-  echo "[contract-matrix-guard] ok: no changed files in range ${RANGE}."
+  echo "[contract-matrix-guard] ok: no changed files in range ${RANGE} or dirty worktree."
   exit 0
 fi
 
@@ -32,7 +49,7 @@ for file in "${CHANGED[@]}"; do
   fi
 
   case "${file}" in
-    extensions/codex-bridge/index.js|extensions/codex-bridge/lib/*|config/openclaw.codex-feishu.json5|docs/feishu-codex-bridge-v1.md)
+    extensions/codex-bridge/index.js|extensions/codex-bridge/lib/*|config/openclaw.codex-feishu.json5|docs/feishu-codex-bridge-v1.md|docs/deployment-p1-cross-platform.md|scripts/bootstrap-codex-feishu.sh|scripts/install.sh|scripts/install.ps1|scripts/send-feishu-identify.sh)
       needs_matrix=1
       semantic_files+=("${file}")
       ;;

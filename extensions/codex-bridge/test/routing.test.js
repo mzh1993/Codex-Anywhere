@@ -52,6 +52,42 @@ const INSTALL_SYSTEMD_SERVICE = {
   reasonCodes: ["install_lifecycle_requires_approval"],
 };
 
+const NO_ANGLE_PLACEHOLDER_RE = /<path>|<prompt>|<model>|<level>|<policy>/;
+const ZH_NEW_TASK_EXAMPLE_RE = /`\/codex --cd \. 帮我看看当前目录`/;
+const ZH_FULL_ACCESS_EXAMPLE_RE = /`\/codex --cd \. --sandbox danger-full-access 帮我看看当前目录`/;
+const ZH_RESUME_EXAMPLE_RE = /`\/codex resume 继续`/;
+const ZH_OPTIONAL_FLAGS_EXAMPLE_RE = /`--model gpt-5\.2` `--reasoning medium` `--ask-for-approval never`/;
+const ZH_DEFAULT_CWD_TEXT_RE = /默认工作目录：当前私聊最近一次目录；若没有，则使用默认目录（通常是当前用户主目录）/;
+const EN_NEW_TASK_EXAMPLE_RE = /`\/codex --cd \. summarize the current directory`/;
+const EN_FULL_ACCESS_EXAMPLE_RE =
+  /`\/codex --cd \. --sandbox danger-full-access summarize the current directory`/;
+const EN_RESUME_EXAMPLE_RE = /`\/codex resume continue`/;
+const EN_OPTIONAL_FLAGS_EXAMPLE_RE = /`--model gpt-5\.2` `--reasoning medium` `--ask-for-approval never`/;
+const EN_DEFAULT_CWD_TEXT_RE =
+  /Default cwd: most recent cwd in this DM; otherwise the default directory \(usually the current user's home directory\)\./;
+
+function assertZhNativeShortHelp(text) {
+  assert.match(text, /默认直接发送自然语言给 Codex/);
+  assert.match(text, ZH_NEW_TASK_EXAMPLE_RE);
+  assert.match(text, ZH_FULL_ACCESS_EXAMPLE_RE);
+  assert.match(text, ZH_RESUME_EXAMPLE_RE);
+  assert.match(text, ZH_OPTIONAL_FLAGS_EXAMPLE_RE);
+  assert.match(text, /`\/codex doctor`/);
+  assert.match(text, ZH_DEFAULT_CWD_TEXT_RE);
+  assert.doesNotMatch(text, NO_ANGLE_PLACEHOLDER_RE);
+}
+
+function assertEnNativeShortHelp(text) {
+  assert.match(text, /For normal work, just send a plain message to Codex/);
+  assert.match(text, EN_NEW_TASK_EXAMPLE_RE);
+  assert.match(text, EN_FULL_ACCESS_EXAMPLE_RE);
+  assert.match(text, EN_RESUME_EXAMPLE_RE);
+  assert.match(text, EN_OPTIONAL_FLAGS_EXAMPLE_RE);
+  assert.match(text, /`\/codex doctor`/);
+  assert.match(text, EN_DEFAULT_CWD_TEXT_RE);
+  assert.doesNotMatch(text, NO_ANGLE_PLACEHOLDER_RE);
+}
+
 function classifyBridgeAction(prompt) {
   return classifyOwnedBridgeActionRequest({
     prompt,
@@ -178,12 +214,14 @@ test("protocol/locale/recovery: interruption guidance keeps natural language as 
   const zh = getLocaleText("zh-CN");
 
   assert.match(zh.interruptedTaskRequiresContinue("task-1"), /请直接说明要继续做什么/);
-  assert.match(zh.interruptedTaskRequiresContinue("task-1"), /也可以使用 `\/codex resume <prompt>`/);
-  assert.doesNotMatch(zh.interruptedTaskRequiresContinue("task-1"), /请使用 `\/codex resume <prompt>`/);
+  assert.match(zh.interruptedTaskRequiresContinue("task-1"), /也可以使用 `\/codex resume 继续`/);
+  assert.doesNotMatch(zh.interruptedTaskRequiresContinue("task-1"), /请使用 `\/codex resume 继续`/);
+  assert.doesNotMatch(zh.interruptedTaskRequiresContinue("task-1"), NO_ANGLE_PLACEHOLDER_RE);
 
   assert.match(en.interruptedTaskRequiresContinue("task-1"), /Say what to continue with/);
-  assert.match(en.interruptedTaskRequiresContinue("task-1"), /you can also use `\/codex resume <prompt>`/i);
-  assert.doesNotMatch(en.interruptedTaskRequiresContinue("task-1"), /^Use `\/codex resume <prompt>`/m);
+  assert.match(en.interruptedTaskRequiresContinue("task-1"), /you can also use `\/codex resume continue`/i);
+  assert.doesNotMatch(en.interruptedTaskRequiresContinue("task-1"), /^Use `\/codex resume continue`/m);
+  assert.doesNotMatch(en.interruptedTaskRequiresContinue("task-1"), NO_ANGLE_PLACEHOLDER_RE);
 });
 
 test("protocol/locale/status: running-task guidance does not mislabel status as a resume command", () => {
@@ -261,10 +299,14 @@ test("constitution/locale/unknown_command: closed legacy commands fall back to t
   const en = getLocaleText("en-US");
 
   assert.equal(zh.unknownCommand("/codex status", "/tmp"), zh.help("/tmp"));
+  assertZhNativeShortHelp(zh.unknownCommand("/codex status", "/tmp"));
   assert.doesNotMatch(zh.unknownCommand("/codex status", "/tmp"), /已关闭|不再执行|暂不支持/);
+  assert.doesNotMatch(zh.unknownCommand("/codex status", "/tmp"), /\/tmp/);
 
   assert.equal(en.unknownCommand("/codex status", "/tmp"), en.help("/tmp"));
+  assertEnNativeShortHelp(en.unknownCommand("/codex status", "/tmp"));
   assert.doesNotMatch(en.unknownCommand("/codex status", "/tmp"), /closed|no longer executed|not supported here yet/i);
+  assert.doesNotMatch(en.unknownCommand("/codex status", "/tmp"), /\/tmp/);
 });
 
 test("protocol/transition/approval: approval-required decision transitions task to awaiting_approval", () => {
@@ -285,21 +327,15 @@ test("constitution/command/help: help stays native-first and excludes closed leg
 
   assert.doesNotMatch(zh.help("/tmp"), /Codex Runner 命令/);
   assert.doesNotMatch(zh.help("/tmp"), /bridge/i);
-  assert.match(zh.help("/tmp"), /`\/codex doctor`/);
-  assert.match(zh.help("/tmp"), /`\/codex --cd <path> <prompt>`/);
-  assert.match(zh.help("/tmp"), /`\/codex --cd <path> --sandbox danger-full-access <prompt>`/);
-  assert.match(zh.help("/tmp"), /`\/codex resume <prompt>`/);
-  assert.match(zh.help("/tmp"), /`--model <model>` `--reasoning <level>` `--ask-for-approval <policy>`/);
+  assertZhNativeShortHelp(zh.help("/tmp"));
   assert.doesNotMatch(zh.help("/tmp"), /兼容/);
-  assert.doesNotMatch(zh.help("/tmp"), /`\/codex cwd <path>`|`\/codex pwd`|`\/codex continue <prompt>`/);
+  assert.doesNotMatch(zh.help("/tmp"), /`\/codex cwd .+`|`\/codex pwd`|`\/codex continue .+`/);
+  assert.doesNotMatch(zh.help("/tmp"), /\/tmp/);
 
   assert.doesNotMatch(en.help("/tmp"), /Codex Runner commands/);
   assert.doesNotMatch(en.help("/tmp"), /bridge/i);
-  assert.match(en.help("/tmp"), /`\/codex doctor`/);
-  assert.match(en.help("/tmp"), /`\/codex --cd <path> <prompt>`/);
-  assert.match(en.help("/tmp"), /`\/codex --cd <path> --sandbox danger-full-access <prompt>`/);
-  assert.match(en.help("/tmp"), /`\/codex resume <prompt>`/);
-  assert.match(en.help("/tmp"), /`--model <model>` `--reasoning <level>` `--ask-for-approval <policy>`/);
+  assertEnNativeShortHelp(en.help("/tmp"));
   assert.doesNotMatch(en.help("/tmp"), /Compatibility/);
-  assert.doesNotMatch(en.help("/tmp"), /`\/codex cwd <path>`|`\/codex pwd`|`\/codex continue <prompt>`/);
+  assert.doesNotMatch(en.help("/tmp"), /`\/codex cwd .+`|`\/codex pwd`|`\/codex continue .+`/);
+  assert.doesNotMatch(en.help("/tmp"), /\/tmp/);
 });

@@ -39,6 +39,7 @@ This document defines the current P1 deployment contract for sharing `codex_feis
   - requires: `bash`, `node`, `npm`, `codex`
   - delegates hard runtime checks to `scripts/bootstrap-codex-feishu.sh preflight`
   - includes `codex sandbox linux -- /bin/true` probe from bootstrap
+  - default host paths derive from the current user's home directory unless explicitly overridden (`defaultCwd`, `~/.codex/auth.json`, `~/.codex/config.toml`)
 - Windows (`scripts/install.ps1`):
   - requires: `node`, `npm`, `codex`
   - validates `codex --version`
@@ -47,6 +48,7 @@ This document defines the current P1 deployment contract for sharing `codex_feis
   - renders isolated config deterministically from template
   - writes a dedicated launcher script (`openclaw-gateway-run.cmd`)
   - persists required env vars in current user scope for auto-start hosting
+  - default host paths derive from the current user's profile directory unless explicitly overridden
 
 ## Windows hosting contract (P1)
 
@@ -55,6 +57,7 @@ This document defines the current P1 deployment contract for sharing `codex_feis
 - Skip registration: `Hosting=none` (manual foreground mode only)
 - Installer parameters:
   - `-Hosting auto|nssm|task|none`
+  - `-BasePort <int>`
   - `-NoStart` to register without immediate start
 
 ## Windows acceptance checklist (operator runbook)
@@ -99,6 +102,10 @@ This document defines the current P1 deployment contract for sharing `codex_feis
 - Purpose:
   - records latest installer outcome, selected hosting mode, and basic liveness checks
   - operators should check this file first before deeper debugging
+- Linux foreground truth:
+  - when `scripts/install.sh --no-systemd` is used, `hostingMode` stays `foreground`
+  - `serviceActive` is recorded as `skipped`, not `unknown`
+  - `message=foreground_manual_start_required` means install finished and the next operator step is to run `gateway-run` manually
 
 ## Required environment
 

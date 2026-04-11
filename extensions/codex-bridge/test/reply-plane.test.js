@@ -39,6 +39,33 @@ Delivery Manifest
   });
 });
 
+test("runtime/policy/reply_plane: parses markdown-styled manifest headings and accepts type as a kind alias", () => {
+  const parsed = parseDeliveryManifest(`**Summary**
+- 已生成架构图。
+
+**Delivery Manifest**
+\`\`\`json
+{
+  "summary": "已生成架构图。",
+  "deliverables": [
+    { "type": "file", "path": "reports/architecture.svg" },
+    { "type": "link", "url": "https://example.com/architecture" }
+  ]
+}
+\`\`\`
+`);
+
+  assert.equal(parsed.errorCode, null);
+  assert.deepEqual(parsed.manifest, {
+    summary: "已生成架构图。",
+    note: "",
+    deliverables: [
+      { kind: "file", path: "reports/architecture.svg", url: "", note: "" },
+      { kind: "link", path: "", url: "https://example.com/architecture", note: "" },
+    ],
+  });
+});
+
 test("runtime/policy/reply_plane: declared local deliverables fail closed on absolute paths, escapes, symlink escapes, missing files, and kind mismatch", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-reply-plane-"));
   const workspace = path.join(tempRoot, "workspace");
@@ -86,4 +113,26 @@ test("runtime/presentation/reply_plane: delivery failure summary stays short and
   });
 
   assert.equal(hint, "2 个产物未回传：路径越界、上传失败");
+});
+
+test("runtime/policy/reply_plane: declared svg image deliverables degrade to file delivery", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-reply-plane-svg-"));
+  const workspace = path.join(tempRoot, "workspace");
+  const reportsDir = path.join(workspace, "reports");
+  await fs.mkdir(reportsDir, { recursive: true });
+
+  const svgPath = path.join(reportsDir, "architecture.svg");
+  await fs.writeFile(svgPath, "<svg></svg>");
+
+  const result = await validateDeclaredDeliverables({
+    cwd: workspace,
+    deliverables: [
+      { kind: "image", path: "reports/architecture.svg", url: "", note: "" },
+    ],
+  });
+
+  assert.equal(result.failures.length, 0);
+  assert.equal(result.accepted.length, 1);
+  assert.equal(result.accepted[0].kind, "file");
+  assert.equal(result.accepted[0].path, "reports/architecture.svg");
 });

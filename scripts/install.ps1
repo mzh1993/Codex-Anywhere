@@ -88,7 +88,8 @@ function Write-GatewayLauncherCmd(
   [string]$XdgConfig,
   [string]$XdgCache,
   [string]$XdgData,
-  [string]$SecretsCmdPath
+  [string]$SecretsCmdPath,
+  [int]$BasePortValue
 ) {
   $runtimeBinEscaped = $RuntimeBin.Replace('"', '""')
   $runtimeEntryEscaped = $RuntimeEntry.Replace('"', '""')
@@ -101,6 +102,7 @@ function Write-GatewayLauncherCmd(
   $secretsCmdEscaped = $SecretsCmdPath.Replace('"', '""')
   $runtimeBinDir = Split-Path -Parent $RuntimeBin
   $runtimeBinDirEscaped = $runtimeBinDir.Replace('"', '""')
+  $basePortEscaped = [string]$BasePortValue
 
   $content = @(
     "@echo off",
@@ -113,7 +115,7 @@ function Write-GatewayLauncherCmd(
     "set XDG_DATA_HOME=$xdgDataEscaped",
     "if exist ""$secretsCmdEscaped"" call ""$secretsCmdEscaped""",
     "if not ""%CODEX_FEISHU_GATEWAY_TOKEN%""=="""" set OPENCLAW_GATEWAY_TOKEN=%CODEX_FEISHU_GATEWAY_TOKEN%",
-    "set OPENCLAW_GATEWAY_PORT=19789",
+    "set OPENCLAW_GATEWAY_PORT=$basePortEscaped",
     "set PATH=$runtimeBinDirEscaped;%PATH%",
     "if ""%CODEX_FEISHU_APP_ID%""=="""" echo missing CODEX_FEISHU_APP_ID & exit /b 1",
     "if ""%CODEX_FEISHU_APP_SECRET%""=="""" echo missing CODEX_FEISHU_APP_SECRET & exit /b 1",
@@ -433,7 +435,7 @@ Write-SecretsEnv -SecretsEnvPath $secretsEnv -EnvMap @{
   $modelApiEnv = $modelApiKey
 }
 
-Write-GatewayLauncherCmd -LauncherPath $launcherCmd -RuntimeBin $runtimeBin -RuntimeEntry $runtimeEntry -ConfigOut $configOut -OpenClawHome $openclawHome -OpenClawState $stateDir -XdgConfig $xdgConfig -XdgCache $xdgCache -XdgData $xdgData -SecretsCmdPath $secretsCmd
+Write-GatewayLauncherCmd -LauncherPath $launcherCmd -RuntimeBin $runtimeBin -RuntimeEntry $runtimeEntry -ConfigOut $configOut -OpenClawHome $openclawHome -OpenClawState $stateDir -XdgConfig $xdgConfig -XdgCache $xdgCache -XdgData $xdgData -SecretsCmdPath $secretsCmd -BasePortValue $BasePort
 
 Write-Log "persisting required env vars in User scope"
 Ensure-EnvPersisted @{
