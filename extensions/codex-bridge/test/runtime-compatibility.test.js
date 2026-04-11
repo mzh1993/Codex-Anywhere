@@ -165,42 +165,52 @@ test("runtime/compat/detect: runtime compatibility detection reports missing com
 
 test("runtime/compat/detect: native_windows_fast bypasses bwrap checks", async () => {
   const { detectExecutionRuntimeCompatibility } = await import("../lib/runtime-compatibility.js");
+  const calls = [];
 
   const nativeWindowsFast = await detectExecutionRuntimeCompatibility({
     codexBin: "codex",
     runtimeMode: "native_windows_fast",
-    runCommand: async (command) => {
-      if (command === "codex") return { stdout: "codex-cli 0.118.0\n", stderr: "" };
+    runCommand: async (command, args) => {
+      calls.push({ command, args });
+      if (command === "codex") return { stdout: "codex-cli 0.120.0\n", stderr: "" };
       throw new Error("unexpected command");
     },
   });
 
   assert.equal(nativeWindowsFast.ok, true);
-  assert.equal(nativeWindowsFast.codexVersion, "codex-cli 0.118.0");
+  assert.equal(nativeWindowsFast.codexVersion, "codex-cli 0.120.0");
   assert.equal(nativeWindowsFast.bwrapVersion, "n/a (windows)");
+  assert.deepEqual(calls, [{ command: "codex", args: ["--version"] }]);
 });
 
 test("runtime/compat/probe: runtime compatibility detection fails when codex sandbox probe fails", async () => {
   const { detectExecutionRuntimeCompatibility } = await import("../lib/runtime-compatibility.js");
+  const calls = [];
 
   const sandboxProbeFailure = await detectExecutionRuntimeCompatibility({
     codexBin: "codex",
     runtimeMode: "secure_linux",
     runCommand: async (command, args) => {
+      calls.push({ command, args });
       if (command === "/usr/bin/bwrap") return { stdout: "bubblewrap 0.9.0\n", stderr: "" };
       if (command === "codex" && args[0] === "sandbox") {
         throw Object.assign(new Error("sandbox failed"), {
           code: 1,
-          stderr: "bwrap: Unknown option --argv0\n",
+          stderr: "bwrap: Unknown option --argv0\nextra detail line\n",
         });
       }
-      return { stdout: "codex-cli 0.116.0\n", stderr: "" };
+      return { stdout: "codex-cli 0.120.0\n", stderr: "" };
     },
   });
 
   assert.equal(sandboxProbeFailure.ok, false);
   assert.equal(sandboxProbeFailure.reasonCode, "sandbox_probe_failed");
-  assert.match(sandboxProbeFailure.message, /Unknown option --argv0/);
+  assert.match(sandboxProbeFailure.message, /^codex sandbox linux probe failed: /);
+  assert.match(sandboxProbeFailure.message, /codex sandbox linux probe failed: bwrap: Unknown option --argv0/);
+  assert.doesNotMatch(sandboxProbeFailure.message, /[\r\n]/);
+  const sandboxCall = calls.find((call) => call.command === "codex" && call.args?.[0] === "sandbox");
+  assert.ok(sandboxCall);
+  assert.deepEqual(sandboxCall.args, ["sandbox", "linux", "--", "/bin/true"]);
 });
 
 test("runtime/test_harness: active task cleanup clears timers created by startTask", async () => {
@@ -2091,7 +2101,7 @@ test("runtime/protocol/command_surface/doctor: doctor returns a concrete runtime
   const { bridge, replies, replyEvents } = await createBridgeHarness(tempRoot);
   bridge.ensureExecutionRuntimeReady = async () => ({
     ok: true,
-    codexVersion: "codex-cli 0.116.0",
+    codexVersion: "codex-cli 0.120.0",
     bwrapVersion: "0.11.0",
   });
   bridge.probeGatewayHealthForDoctor = async () => "正常";
@@ -2263,7 +2273,7 @@ test("runtime/protocol/command_surface/doctor: running-task doctor advice stays 
   const { bridge, replies } = await createBridgeHarness(tempRoot);
   bridge.ensureExecutionRuntimeReady = async () => ({
     ok: true,
-    codexVersion: "codex-cli 0.116.0",
+    codexVersion: "codex-cli 0.120.0",
     bwrapVersion: "0.11.0",
   });
   bridge.probeGatewayHealthForDoctor = async () => "正常";
@@ -4251,7 +4261,7 @@ test("runtime/protocol/command_surface/doctor: doctor reports concrete runtime r
   const { bridge, replies } = await createBridgeHarness(tempRoot);
   bridge.ensureExecutionRuntimeReady = async () => ({
     ok: true,
-    codexVersion: "codex-cli 0.116.0",
+    codexVersion: "codex-cli 0.120.0",
     bwrapVersion: "0.11.0",
   });
   bridge.probeGatewayHealthForDoctor = async () => "正常";
@@ -4271,7 +4281,7 @@ test("runtime/protocol/command_surface/doctor: doctor reports concrete runtime r
 
   assert.equal(replies.length, 1);
   assert.match(replies[0], /运行时：正常/);
-  assert.match(replies[0], /Codex CLI：codex-cli 0\.116\.0/);
+  assert.match(replies[0], /Codex CLI：codex-cli 0\.120\.0/);
   assert.match(replies[0], /bwrap：0\.11\.0/);
   assert.match(replies[0], /Feishu 凭据：已就绪/);
   assert.match(replies[0], /Gateway：正常/);

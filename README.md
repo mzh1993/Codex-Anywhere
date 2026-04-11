@@ -34,7 +34,7 @@
 ## 最低基础设施
 
 - Linux 主机的 `/usr/bin/bwrap >= 0.9.0`
-- `codex-cli 0.117.0` 是当前验证基线；当前版本会直接调用系统 `/usr/bin/bwrap`
+- `codex-cli 0.120.0` 是当前验证基线；当前版本会直接调用系统 `/usr/bin/bwrap`
 - `bootstrap` / `preflight` 会额外执行一次 `codex sandbox linux -- /bin/true` 实探
 - 如果执行环境不满足最低要求，bridge 会在任务启动前直接拒绝，而不是进入假运行态
 

@@ -49,7 +49,7 @@ test("runtime/contract/docs: README documents the minimum execution infrastructu
   const readme = fs.readFileSync(path.join(repoRoot, "README.md"), "utf8");
 
   assert.match(readme, /\/usr\/bin\/bwrap >= 0\.9\.0/);
-  assert.match(readme, /codex-cli 0\.116\.0/);
+  assert.match(readme, /codex-cli 0\.120\.0/);
   assert.match(readme, /\/usr\/bin\/bwrap/);
   assert.match(readme, /任务启动前直接拒绝/);
 });
