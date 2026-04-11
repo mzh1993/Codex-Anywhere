@@ -74,6 +74,8 @@
 - 当前主要矛盾已从“用户表面仍在教旧命令”转为“实现结构与测试权重仍保留旧时代中心性”。
 - `node --test extensions/codex-bridge/test/*.test.js` 全绿，只能证明当前实现自洽；不能自动证明当前测试权重已经完全服务新的顶层宪法。
 - 2026-03-26 实机核对 `codex --help` 后确认：当前原生 `Codex CLI` 明确存在 `resume`、`fork`、`--cd`、`--model`、`--sandbox`、`--ask-for-approval` 等表面；当前 bridge 用户表面则主动收口为 `/codex --cd ...`、`/codex resume ...`、`/codex doctor`，显式参数透传集中在 `--cd`、`--model`、`--reasoning`、`--sandbox`、`--ask-for-approval`，并不存在 `new / status / abort / approve / cwd / pwd / continue` 这组历史兼容命令。
+- 上游 0.117–0.120 审计补注：本阶段只吸收兼容性 / 稳定性 / 内部执行改进，保持薄桥契约不变。
+- 上游新增体验与扩展（插件浏览、MCP 丰富度、app-server/remote 流程、Realtime 语音、TUI 文案/状态细化、多 agent 交互优化）当前仅记录为非优先适配项，不扩 bridge 产品面。
 
 ## `/codex` 命令面对齐现状
 
@@ -110,3 +112,4 @@
 - 暂不在反馈闭环未稳定前铺开文档、日历、多维表格等对象操作。
 - 暂不把 `doctor` 自动自愈作为主线。
 - 暂不为新渠道和体验花样提前改动核心语义。
+- 暂不把 `codex exec` prompt 迁移到 stdin：需要改动 `buildCodexArgs` 合约与 `spawn` 的 stdio，可能影响错误处理与复现实验路径，先保留 argv 方案。
