@@ -16,7 +16,7 @@
 
 - 顶层文档体系已完成重写收口；当前残余问题主要在措辞层，不再继续大改结构。
 - `codex-bridge` 已形成可回归的基础测试面；当前桥接测试基线为 `node --test extensions/codex-bridge/test/*.test.js`。
-- `/codex` 用户表面已完成一轮 native-first 收口：普通消息默认直达 `Codex`，显式入口优先支持 `/codex --cd ... [--model ...] [--reasoning ...] [--sandbox ...] [--ask-for-approval ...] <prompt>`、`/codex resume [--model ...] [--reasoning ...] [--sandbox ...] [--ask-for-approval ...] <prompt>` 与 `/codex doctor`。
+- `/codex` 用户表面已完成一轮 native-first 收口：普通消息默认直达 `Codex`，显式入口明确只保留 `/codex --cd ... [--model ...] [--reasoning ...] [--sandbox ...] [--ask-for-approval ...] <prompt>`、`/codex resume <prompt>` 与 `/codex doctor`；原生 `resume` 的 session id / thread name / `--last` 选择面明确不纳入 bridge 主路径。
 - 未知 `/codex <subcommand>` 已不再回落旧帮助页，而是返回简短的 native-first 指引。
 - 历史 slash 命令 `help / status / abort / approve / cwd / pwd / continue` 已全部退出执行面，只保留 unknown / native-first 提示。
 - 受控执行已有最小 allow / approval / deny 边界与测试。

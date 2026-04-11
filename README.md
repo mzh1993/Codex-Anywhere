@@ -26,7 +26,7 @@
 
 - 低心智主路径：普通消息默认直达 `Codex`，只在必要边界上显式出现 bridge
 - 同会话闭环：状态、结果和最终产物默认回到发起它的当前 Feishu 会话
-- Native-first 命令面：显式启动 / 续写优先贴近原生 `Codex` 参数名
+- Native-first 命令面：保留原生命名（如 `resume`），但显式入口只暴露最小参数面
 - 审批可控：高风险动作走显式确认，按钮优先，文案尽量最短
 - 跨平台部署：Linux 与 Windows 都有可落地安装路径
 - 隔离执行：结合 OpenClaw + runtime 策略约束执行边界
@@ -76,6 +76,7 @@ $env:CODEX_FEISHU_APP_SECRET = "xxx"
 - bridge 只在显式 `/codex ...` 启动面，或自有审批 / 控制面闭环里做最薄 gate；普通文本语义默认仍归 `Codex`
 - reply plane 当前已落地 Phase 1：最终摘要和 `Codex` 显式声明的最终可消费产物，会默认按当前任务 origin 原路回到 Feishu
 - 当前不会自动扫描目录猜测要回传什么；只有 `Codex` 声明的最终产物才会被回传
+- 原生 `codex resume` 已支持 session id / thread name / `--last` 等选择模式；bridge 主路径明确只保留 `/codex resume <prompt>`，不纳入选择面；task 已激活后普通文本仍是主续写路径
 - paired bridge 私聊的 Full Access 按 DM 级状态记住：显式高权限获批后，后续任务默认沿用，直到显式降权或 reset
 - 显式申请 Full Access：`/codex --cd <path> --sandbox danger-full-access <prompt>`
 - 显式降回普通默认权限：下一次显式 `/codex` 启动或续写时带 `--sandbox workspace-write`
