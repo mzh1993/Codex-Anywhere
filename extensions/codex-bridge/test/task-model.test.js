@@ -219,6 +219,32 @@ test("protocol/locale/finish: finish messages describe run completion when the t
   );
 });
 
+test("presentation/finish: finish card keeps summary and limits next steps under budget", () => {
+  const text = getLocaleText("zh-CN");
+  const rendered = text.taskFinished({
+    taskId: "task-1",
+    status: "awaiting_input",
+    cwd: "/workspace",
+    runStatus: "completed",
+    sessionId: "session-1",
+    summary: "A".repeat(1200),
+    changedFiles: ["a.md", "b.md"],
+    nextSteps: ["先看图", "再看说明", "最后补验证"],
+    deliveryFailureHint: null,
+    error: null,
+    exitCode: 0,
+    signal: null,
+  });
+
+  const expectedSummary = `${"A".repeat(699)}…`;
+  assert.ok(rendered.includes(expectedSummary));
+  assert.equal(rendered.includes("A".repeat(700)), false);
+  assert.doesNotMatch(rendered, /改动文件/);
+  assert.doesNotMatch(rendered, /a\.md|b\.md/);
+  assert.match(rendered, /下一步：\n- 先看图/);
+  assert.doesNotMatch(rendered, /再看说明|最后补验证/);
+});
+
 test("protocol/status/continue: canContinueTask returns false for every terminal status", () => {
   for (const status of TERMINAL_TASK_STATUSES) {
     assert.equal(canContinueTask(status), false);

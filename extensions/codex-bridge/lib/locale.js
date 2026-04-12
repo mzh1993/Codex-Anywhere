@@ -1,5 +1,7 @@
 const DEFAULT_LOCALE = "en-US";
 const DEFAULT_MAX_CHANGED_FILES = 8;
+const FINISH_CARD_SUMMARY_MAX_CHARS = 700;
+const FINISH_CARD_MAX_NEXT_STEPS = 1;
 const HIDDEN_STATUS_HINT_PATTERNS = [
   /^(?:thread|turn|item)\./i,
   /^error$/i,
@@ -134,6 +136,13 @@ function localizeReason(locale, reasonCode) {
 
 function formatReasonLine(locale, reasonCode) {
   return `- ${reasonCode}: ${localizeReason(locale, reasonCode)}`;
+}
+
+function truncateFinishCardSummary(text) {
+  const normalized = normalizeText(text);
+  if (!normalized) return "";
+  if (normalized.length <= FINISH_CARD_SUMMARY_MAX_CHARS) return normalized;
+  return `${normalized.slice(0, FINISH_CARD_SUMMARY_MAX_CHARS - 1)}…`;
 }
 
 function getDefaultResumeCommand(locale) {
@@ -397,23 +406,19 @@ export function getLocaleText(locale) {
         else lines.push(`Codex 任务失败：${task.taskId}`);
         lines.push(`工作目录：\`${task.cwd}\``);
         if (task.sessionId) lines.push(`会话 ID：${task.sessionId}`);
-        if (task.summary) {
+        const summary = truncateFinishCardSummary(task.summary);
+        if (summary) {
           lines.push("");
-          lines.push(task.summary);
+          lines.push(summary);
         }
         if (task.deliveryFailureHint) {
           lines.push("");
           lines.push(task.deliveryFailureHint);
         }
-        if (task.changedFiles.length > 0) {
-          lines.push("");
-          lines.push("改动文件：");
-          for (const file of task.changedFiles.slice(0, DEFAULT_MAX_CHANGED_FILES)) lines.push(`- \`${file}\``);
-        }
         if (task.nextSteps.length > 0) {
           lines.push("");
           lines.push("下一步：");
-          for (const step of task.nextSteps.slice(0, 3)) lines.push(`- ${step}`);
+          for (const step of task.nextSteps.slice(0, FINISH_CARD_MAX_NEXT_STEPS)) lines.push(`- ${step}`);
         }
         if (!task.summary && task.error) {
           lines.push("");
@@ -578,23 +583,19 @@ export function getLocaleText(locale) {
       else lines.push(`Codex task failed: ${task.taskId}`);
       lines.push(`cwd: \`${task.cwd}\``);
       if (task.sessionId) lines.push(`session_id: ${task.sessionId}`);
-    if (task.summary) {
-      lines.push("");
-      lines.push(task.summary);
-    }
-    if (task.deliveryFailureHint) {
-      lines.push("");
-      lines.push(task.deliveryFailureHint);
-    }
-    if (task.changedFiles.length > 0) {
-      lines.push("");
-      lines.push("Changed files:");
-        for (const file of task.changedFiles.slice(0, DEFAULT_MAX_CHANGED_FILES)) lines.push(`- \`${file}\``);
+      const summary = truncateFinishCardSummary(task.summary);
+      if (summary) {
+        lines.push("");
+        lines.push(summary);
+      }
+      if (task.deliveryFailureHint) {
+        lines.push("");
+        lines.push(task.deliveryFailureHint);
       }
       if (task.nextSteps.length > 0) {
         lines.push("");
         lines.push("Next:");
-        for (const step of task.nextSteps.slice(0, 3)) lines.push(`- ${step}`);
+        for (const step of task.nextSteps.slice(0, FINISH_CARD_MAX_NEXT_STEPS)) lines.push(`- ${step}`);
       }
       if (!task.summary && task.error) {
         lines.push("");

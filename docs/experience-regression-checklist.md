@@ -14,6 +14,7 @@ scripts/review/run-experience-regression.sh
 
 - [ ] 普通文本续写不换任务 lane：`awaiting_input` 下回复普通文本仍续到同一 `taskId`。
 - [ ] 显式 `/codex resume` 不新建任务：续写进入同一任务下一轮 run。
+- [ ] 新 run 不继承上一轮 reply-plane `deliverables` / `deliveryFailureHint`。
 - [ ] `activeTaskId` 漂移自愈：仅有 `lastTaskId` 时可自动恢复 continuity lane。
 - [ ] 显式 `/codex --cd ...` 新任务能正确 supersede 旧 `awaiting_input` 任务。
 
@@ -41,6 +42,7 @@ scripts/review/run-experience-regression.sh
 - [ ] 重复同提示不刷屏（去重生效）。
 - [ ] 心跳文案紧凑且提示长度有上限，降低文本长度抖动。
 - [ ] 已知 router 噪声 stderr 不污染“最近状态”。
+- [ ] 完成卡长摘要下仍保留 `summary` 且仅保留 1 条 `next step`。
 
 契约映射：`OB-001` `OB-002` `OB-003`
 

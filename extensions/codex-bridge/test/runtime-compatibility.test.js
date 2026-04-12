@@ -3672,9 +3672,112 @@ Next Steps
     assert.equal(replyEvents.length, 1);
     assert.ok(replyEvents[0].card);
     assert.equal(replyEvents[0].card?.header?.title?.content, "本轮结果");
-    assert.equal((replies[0].match(/改动文件：/g) ?? []).length, 1);
+    assert.doesNotMatch(replies[0], /改动文件：/);
     assert.equal((replies[0].match(/下一步：/g) ?? []).length, 1);
     assert.doesNotMatch(replies[0], /Changed Files|Next Steps/);
+  } finally {
+    await cleanupActiveTaskRuntimes(__activeTasks);
+  }
+});
+
+test("runtime/protocol/finish_summary: finish cards apply summary budget and keep the first next step", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-finish-summary-budget-"));
+  const { bridge, replies } = await createBridgeHarness(tempRoot);
+  const { __activeTasks } = await import("../index.js");
+  const runDir = path.join(tempRoot, "run-summary-budget");
+  await fs.mkdir(runDir, { recursive: true });
+  const lastMessagePath = path.join(runDir, "last-message.txt");
+  const stdoutLogPath = path.join(runDir, "stdout.jsonl");
+  const stderrLogPath = path.join(runDir, "stderr.log");
+  const longSummary = "A".repeat(720);
+  await fs.writeFile(
+    lastMessagePath,
+    `Summary
+${longSummary}
+
+Next Steps
+- 第一条下一步
+- 第二条下一步
+- 第三条下一步`,
+  );
+  await fs.writeFile(stdoutLogPath, "");
+  await fs.writeFile(stderrLogPath, "");
+
+  const task = createTaskRecord({
+    taskId: "task-summary-budget",
+    locale: "zh-CN",
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-summary-budget",
+    cwd: "/home/mzh",
+    mode: "resume",
+    status: "running",
+    currentRunId: "run-summary-budget",
+    lastRunId: "run-summary-budget",
+    sessionId: "session-summary-budget",
+    prompt: "预算摘要",
+    createdAt: "2026-03-30T02:28:36.005Z",
+    updatedAt: "2026-03-30T02:28:36.005Z",
+  });
+  const run = createRunRecord({
+    runId: "run-summary-budget",
+    taskId: task.taskId,
+    locale: task.locale,
+    senderId: task.senderId,
+    accountId: task.accountId,
+    conversationId: task.conversationId,
+    messageId: task.messageId,
+    cwd: task.cwd,
+    mode: task.mode,
+    sessionId: task.sessionId,
+    prompt: task.prompt,
+    createdAt: "2026-03-30T02:28:36.005Z",
+    updatedAt: "2026-03-30T02:28:36.005Z",
+    stdoutLogPath,
+    stderrLogPath,
+    lastMessagePath,
+    runDir,
+    beforeSessions: new Set(),
+  });
+
+  try {
+    await bridge.saveTask(task);
+    await bridge.saveRun(run);
+    await bridge.saveProfile({
+      senderId: "user-1",
+      accountId: "default",
+      conversationId: "conv-1",
+      defaultCwd: "/home/mzh",
+      activeTaskId: task.taskId,
+      lastTaskId: task.taskId,
+      lastSessionId: task.sessionId,
+      updatedAt: "2026-03-30T02:28:36.005Z",
+    });
+    __activeTasks.set("user-1", {
+      task,
+      run,
+      child: { kill() {} },
+      stdoutBuffer: "",
+      stderrBuffer: "",
+      stopping: false,
+      finishing: false,
+      heartbeatTimer: null,
+      sessionPollTimer: null,
+    });
+
+    await bridge.finishTask("user-1", {
+      exitCode: 0,
+      signal: null,
+      error: null,
+    });
+
+    const expectedSummary = `${"A".repeat(699)}…`;
+    assert.equal(replies.length, 1);
+    assert.ok(replies[0].includes(expectedSummary));
+    assert.equal(replies[0].includes("A".repeat(700)), false);
+    assert.match(replies[0], /下一步：\n- 第一条下一步/);
+    assert.doesNotMatch(replies[0], /第二条下一步|第三条下一步/);
   } finally {
     await cleanupActiveTaskRuntimes(__activeTasks);
   }
@@ -3829,6 +3932,52 @@ Next Steps
     );
   } finally {
     await cleanupActiveTaskRuntimes(__activeTasks);
+  }
+});
+
+test("runtime/protocol/reply_plane: starting a new run clears stale deliverables and delivery failure hints", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-reply-plane-reset-"));
+  const { bridge } = await createBridgeHarness(tempRoot);
+  const existingTask = createTaskRecord({
+    taskId: "task-stale-deliverables",
+    locale: "zh-CN",
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-old",
+    cwd: tempRoot,
+    mode: "resume",
+    status: "awaiting_input",
+    lastRunId: "run-old",
+    prompt: "旧任务",
+    createdAt: "2026-04-12T00:00:00.000Z",
+    updatedAt: "2026-04-12T00:00:00.000Z",
+    deliverables: [{ kind: "file", path: "reports/old-notes.md", url: "", note: "" }],
+    deliveryFailureHint: "1 个产物未回传：上传失败",
+  });
+  const profile = { senderId: "user-1", defaultCwd: tempRoot, updatedAt: "2026-04-12T00:00:00.000Z" };
+
+  try {
+    await bridge.startTask({
+      profile,
+      existingTask,
+      accountId: "default",
+      conversationId: "conv-1",
+      messageId: "msg-new",
+      prompt: "继续推进",
+      mode: "resume",
+      cwd: tempRoot,
+      runtimeCheck: { ok: true, message: "ok" },
+    });
+
+    const persistedTask = await bridge.readTask(existingTask.taskId);
+    const persistedRun = await bridge.readRun(persistedTask.currentRunId);
+    assert.deepEqual(persistedTask.deliverables, []);
+    assert.equal(persistedTask.deliveryFailureHint, null);
+    assert.deepEqual(persistedRun.deliverables, []);
+    assert.equal(persistedRun.deliveryFailureHint, null);
+  } finally {
+    await cleanupActiveTaskRuntimes();
   }
 });
 

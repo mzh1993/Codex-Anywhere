@@ -1402,6 +1402,8 @@ export class CodexBridge {
       summary: null,
       changedFiles: [],
       nextSteps: [],
+      deliverables: [],
+      deliveryFailureHint: null,
       error: null,
     });
     const task = createTaskRecord({
@@ -1481,6 +1483,8 @@ export class CodexBridge {
       summary: null,
       changedFiles: [],
       nextSteps: [],
+      deliverables: [],
+      deliveryFailureHint: null,
       error: null,
     });
     const approval = {
@@ -1602,6 +1606,8 @@ export class CodexBridge {
       summary: null,
       changedFiles: [],
       nextSteps: [],
+      deliverables: [],
+      deliveryFailureHint: null,
       error: null,
     });
     const run = createRunRecord({
@@ -1640,6 +1646,8 @@ export class CodexBridge {
       summary: null,
       changedFiles: [],
       nextSteps: [],
+      deliverables: [],
+      deliveryFailureHint: null,
       error: null,
     });
 
