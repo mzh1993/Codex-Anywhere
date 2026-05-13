@@ -70,6 +70,12 @@ function createBridgeHarness(tempRoot, options = {}) {
   });
 }
 
+async function createTestBridge(tempRoot = null) {
+  const root = tempRoot ?? await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-inbound-media-"));
+  const { bridge } = await createBridgeHarness(root);
+  return bridge;
+}
+
 function renderReplyText(params) {
   if (params?.text) return params.text;
   const elements = Array.isArray(params?.card?.elements) ? params.card.elements : [];
@@ -2935,6 +2941,47 @@ test("runtime/protocol/legacy_top_level/new: top-level /new is claimed and close
   assert.deepEqual(handled, { handled: true });
   assert.equal(replies.length, 1);
   assertZhNativeShortHelp(replies[0]);
+});
+
+test("runtime/protocol/inbound_media: ordinary text plus image stays codex-owned and carries attachment context without bridge chatter", async () => {
+  const bridge = await createTestBridge();
+  const started = [];
+  bridge.routeInbound = async (request) => {
+    started.push({
+      prompt: request.text,
+      inputAttachments: request.inputAttachments,
+    });
+  };
+
+  await bridge.handleInboundClaim(
+    {
+      channel: "feishu",
+      accountId: "default",
+      conversationId: "oc_dm_1",
+      senderId: "ou_user_1",
+      messageId: "om_media_1",
+      isGroup: false,
+      bodyForAgent: "看看这张图",
+      media: [
+        {
+          kind: "image",
+          name: "image.png",
+          imageKey: "img_v3_test",
+        },
+      ],
+    },
+    {
+      channelId: "feishu",
+      accountId: "default",
+      conversationId: "oc_dm_1",
+      senderId: "ou_user_1",
+      messageId: "om_media_1",
+    },
+  );
+
+  assert.equal(started.length, 1);
+  assert.equal(started[0].prompt, "看看这张图");
+  assert.equal(started[0].inputAttachments?.[0]?.kind, "image");
 });
 
 test("runtime/protocol/reset: upstream before_reset stops continuing a running bridge lane on the next plain text", async () => {

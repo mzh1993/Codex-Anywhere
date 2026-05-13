@@ -75,6 +75,8 @@ $env:CODEX_FEISHU_APP_SECRET = "xxx"
 
 - 自然语言是主路径；只有显式启动或续写持续会话时才使用 `/codex ...`
 - bridge 只在显式 `/codex ...` 启动面，或自有审批 / 控制面闭环里做最薄 gate；普通文本语义默认仍归 `Codex`
+- 普通 Feishu 输入仍默认归 `Codex`；文本、图片、音频、视频、文件都只是同一条普通输入的不同外壳，bridge 只做受控归一化，不新增媒体专用命令面
+- 媒体下载失败时仍会 fail closed：文本继续进入任务，失败原因只保留最小上下文提示
 - reply plane 当前已落地 Phase 1：最终摘要和 `Codex` 显式声明的最终可消费产物，会默认按当前任务 origin 原路回到 Feishu
 - 当前不会自动扫描目录猜测要回传什么；只有 `Codex` 声明的最终产物才会被回传
 - 若 bridge / gateway 重启打断当前执行，下一条普通文本默认续到同一任务 lane
@@ -89,6 +91,8 @@ $env:CODEX_FEISHU_APP_SECRET = "xxx"
 ## 常用命令
 
 - 普通任务：直接发送自然语言
+- 继续当前工作：直接回复下一步给 Codex
+- 显式续写兜底：`/codex resume <prompt>`
 - 新任务：`/codex --cd <path> <prompt>`
 - 继续当前任务：`/codex resume <prompt>`
 - 健康检查：`/codex doctor`
