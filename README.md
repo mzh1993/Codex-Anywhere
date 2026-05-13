@@ -73,16 +73,19 @@ $env:CODEX_FEISHU_APP_SECRET = "xxx"
 
 ## 当前执行语义
 
-- 自然语言是主路径；只有显式启动或续写持续会话时才使用 `/codex ...`
+- 自然语言是主路径；只有显式启动或需要显式续写兜底时才使用 `/codex ...`
 - bridge 只在显式 `/codex ...` 启动面，或自有审批 / 控制面闭环里做最薄 gate；普通文本语义默认仍归 `Codex`
-- 普通 Feishu 输入仍默认归 `Codex`；文本、图片、音频、视频、文件都只是同一条普通输入的不同外壳，bridge 只做受控归一化，不新增媒体专用命令面
-- 媒体下载失败时仍会 fail closed：文本继续进入任务，失败原因只保留最小上下文提示
+- 未来的 inbound multimodal 语义应仍保持普通 Feishu 输入默认归 `Codex`；文本、图片、音频、视频、文件都应被视为同一条普通输入的不同外壳，bridge 只做受控归一化，不新增媒体专用命令面
+- 当该能力落地后，媒体下载失败也应 fail closed：文本继续进入任务，失败原因只保留最小上下文提示
 - reply plane 当前已落地 Phase 1：最终摘要和 `Codex` 显式声明的最终可消费产物，会默认按当前任务 origin 原路回到 Feishu
 - 当前不会自动扫描目录猜测要回传什么；只有 `Codex` 声明的最终产物才会被回传
 - 若 bridge / gateway 重启打断当前执行，下一条普通文本默认续到同一任务 lane
-- 原生 `codex resume` 已支持 session id / thread name / `--last` 等选择模式；bridge 主路径明确只保留 `/codex resume <prompt>`，不纳入选择面；task 已激活后普通文本仍是主续写路径
+- 继续当前工作：直接回复下一步给 Codex。
+- 如需显式续写，再用 `/codex resume <prompt>`；bridge 只保留这个最小 fallback，不开放 session id / thread name / `--last` 选择面
+- run 完成或失败后，task 默认回到 `awaiting_input`；这表示当前这一轮结束，但同一任务 lane 仍可继续
 - 长任务默认维持同一张运行卡，并在有界静默时间内刷新，避免状态漂移和刷屏
 - paired bridge 私聊的 Full Access 按 DM 级状态记住：显式高权限获批后，后续任务默认沿用，直到显式降权或 reset
+- 群聊默认不接管；只有 `channels.feishu.groupPolicy` 已启用（非 `disabled`）且 `groupAllowlistConversationIds` 包含该群 `conversationId` 时才会接管
 - 显式申请 Full Access：`/codex --cd <path> --sandbox danger-full-access <prompt>`
 - 显式降回普通默认权限：下一次显式 `/codex` 启动或续写时带 `--sandbox workspace-write`
 - `--ask-for-approval never` 只影响审批策略，不等于 Full Access，也不替代 `--sandbox` 的选择
@@ -94,7 +97,6 @@ $env:CODEX_FEISHU_APP_SECRET = "xxx"
 - 继续当前工作：直接回复下一步给 Codex
 - 显式续写兜底：`/codex resume <prompt>`
 - 新任务：`/codex --cd <path> <prompt>`
-- 继续当前任务：`/codex resume <prompt>`
 - 健康检查：`/codex doctor`
 - 显式全权限（按需使用）：`/codex --cd <path> --sandbox danger-full-access <prompt>`
 - 显式降权：`/codex --cd <path> --sandbox workspace-write <prompt>`
@@ -110,10 +112,13 @@ Linux `systemd --user` 安装默认使用：
 ## 排障最短路径
 
 1. 先看 Feishu 侧：`/codex doctor`
-2. 再看安装状态：`./.isolated/codex-feishu/state/install-health.json`
-3. 再看宿主日志
+2. 再跑发布审计：`bash scripts/feishu-app-audit.sh`
+3. 再看安装状态：`./.isolated/codex-feishu/state/install-health.json`
+4. 再看宿主日志
    - Linux：`journalctl --user -u openclaw-codex-feishu.service -n 200 --no-pager`
    - Windows：`%LOCALAPPDATA%\Temp\openclaw\openclaw-YYYY-MM-DD.log`
+
+审计口径说明：`im.message.receive_v1`来自已发布版本事件列表；`card.action.trigger`可能出现在应用级`subscribed_callbacks`，不一定出现在`app_versions.events`。
 
 Windows 常见噪声（非阻断）：
 

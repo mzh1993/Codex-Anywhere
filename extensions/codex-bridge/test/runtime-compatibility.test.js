@@ -72,8 +72,7 @@ function createBridgeHarness(tempRoot, options = {}) {
 
 async function createTestBridge(tempRoot = null) {
   const root = tempRoot ?? await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-inbound-media-"));
-  const { bridge } = await createBridgeHarness(root);
-  return bridge;
+  return await createBridgeHarness(root);
 }
 
 function renderReplyText(params) {
@@ -94,9 +93,11 @@ const ZH_DEFAULT_CWD_TEXT_RE = /默认工作目录：当前私聊最近一次目
 
 function assertZhNativeShortHelp(text) {
   assert.match(text, /默认直接发送自然语言给 Codex/);
+  assert.match(text, /继续当前工作：直接回复下一步给 Codex/);
   assert.match(text, ZH_NEW_TASK_EXAMPLE_RE);
   assert.match(text, ZH_FULL_ACCESS_EXAMPLE_RE);
   assert.match(text, ZH_RESUME_EXAMPLE_RE);
+  assert.doesNotMatch(text, /^续写：`\/codex resume 继续`$/m);
   assert.match(text, ZH_OPTIONAL_FLAGS_EXAMPLE_RE);
   assert.match(text, /`\/codex doctor`/);
   assert.match(text, ZH_DEFAULT_CWD_TEXT_RE);
@@ -2944,7 +2945,7 @@ test("runtime/protocol/legacy_top_level/new: top-level /new is claimed and close
 });
 
 test("runtime/protocol/inbound_media: ordinary text plus image stays codex-owned and carries attachment context without bridge chatter", async () => {
-  const bridge = await createTestBridge();
+  const { bridge, replies } = await createTestBridge();
   const started = [];
   bridge.routeInbound = async (request) => {
     started.push({
@@ -2982,6 +2983,79 @@ test("runtime/protocol/inbound_media: ordinary text plus image stays codex-owned
   assert.equal(started.length, 1);
   assert.equal(started[0].prompt, "看看这张图");
   assert.equal(started[0].inputAttachments?.[0]?.kind, "image");
+  assert.equal(replies.length, 0);
+});
+
+test("runtime/protocol/group_claim: non-allowlisted group is declined", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-group-claim-denied-"));
+  const { bridge } = await createBridgeHarness(tempRoot, {
+    pluginConfig: {
+      groupAllowlistConversationIds: ["conv-allowlisted"],
+    },
+  });
+  let routeCalled = false;
+  bridge.routeInbound = async () => {
+    routeCalled = true;
+  };
+
+  const handled = await bridge.handleInboundClaim(
+    {
+      channel: "feishu",
+      isGroup: true,
+      senderId: "user-1",
+      accountId: "default",
+      conversationId: "conv-not-allowlisted",
+      body: "@codex 看下 README",
+    },
+    {
+      channelId: "feishu",
+      senderId: "user-1",
+      accountId: "default",
+      conversationId: "conv-not-allowlisted",
+      messageId: "msg-group-denied",
+    },
+  );
+
+  assert.equal(handled, undefined);
+  assert.equal(routeCalled, false);
+});
+
+test("runtime/protocol/group_claim: allowlisted group can be claimed without DM pairing gate", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-group-claim-allowed-"));
+  const { bridge } = await createBridgeHarness(tempRoot, {
+    pluginConfig: {
+      groupAllowlistConversationIds: ["conv-allowlisted"],
+    },
+  });
+  const routed = [];
+  bridge.isSenderPaired = async () => {
+    throw new Error("group claim should not check DM pairing");
+  };
+  bridge.routeInbound = async (request) => {
+    routed.push(request);
+  };
+
+  const handled = await bridge.handleInboundClaim(
+    {
+      channel: "feishu",
+      isGroup: true,
+      senderId: "user-1",
+      accountId: "default",
+      conversationId: "conv-allowlisted",
+      body: "@codex 看下 README",
+    },
+    {
+      channelId: "feishu",
+      senderId: "user-1",
+      accountId: "default",
+      conversationId: "conv-allowlisted",
+      messageId: "msg-group-allowed",
+    },
+  );
+
+  assert.deepEqual(handled, { handled: true });
+  assert.equal(routed.length, 1);
+  assert.equal(routed[0].conversationId, "conv-allowlisted");
 });
 
 test("runtime/protocol/reset: upstream before_reset stops continuing a running bridge lane on the next plain text", async () => {
