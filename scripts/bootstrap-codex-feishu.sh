@@ -150,6 +150,9 @@ detect_bwrap_version() {
 
 probe_codex_linux_sandbox() {
   local output
+  if output="$(codex sandbox -- /bin/true 2>&1)"; then
+    return
+  fi
   if ! output="$(codex sandbox linux -- /bin/true 2>&1)"; then
     output="$(printf '%s' "${output}" | tr '\n' ' ' | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//')"
     die "codex sandbox linux probe failed: ${output}"

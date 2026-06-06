@@ -220,7 +220,61 @@ test("runtime/compat/detect: native_windows_fast bypasses bwrap checks", async (
   assert.deepEqual(calls, [{ command: "codex", args: ["--version"] }]);
 });
 
-test("runtime/compat/probe: runtime compatibility detection fails when codex sandbox probe fails", async () => {
+test("runtime/compat/probe: runtime compatibility detection prefers the current codex sandbox syntax", async () => {
+  const { detectExecutionRuntimeCompatibility } = await import("../lib/runtime-compatibility.js");
+  const calls = [];
+
+  const compatible = await detectExecutionRuntimeCompatibility({
+    codexBin: "codex",
+    runtimeMode: "secure_linux",
+    runCommand: async (command, args) => {
+      calls.push({ command, args });
+      if (command === "/usr/bin/bwrap") return { stdout: "bubblewrap 0.11.0\n", stderr: "" };
+      if (command === "codex" && args[0] === "sandbox") return { stdout: "", stderr: "" };
+      return { stdout: "codex-cli 0.135.0\n", stderr: "" };
+    },
+  });
+
+  assert.equal(compatible.ok, true);
+  const sandboxCall = calls.find((call) => call.command === "codex" && call.args?.[0] === "sandbox");
+  assert.ok(sandboxCall);
+  assert.deepEqual(sandboxCall.args, ["sandbox", "--", "/bin/true"]);
+});
+
+test("runtime/compat/probe: runtime compatibility detection falls back to the legacy linux sandbox syntax", async () => {
+  const { detectExecutionRuntimeCompatibility } = await import("../lib/runtime-compatibility.js");
+  const calls = [];
+
+  const compatible = await detectExecutionRuntimeCompatibility({
+    codexBin: "codex",
+    runtimeMode: "secure_linux",
+    runCommand: async (command, args) => {
+      calls.push({ command, args });
+      if (command === "/usr/bin/bwrap") return { stdout: "bubblewrap 0.11.0\n", stderr: "" };
+      if (command === "codex" && args.join(" ") === "sandbox -- /bin/true") {
+        throw Object.assign(new Error("sandbox failed"), {
+          code: 1,
+          stderr: "error: unexpected argument '/bin/true' found\n",
+        });
+      }
+      if (command === "codex" && args.join(" ") === "sandbox linux -- /bin/true") {
+        return { stdout: "", stderr: "" };
+      }
+      return { stdout: "codex-cli 0.120.0\n", stderr: "" };
+    },
+  });
+
+  assert.equal(compatible.ok, true);
+  assert.deepEqual(
+    calls.filter((call) => call.command === "codex" && call.args?.[0] === "sandbox").map((call) => call.args),
+    [
+      ["sandbox", "--", "/bin/true"],
+      ["sandbox", "linux", "--", "/bin/true"],
+    ],
+  );
+});
+
+test("runtime/compat/probe: runtime compatibility detection fails when both codex sandbox probes fail", async () => {
   const { detectExecutionRuntimeCompatibility } = await import("../lib/runtime-compatibility.js");
   const calls = [];
 
@@ -230,7 +284,13 @@ test("runtime/compat/probe: runtime compatibility detection fails when codex san
     runCommand: async (command, args) => {
       calls.push({ command, args });
       if (command === "/usr/bin/bwrap") return { stdout: "bubblewrap 0.9.0\n", stderr: "" };
-      if (command === "codex" && args[0] === "sandbox") {
+      if (command === "codex" && args.join(" ") === "sandbox -- /bin/true") {
+        throw Object.assign(new Error("sandbox failed"), {
+          code: 1,
+          stderr: "thread 'main' panicked at linux-sandbox/src/linux_run_main.rs:1465:5:\nFailed to execvp --: No such file or directory (os error 2)\n",
+        });
+      }
+      if (command === "codex" && args.join(" ") === "sandbox linux -- /bin/true") {
         throw Object.assign(new Error("sandbox failed"), {
           code: 1,
           stderr: "bwrap: Unknown option --argv0\nextra detail line\n",

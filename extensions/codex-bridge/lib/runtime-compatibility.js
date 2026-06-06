@@ -5,7 +5,10 @@ const execFileAsync = promisify(execFile);
 
 export const MIN_BWRAP_VERSION = "0.9.0";
 export const SYSTEM_BWRAP_BIN = "/usr/bin/bwrap";
-const SANDBOX_PROBE_ARGS = ["sandbox", "linux", "--", "/bin/true"];
+const SANDBOX_PROBE_ARGS = [
+  ["sandbox", "--", "/bin/true"],
+  ["sandbox", "linux", "--", "/bin/true"],
+];
 
 export function parseVersionString(value) {
   const text = typeof value === "string" ? value.trim() : "";
@@ -71,7 +74,7 @@ export async function detectExecutionRuntimeCompatibility({
     };
   }
 
-  const sandboxProbe = await readCommandResult(codexBin, SANDBOX_PROBE_ARGS, runCommand, "sandbox_probe_failed");
+  const sandboxProbe = await probeSandboxRuntime(codexBin, runCommand);
   if (!sandboxProbe.ok) {
     return {
       ok: false,
@@ -106,6 +109,22 @@ async function readCommandResult(command, args, runCommand, failureReasonCode) {
       errorText: extractFirstLine(error?.stderr ?? error?.message ?? ""),
     };
   }
+}
+
+async function probeSandboxRuntime(command, runCommand) {
+  let lastFailure = null;
+  for (const args of SANDBOX_PROBE_ARGS) {
+    const result = await readCommandResult(command, args, runCommand, "sandbox_probe_failed");
+    if (result.ok) return result;
+    lastFailure = result;
+  }
+  return lastFailure ?? {
+    ok: false,
+    reasonCode: "sandbox_probe_failed",
+    stderr: "",
+    stdout: "",
+    errorText: "",
+  };
 }
 
 async function runVersionCommand(command, args) {

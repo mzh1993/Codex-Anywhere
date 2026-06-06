@@ -126,6 +126,7 @@ test("runtime/contract/preflight: bootstrap preflight probes the real codex sand
   assert.match(bootstrapScript, /require_command codex/);
   assert.match(bootstrapScript, /HOST_BWRAP_BIN="\/usr\/bin\/bwrap"/);
   assert.match(bootstrapScript, /MIN_BWRAP_VERSION="0\.9\.0"/);
+  assert.match(bootstrapScript, /codex sandbox -- \/bin\/true/);
   assert.match(bootstrapScript, /codex sandbox linux -- \/bin\/true/);
   assert.match(bootstrapScript, /must be >= \$\{MIN_BWRAP_VERSION\}/);
 });
