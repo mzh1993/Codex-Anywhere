@@ -3008,7 +3008,11 @@ async function probeTcpLoopbackPort(port) {
 }
 
 function parseCodexCommand(text) {
-  const normalized = normalizeText(text);
+  const normalized = normalizeBridgeCommandText(text);
+  if (normalized?.startsWith("/run")) {
+    const rest = normalized.slice("/run".length).trim();
+    return { name: "run", args: rest };
+  }
   if (!normalized?.startsWith("/codex")) return null;
   const rest = normalized.slice("/codex".length).trim();
   if (!rest) return { name: "help", args: "" };
@@ -3021,20 +3025,28 @@ function parseCodexCommand(text) {
 }
 
 function parseNativeCodexInvocation(text) {
-  const normalized = normalizeText(text);
+  const normalized = normalizeBridgeCommandText(text);
+  if (normalized?.startsWith("/run")) {
+    return parseNativeCodexInvocationRest(normalized.slice("/run".length).trim(), { forceMode: "new" });
+  }
   if (!normalized?.startsWith("/codex")) return null;
   const rest = normalized.slice("/codex".length).trim();
   if (!rest) return null;
+  return parseNativeCodexInvocationRest(rest);
+}
 
+function parseNativeCodexInvocationRest(rest, { forceMode = null } = {}) {
   const tokens = splitCommandTokens(rest);
-  if (tokens.length === 0) return null;
+  if (tokens.length === 0) {
+    return forceMode === "new" ? { mode: "new", cwd: null, executionOptions: {}, prompt: "" } : null;
+  }
 
   let index = 0;
-  let mode = "new";
-  if (tokens[0].toLowerCase() === "resume") {
+  let mode = forceMode || "new";
+  if (!forceMode && tokens[0].toLowerCase() === "resume") {
     mode = "resume";
     index = 1;
-  } else if (!tokens[0].startsWith("-")) {
+  } else if (!forceMode && !tokens[0].startsWith("-")) {
     return null;
   }
 
@@ -3213,7 +3225,7 @@ function parseNativeCodexInvocation(text) {
     break;
   }
 
-  if (mode === "new" && !cwd && Object.keys(executionOptions).length === 0) return null;
+  if (!forceMode && mode === "new" && !cwd && Object.keys(executionOptions).length === 0) return null;
 
   const prompt = tokens.slice(index).join(" ").trim();
   return {
@@ -3562,7 +3574,10 @@ function shouldPreserveTaskContinuityAfterStop(reason) {
 }
 
 function isCodexCommand(text) {
-  return normalizeText(text)?.startsWith("/codex") ?? false;
+  const normalized = normalizeText(text);
+  if (!normalized) return false;
+  if (normalized.startsWith("/codex")) return true;
+  return /^\/(?:help|doctor|resume|run)(?:\s|$)/i.test(normalized);
 }
 
 function extractMalformedCodexCommand(text) {
@@ -3571,11 +3586,23 @@ function extractMalformedCodexCommand(text) {
   return match?.[1]?.trim() ?? null;
 }
 
+function normalizeBridgeCommandText(text) {
+  const normalized = normalizeText(text);
+  if (!normalized) return "";
+  if (normalized.startsWith("/codex")) return normalized;
+  const match = normalized.match(/^\/(help|doctor|resume|run)(?:\s+([\s\S]*))?$/i);
+  if (!match) return normalized;
+  const command = match[1].toLowerCase();
+  const rest = normalizeText(match[2] ?? "");
+  if (command === "run") return rest ? `/run ${rest}` : "/run";
+  return rest ? `/codex ${command} ${rest}` : `/codex ${command}`;
+}
+
 function shouldBypassClaim(text) {
   const normalized = normalizeText(text);
   if (!normalized) return false;
   if (!normalized.startsWith("/")) return false;
-  return !normalized.startsWith("/codex");
+  return !isCodexCommand(normalized);
 }
 
 function getClosedLegacyTopLevelCommand(text) {

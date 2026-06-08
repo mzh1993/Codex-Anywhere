@@ -158,17 +158,17 @@ function getFinishCardFailureHint(locale, { runStatus, summary, error, lastStatu
 }
 
 function getDefaultResumeCommand(locale) {
-  return normalizeLocale(locale) === "zh-CN" ? "/codex resume 继续" : "/codex resume continue";
+  return normalizeLocale(locale) === "zh-CN" ? "/resume 继续" : "/resume continue";
 }
 
 function getNativeUsageNew(locale) {
   return normalizeLocale(locale) === "zh-CN"
-    ? "用法：`/codex --cd . 帮我看看当前目录`"
-    : "Usage: `/codex --cd . summarize the current directory`";
+    ? "用法：`/run --cd . 帮我看看当前目录`"
+    : "Usage: `/run --cd . summarize the current directory`";
 }
 
 function getNativeUsageResume(locale) {
-  return normalizeLocale(locale) === "zh-CN" ? "用法：`/codex resume 继续`" : "Usage: `/codex resume continue`";
+  return normalizeLocale(locale) === "zh-CN" ? "用法：`/resume 继续`" : "Usage: `/resume continue`";
 }
 
 function getNativeOptionalFlagsExample(locale) {
@@ -188,22 +188,22 @@ function getNativeHelpLines(locale) {
     return [
       "默认直接发送自然语言给 Codex。",
       "继续当前工作：直接回复下一步给 Codex。",
-      "如需显式续写，再用 `/codex resume 继续`。",
-      "新任务：`/codex --cd . 帮我看看当前目录`",
-      "完全访问：`/codex --cd . --sandbox danger-full-access 帮我看看当前目录`",
+      "如需显式续写，推荐用 `/resume 继续`；兼容 `/codex resume 继续`。",
+      "新任务：`/run --cd . 帮我看看当前目录`；兼容 `/codex --cd . 帮我看看当前目录`。",
+      "完全访问：`/run --cd . --sandbox danger-full-access 帮我看看当前目录`。",
       getNativeOptionalFlagsExample(locale),
-      "健康检查：`/codex doctor`",
+      "健康检查：`/doctor`；帮助：`/help`。",
       getDefaultCwdHint(locale),
     ];
   }
   return [
     "For normal work, just send a plain message to Codex.",
     "To continue current work, reply directly with the next step for Codex.",
-    "If you need an explicit resume fallback: `/codex resume continue`",
-    "New task: `/codex --cd . summarize the current directory`",
-    "Full access: `/codex --cd . --sandbox danger-full-access summarize the current directory`",
+    "If you need an explicit resume fallback: `/resume continue`; compatible with `/codex resume continue`.",
+    "New task: `/run --cd . summarize the current directory`; compatible with `/codex --cd . summarize the current directory`.",
+    "Full access: `/run --cd . --sandbox danger-full-access summarize the current directory`.",
     getNativeOptionalFlagsExample(locale),
-    "Health check: `/codex doctor`",
+    "Health check: `/doctor`; help: `/help`.",
     getDefaultCwdHint(locale),
   ];
 }
@@ -280,7 +280,7 @@ export function getLocaleText(locale) {
       ].join("\n"),
       nativeUnknownOption: (option) => [
         `暂不支持这个原生命令参数：\`${option}\`。`,
-        "当前 `/codex` 透传的显式启动参数为：`--cd`、`--model`、`--reasoning`、`--sandbox`、`--ask-for-approval`。",
+        "当前 `/run`、`/resume` 与兼容 `/codex` 透传的显式启动参数为：`--cd`、`--model`、`--reasoning`、`--sandbox`、`--ask-for-approval`。",
       ].join("\n"),
       bridgeActionBlockedByRunningTask: "当前 Codex 任务仍在运行；请等本轮结束后再做这个控制面动作。",
       bridgeActionAlreadyRunning: "当前已有控制面动作在执行；请等它结束后再试。",
@@ -469,7 +469,7 @@ export function getLocaleText(locale) {
     ].join("\n"),
     nativeUnknownOption: (option) => [
       `This native-style option is not supported here yet: \`${option}\`.`,
-      "This `/codex` bridge currently forwards these explicit start flags: `--cd`, `--model`, `--reasoning`, `--sandbox`, and `--ask-for-approval`.",
+      "This `/run`, `/resume`, and compatible `/codex` bridge currently forwards these explicit start flags: `--cd`, `--model`, `--reasoning`, `--sandbox`, and `--ask-for-approval`.",
     ].join("\n"),
     bridgeActionBlockedByRunningTask: "The current Codex task is still running. Wait for it to finish before this control-plane action.",
     bridgeActionAlreadyRunning: "A control-plane action is already running. Wait for it to finish before starting another one.",

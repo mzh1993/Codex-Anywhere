@@ -17,7 +17,7 @@
 `Codex Anywhere` 不是第二个助手，而是把你自己的 `Codex` 远程延伸到 `Feishu`：
 
 1. 你在 Feishu 私聊里直接给 `Codex` 发自然语言。
-2. bridge 只在显式 `/codex ...`、审批闭环、最小控制面这些必要边界上接一下。
+2. bridge 只在显式短命令、兼容 `/codex ...`、审批闭环、最小控制面这些必要边界上接一下。
 3. 运行状态、最终摘要，以及 `Codex` 显式声明的最终可消费产物，会默认原路回到当前 Feishu 会话。
 
 这让你可以在手机、平板、另一台电脑上，持续操控自己的主机环境，而不用重新学习一套桥接产品。
@@ -63,31 +63,31 @@ $env:CODEX_FEISHU_APP_SECRET = "xxx"
 
 ## 安装后 60 秒自检
 
-1. 在 Feishu 私聊机器人发送：`/codex doctor`
+1. 在 Feishu 私聊机器人发送：`/doctor`
 2. 再直接发送一条普通自然语言（例如：`你好，小码`）
 3. 最后发送一条显式命令
-   - Linux：`/codex --cd /path/to/Codex-Anywhere 帮我看 README`
-   - Windows：`/codex --cd C:\path\to\Codex-Anywhere 帮我看 README`
+   - Linux：`/run --cd /path/to/Codex-Anywhere 帮我看 README`
+   - Windows：`/run --cd C:\path\to\Codex-Anywhere 帮我看 README`
 
 如果三步都得到预期响应，说明消息链路和执行链路都已通。
 
 ## 当前执行语义
 
-- 自然语言是主路径；只有显式启动或需要显式续写兜底时才使用 `/codex ...`
-- bridge 只在显式 `/codex ...` 启动面，或自有审批 / 控制面闭环里做最薄 gate；普通文本语义默认仍归 `Codex`
+- 自然语言是主路径；只有显式启动或需要显式续写兜底时才使用短命令或兼容 `/codex ...`
+- bridge 只在显式 `/run`、`/resume`、`/doctor`、`/help`、兼容 `/codex ...` 启动面，或自有审批 / 控制面闭环里做最薄 gate；普通文本语义默认仍归 `Codex`
 - 未来的 inbound multimodal 语义应仍保持普通 Feishu 输入默认归 `Codex`；文本、图片、音频、视频、文件都应被视为同一条普通输入的不同外壳，bridge 只做受控归一化，不新增媒体专用命令面
 - 当该能力落地后，媒体下载失败也应 fail closed：文本继续进入任务，失败原因只保留最小上下文提示
 - reply plane 当前已落地 Phase 1：最终摘要和 `Codex` 显式声明的最终可消费产物，会默认按当前任务 origin 原路回到 Feishu
 - 当前不会自动扫描目录猜测要回传什么；只有 `Codex` 声明的最终产物才会被回传
 - 若 bridge / gateway 重启打断当前执行，下一条普通文本默认续到同一任务 lane
 - 继续当前工作：直接回复下一步给 Codex。
-- 如需显式续写，再用 `/codex resume <prompt>`；bridge 只保留这个最小 fallback，不开放 session id / thread name / `--last` 选择面
+- 如需显式续写，推荐用 `/resume <prompt>`；兼容 `/codex resume <prompt>`；bridge 只保留这个最小 fallback，不开放 session id / thread name / `--last` 选择面
 - run 完成或失败后，task 默认回到 `awaiting_input`；这表示当前这一轮结束，但同一任务 lane 仍可继续
 - 长任务默认维持同一张运行卡，并在有界静默时间内刷新，避免状态漂移和刷屏
 - paired bridge 私聊的 Full Access 按 DM 级状态记住：显式高权限获批后，后续任务默认沿用，直到显式降权或 reset
 - 群聊默认不接管；只有 `channels.feishu.groupPolicy` 已启用（非 `disabled`）且 `groupAllowlistConversationIds` 包含该群 `conversationId` 时才会接管
-- 显式申请 Full Access：`/codex --cd <path> --sandbox danger-full-access <prompt>`
-- 显式降回普通默认权限：下一次显式 `/codex` 启动或续写时带 `--sandbox workspace-write`
+- 显式申请 Full Access：`/run --cd <path> --sandbox danger-full-access <prompt>`
+- 显式降回普通默认权限：下一次显式 `/run` 或 `/resume` 时带 `--sandbox workspace-write`
 - `--ask-for-approval never` 只影响审批策略，不等于 Full Access，也不替代 `--sandbox` 的选择
 - 当前 reply plane 只支持 same-origin 默认闭环；显式跨 origin 改投仍不属于当前主路径
 
@@ -95,11 +95,12 @@ $env:CODEX_FEISHU_APP_SECRET = "xxx"
 
 - 普通任务：直接发送自然语言
 - 继续当前工作：直接回复下一步给 Codex
-- 显式续写兜底：`/codex resume <prompt>`
-- 新任务：`/codex --cd <path> <prompt>`
-- 健康检查：`/codex doctor`
-- 显式全权限（按需使用）：`/codex --cd <path> --sandbox danger-full-access <prompt>`
-- 显式降权：`/codex --cd <path> --sandbox workspace-write <prompt>`
+- 显式续写兜底：`/resume <prompt>`（兼容 `/codex resume <prompt>`）
+- 新任务：`/run --cd <path> <prompt>`（兼容 `/codex --cd <path> <prompt>`）
+- 健康检查：`/doctor`
+- 帮助：`/help`
+- 显式全权限（按需使用）：`/run --cd <path> --sandbox danger-full-access <prompt>`
+- 显式降权：`/run --cd <path> --sandbox workspace-write <prompt>` 或 `/resume --sandbox workspace-write <prompt>`
 
 ## 服务运维
 
@@ -111,7 +112,7 @@ Linux `systemd --user` 安装默认使用：
 
 ## 排障最短路径
 
-1. 先看 Feishu 侧：`/codex doctor`
+1. 先看 Feishu 侧：`/doctor`
 2. 再跑发布审计：`bash scripts/feishu-app-audit.sh`
 3. 再看安装状态：`./.isolated/codex-feishu/state/install-health.json`
 4. 再看宿主日志

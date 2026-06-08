@@ -16,7 +16,7 @@
 
 - 顶层文档体系已完成重写收口；当前残余问题主要在措辞层，不再继续大改结构。
 - `codex-bridge` 已形成可回归的基础测试面；当前桥接测试基线为 `node --test extensions/codex-bridge/test/*.test.js`。
-- `/codex` 用户表面已完成一轮 native-first 收口：普通消息默认直达 `Codex`，显式入口明确只保留 `/codex --cd ... [--model ...] [--reasoning ...] [--sandbox ...] [--ask-for-approval ...] <prompt>`、`/codex resume <prompt>` 与 `/codex doctor`；原生 `resume` 的 session id / thread name / `--last` 选择面明确不纳入 bridge 主路径。
+- 命令用户表面已进入短命令兼容性实验：普通消息默认直达 `Codex`，显式入口推荐 `/run --cd ... [--model ...] [--reasoning ...] [--sandbox ...] [--ask-for-approval ...] <prompt>`、`/resume <prompt>`、`/doctor`、`/help`，既有 `/codex ...` 保持兼容；原生 `resume` 的 session id / thread name / `--last` 选择面明确不纳入 bridge 主路径。
 - 未知 `/codex <subcommand>` 已不再回落旧帮助页，而是返回简短的 native-first 指引。
 - 历史 slash 命令 `help / status / abort / approve / cwd / pwd / continue` 已全部退出执行面，只保留 unknown / native-first 提示。
 - 受控执行已有最小 allow / approval / deny 边界与测试。
@@ -28,7 +28,7 @@
 - 恢复与审计已有最小底座：task / run / approval / bridge action 已分开持久化，并有 fail-closed recovery。
 - bridge-owned control-plane 归属已补出最小 `capability / effect / routing / decision` assessment 骨架，不再只剩最终 decision。
 - `routing` 与 `runtime-control-plane` 测试已开始从 prompt 变体穷举，收向 lane contract 与 fallback contract 的主保护。
-- `/codex doctor` 已从最小入口升级为真实健康摘要：会汇总 `Codex CLI`、`bwrap`、隔离 Feishu 凭据与 gateway 状态。
+- `/doctor` 已从最小入口升级为真实健康摘要：会汇总 `Codex CLI`、`bwrap`、隔离 Feishu 凭据与 gateway 状态；兼容 `/codex doctor`。
 - 契约矩阵已进入开发治理门禁：PR 模板已要求语义变更时同步说明矩阵更新，CI 新增 `contract-matrix-guard` 自动校验核心语义文件变更与矩阵联动。
 - 体验回归清单已固定：新增 `docs/experience-regression-checklist.md` 与一键脚本 `scripts/review/run-experience-regression.sh`，把连续性/审批/重启恢复/长任务观测收敛成固定回归条目。
 - 顶层方向已完成升级：`Feishu` 不再只被视为远程输入渠道，而被明确为 `Codex` 的低心智远程闭环交互面。
@@ -73,18 +73,18 @@
 - 顶层三件套与用户表面已完成第一轮对齐；`/codex new` 回落旧帮助页这一类明显偏差已被收口。
 - 当前主要矛盾已从“用户表面仍在教旧命令”转为“实现结构与测试权重仍保留旧时代中心性”。
 - `node --test extensions/codex-bridge/test/*.test.js` 全绿，只能证明当前实现自洽；不能自动证明当前测试权重已经完全服务新的顶层宪法。
-- 2026-03-26 实机核对 `codex --help` 后确认：当前原生 `Codex CLI` 明确存在 `resume`、`fork`、`--cd`、`--model`、`--sandbox`、`--ask-for-approval` 等表面；当前 bridge 用户表面则主动收口为 `/codex --cd ...`、`/codex resume ...`、`/codex doctor`，显式参数透传集中在 `--cd`、`--model`、`--reasoning`、`--sandbox`、`--ask-for-approval`，并不存在 `new / status / abort / approve / cwd / pwd / continue` 这组历史兼容命令。
+- 2026-03-26 实机核对 `codex --help` 后确认：当前原生 `Codex CLI` 明确存在 `resume`、`fork`、`--cd`、`--model`、`--sandbox`、`--ask-for-approval` 等表面；当前 bridge 用户表面则主动收口为短命令 `/run --cd ...`、`/resume ...`、`/doctor`、`/help`，并兼容 `/codex ...`；显式参数透传集中在 `--cd`、`--model`、`--reasoning`、`--sandbox`、`--ask-for-approval`，并不存在 `new / status / abort / approve / cwd / pwd / continue` 这组历史兼容命令。
 - 上游 0.117–0.120 审计补注：本阶段只吸收兼容性 / 稳定性 / 内部执行改进，保持薄桥契约不变。
 - 上游新增体验与扩展（插件浏览、MCP 丰富度、app-server/remote 流程、Realtime 语音、TUI 文案/状态细化、多 agent 交互优化）当前仅记录为非优先适配项，不扩 bridge 产品面。
 
-## `/codex` 命令面对齐现状
+## 命令面对齐现状
 
 - 默认工作流仍以“普通消息直达 `Codex`”为主；用户不应被迫先学习 bridge 命令。
-- 显式 `/codex` 模式已优先贴近原生 `Codex CLI`：当前主入口已收口到原生参数名与原生显式入口。
-- bridge 原则上唯一应新增并长期保留的用户主命令仍是 `/codex doctor`。
+- 显式短命令优先贴近原生 `Codex CLI`：当前主入口已收口到原生参数名与原生显式入口，既有 `/codex ...` 作为兼容入口保留。
+- 第一阶段短命令仅包含 `/help`、`/doctor`、`/resume`、`/run`，其它非 `/codex` slash 命令仍不被 bridge claim。
 - `/codex new` 不应再被当作正确主路径；当前用户可见表面已不再把它当主路径教学。
-- `status / abort / approve / help / cwd / pwd / continue` 这组历史命令已不再作为可执行入口保留。
-- 用户表面现只保留原生显式入口与 `/codex doctor`；其余旧命令统一回到 unknown / native-first 提示。
+- `status / abort / approve / cwd / pwd / continue` 这组历史命令已不再作为可执行入口保留。
+- 用户表面现只保留短命令、兼容 `/codex ...` 与 `/doctor` 健康检查；其余旧命令统一回到 unknown / native-first 提示。
 - 未知 `/codex <subcommand>` 当前已返回简短、面向新约定的指引，不再把用户重新拉回旧帮助心智。
 - bridge 只在显式 `/codex ...` 或自有审批 / 控制面闭环里做最薄启动 gate；普通文本继续默认归 `Codex`。
 

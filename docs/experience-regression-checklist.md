@@ -12,13 +12,13 @@ scripts/review/run-experience-regression.sh
 
 ## A. 连续任务（Continuity）
 
-- [ ] 主路径是直接回复：`awaiting_input` 下回复普通文本，仍续到同一 `taskId` 的下一轮 run，不要求先敲 `/codex resume`。
+- [ ] 主路径是直接回复：`awaiting_input` 下回复普通文本，仍续到同一 `taskId` 的下一轮 run，不要求先敲 `/resume`。
 - [ ] 配对 DM 里“帮我看这张图”并附图片时，bridge 不额外发控制面提示；Codex 在同一 task lane 启动，并能拿到图片上下文。若图片下载失败，文本仍继续进入同一 task lane。
-- [ ] `/codex resume <prompt>` 只是兜底续写：显式 resume 进入同一任务下一轮 run，不新建 lane，也不在文案里冒充主路径。
+- [ ] `/resume <prompt>` 只是兜底续写：显式 resume 进入同一任务下一轮 run，不新建 lane，也不在文案里冒充主路径。
 - [ ] 非 `awaiting_input` 状态不误续写：任务仍在 `running` 时，普通文本不会被伪装成 resume 或偷偷塞进旧 run。
 - [ ] 新 run 不继承上一轮 reply-plane `deliverables` / `deliveryFailureHint`。
 - [ ] `activeTaskId` 漂移自愈：仅有 `lastTaskId` 时可自动恢复 continuity lane。
-- [ ] 显式 `/codex --cd ...` 新任务能正确 supersede 旧 `awaiting_input` 任务。
+- [ ] 显式 `/run --cd ...` 新任务能正确 supersede 旧 `awaiting_input` 任务。
 
 契约映射：`CT-001` `CT-003` `CT-004` `CS-002`
 

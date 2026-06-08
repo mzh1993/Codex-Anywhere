@@ -54,14 +54,17 @@ const INSTALL_SYSTEMD_SERVICE = {
 
 const NO_ANGLE_PLACEHOLDER_RE = /<path>|<prompt>|<model>|<level>|<policy>/;
 const ZH_NEW_TASK_EXAMPLE_RE = /`\/codex --cd \. 帮我看看当前目录`/;
-const ZH_FULL_ACCESS_EXAMPLE_RE = /`\/codex --cd \. --sandbox danger-full-access 帮我看看当前目录`/;
 const ZH_RESUME_EXAMPLE_RE = /`\/codex resume 继续`/;
+const ZH_SHORT_RUN_EXAMPLE_RE = /`\/run --cd \. 帮我看看当前目录`/;
+const ZH_SHORT_FULL_ACCESS_EXAMPLE_RE = /`\/run --cd \. --sandbox danger-full-access 帮我看看当前目录`/;
+const ZH_SHORT_RESUME_EXAMPLE_RE = /`\/resume 继续`/;
 const ZH_OPTIONAL_FLAGS_EXAMPLE_RE = /`--model gpt-5\.2` `--reasoning medium` `--ask-for-approval never`/;
 const ZH_DEFAULT_CWD_TEXT_RE = /默认工作目录：当前私聊最近一次目录；若没有，则使用默认目录（通常是当前用户主目录）/;
-const EN_NEW_TASK_EXAMPLE_RE = /`\/codex --cd \. summarize the current directory`/;
+const EN_NEW_TASK_EXAMPLE_RE = /`\/run --cd \. summarize the current directory`/;
 const EN_FULL_ACCESS_EXAMPLE_RE =
-  /`\/codex --cd \. --sandbox danger-full-access summarize the current directory`/;
+  /`\/run --cd \. --sandbox danger-full-access summarize the current directory`/;
 const EN_RESUME_EXAMPLE_RE = /`\/codex resume continue`/;
+const EN_SHORT_RESUME_EXAMPLE_RE = /`\/resume continue`/;
 const EN_OPTIONAL_FLAGS_EXAMPLE_RE = /`--model gpt-5\.2` `--reasoning medium` `--ask-for-approval never`/;
 const EN_DEFAULT_CWD_TEXT_RE =
   /Default cwd: most recent cwd in this DM; otherwise the default directory \(usually the current user's home directory\)\./;
@@ -70,11 +73,14 @@ function assertZhNativeShortHelp(text) {
   assert.match(text, /默认直接发送自然语言给 Codex/);
   assert.match(text, /继续当前工作：直接回复下一步给 Codex/);
   assert.match(text, ZH_NEW_TASK_EXAMPLE_RE);
-  assert.match(text, ZH_FULL_ACCESS_EXAMPLE_RE);
+  assert.match(text, ZH_SHORT_RUN_EXAMPLE_RE);
+  assert.match(text, ZH_SHORT_FULL_ACCESS_EXAMPLE_RE);
   assert.match(text, ZH_RESUME_EXAMPLE_RE);
+  assert.match(text, ZH_SHORT_RESUME_EXAMPLE_RE);
   assert.doesNotMatch(text, /^续写：`\/codex resume 继续`$/m);
   assert.match(text, ZH_OPTIONAL_FLAGS_EXAMPLE_RE);
-  assert.match(text, /`\/codex doctor`/);
+  assert.match(text, /`\/doctor`/);
+  assert.match(text, /`\/help`/);
   assert.match(text, ZH_DEFAULT_CWD_TEXT_RE);
   assert.doesNotMatch(text, NO_ANGLE_PLACEHOLDER_RE);
 }
@@ -85,9 +91,11 @@ function assertEnNativeShortHelp(text) {
   assert.match(text, EN_NEW_TASK_EXAMPLE_RE);
   assert.match(text, EN_FULL_ACCESS_EXAMPLE_RE);
   assert.match(text, EN_RESUME_EXAMPLE_RE);
+  assert.match(text, EN_SHORT_RESUME_EXAMPLE_RE);
   assert.doesNotMatch(text, /^Resume: `\/codex resume continue`$/m);
   assert.match(text, EN_OPTIONAL_FLAGS_EXAMPLE_RE);
-  assert.match(text, /`\/codex doctor`/);
+  assert.match(text, /`\/doctor`/);
+  assert.match(text, /`\/help`/);
   assert.match(text, EN_DEFAULT_CWD_TEXT_RE);
   assert.doesNotMatch(text, NO_ANGLE_PLACEHOLDER_RE);
 }
@@ -218,13 +226,13 @@ test("protocol/locale/recovery: interruption guidance keeps natural language as 
   const zh = getLocaleText("zh-CN");
 
   assert.match(zh.interruptedTaskRequiresContinue("task-1"), /请直接回复下一步给 Codex/);
-  assert.match(zh.interruptedTaskRequiresContinue("task-1"), /也可以使用 `\/codex resume 继续`/);
-  assert.doesNotMatch(zh.interruptedTaskRequiresContinue("task-1"), /请使用 `\/codex resume 继续`/);
+  assert.match(zh.interruptedTaskRequiresContinue("task-1"), /也可以使用 `\/resume 继续`/);
+  assert.doesNotMatch(zh.interruptedTaskRequiresContinue("task-1"), /请使用 `\/resume 继续`/);
   assert.doesNotMatch(zh.interruptedTaskRequiresContinue("task-1"), NO_ANGLE_PLACEHOLDER_RE);
 
   assert.match(en.interruptedTaskRequiresContinue("task-1"), /Reply directly with the next step for Codex/);
-  assert.match(en.interruptedTaskRequiresContinue("task-1"), /you can also use `\/codex resume continue`/i);
-  assert.doesNotMatch(en.interruptedTaskRequiresContinue("task-1"), /^Use `\/codex resume continue`/m);
+  assert.match(en.interruptedTaskRequiresContinue("task-1"), /you can also use `\/resume continue`/i);
+  assert.doesNotMatch(en.interruptedTaskRequiresContinue("task-1"), /^Use `\/resume continue`/m);
   assert.doesNotMatch(en.interruptedTaskRequiresContinue("task-1"), NO_ANGLE_PLACEHOLDER_RE);
 });
 
@@ -238,8 +246,8 @@ test("protocol/locale/status: awaiting-input guidance teaches direct reply first
     code: "active_task_exists",
   });
   assert.match(zhText, /直接回复/);
-  assert.match(zhText, /如需兜底，也可以使用 `\/codex resume 继续`/);
-  assert.doesNotMatch(zhText, /请先使用 `\/codex resume 继续`/);
+  assert.match(zhText, /如需兜底，也可以使用 `\/resume 继续`/);
+  assert.doesNotMatch(zhText, /请先使用 `\/resume 继续`/);
 
   const enText = en.taskAlreadyRunning({
     taskId: "task-1",
@@ -247,8 +255,8 @@ test("protocol/locale/status: awaiting-input guidance teaches direct reply first
     code: "active_task_exists",
   });
   assert.match(enText, /reply directly/i);
-  assert.match(enText, /If needed, you can also use `\/codex resume continue` as a fallback/);
-  assert.doesNotMatch(enText, /Use `\/codex resume continue` to handle the current task first/);
+  assert.match(enText, /If needed, you can also use `\/resume continue` as a fallback/);
+  assert.doesNotMatch(enText, /Use `\/resume continue` to handle the current task first/);
 });
 
 test("protocol/locale/finish: awaiting-input finish text keeps run-level continuity language", () => {
@@ -386,14 +394,12 @@ test("constitution/command/help: help stays native-first and excludes closed leg
   assert.doesNotMatch(zh.help("/tmp"), /Codex Runner 命令/);
   assert.doesNotMatch(zh.help("/tmp"), /bridge/i);
   assertZhNativeShortHelp(zh.help("/tmp"));
-  assert.doesNotMatch(zh.help("/tmp"), /兼容/);
   assert.doesNotMatch(zh.help("/tmp"), /`\/codex cwd .+`|`\/codex pwd`|`\/codex continue .+`/);
   assert.doesNotMatch(zh.help("/tmp"), /\/tmp/);
 
   assert.doesNotMatch(en.help("/tmp"), /Codex Runner commands/);
   assert.doesNotMatch(en.help("/tmp"), /bridge/i);
   assertEnNativeShortHelp(en.help("/tmp"));
-  assert.doesNotMatch(en.help("/tmp"), /Compatibility/);
   assert.doesNotMatch(en.help("/tmp"), /`\/codex cwd .+`|`\/codex pwd`|`\/codex continue .+`/);
   assert.doesNotMatch(en.help("/tmp"), /\/tmp/);
 });

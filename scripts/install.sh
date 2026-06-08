@@ -181,7 +181,7 @@ main() {
 
   post_install_health_check
   log "install health saved: ${INSTALL_HEALTH_PATH}"
-  log "next (Feishu): /codex doctor"
+  log "next (Feishu): /doctor"
 }
 
 main "$@"

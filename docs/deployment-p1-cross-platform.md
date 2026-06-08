@@ -76,9 +76,9 @@ This document defines the current P1 deployment contract for sharing `codex_feis
 5. Verify process is alive:
    - `Get-Process -Name node,openclaw -ErrorAction SilentlyContinue`
 6. In Feishu DM, run:
-   - `/codex doctor`
+   - `/doctor`
 7. Run one smoke task:
-   - `/codex --cd <path> 帮我执行 pwd 并总结目录结构`
+   - `/run --cd <path> 帮我执行 pwd 并总结目录结构`
 8. Confirm lifecycle reaches `awaiting_input`.
 
 ## Windows troubleshooting (P1)
@@ -89,7 +89,7 @@ This document defines the current P1 deployment contract for sharing `codex_feis
   - Use `-Hosting auto` (fallback to task) or install NSSM and retry.
 - Feishu has no response after installation:
   - Re-run with `-NoStart:$false` and check service/task status.
-  - Use `/codex doctor` to inspect runtime summary.
+  - Use `/doctor` to inspect runtime summary.
 - `codex-bridge cwd fallback: requested cwd missing (...)` appears in log:
   - This is an expected self-healing warning on Windows when a stale task contains an invalid historical `cwd`.
   - Bridge will automatically fall back to profile/default cwd and continue processing instead of crashing the gateway.
@@ -122,7 +122,7 @@ Optional:
 
 1. Run installer script successfully.
 2. Start gateway (service on Linux, foreground command on Windows).
-3. Send `/codex doctor` and ensure runtime summary is returned.
+3. Send `/doctor` and ensure runtime summary is returned.
 4. Send one explicit start command:
-   - `/codex --cd <path> <prompt>`
+   - `/run --cd <path> <prompt>`
 5. Confirm task lifecycle reaches `awaiting_input`.

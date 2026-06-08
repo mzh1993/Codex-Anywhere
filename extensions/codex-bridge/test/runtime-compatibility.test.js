@@ -88,6 +88,9 @@ const NO_ANGLE_PLACEHOLDER_RE = /<path>|<prompt>|<model>|<level>|<policy>/;
 const ZH_NEW_TASK_EXAMPLE_RE = /`\/codex --cd \. 帮我看看当前目录`/;
 const ZH_FULL_ACCESS_EXAMPLE_RE = /`\/codex --cd \. --sandbox danger-full-access 帮我看看当前目录`/;
 const ZH_RESUME_EXAMPLE_RE = /`\/codex resume 继续`/;
+const ZH_SHORT_RUN_EXAMPLE_RE = /`\/run --cd \. 帮我看看当前目录`/;
+const ZH_SHORT_FULL_ACCESS_EXAMPLE_RE = /`\/run --cd \. --sandbox danger-full-access 帮我看看当前目录`/;
+const ZH_SHORT_RESUME_EXAMPLE_RE = /`\/resume 继续`/;
 const ZH_OPTIONAL_FLAGS_EXAMPLE_RE = /`--model gpt-5\.2` `--reasoning medium` `--ask-for-approval never`/;
 const ZH_DEFAULT_CWD_TEXT_RE = /默认工作目录：当前私聊最近一次目录；若没有，则使用默认目录（通常是当前用户主目录）/;
 
@@ -95,11 +98,14 @@ function assertZhNativeShortHelp(text) {
   assert.match(text, /默认直接发送自然语言给 Codex/);
   assert.match(text, /继续当前工作：直接回复下一步给 Codex/);
   assert.match(text, ZH_NEW_TASK_EXAMPLE_RE);
-  assert.match(text, ZH_FULL_ACCESS_EXAMPLE_RE);
+  assert.match(text, ZH_SHORT_RUN_EXAMPLE_RE);
+  assert.match(text, ZH_SHORT_FULL_ACCESS_EXAMPLE_RE);
   assert.match(text, ZH_RESUME_EXAMPLE_RE);
+  assert.match(text, ZH_SHORT_RESUME_EXAMPLE_RE);
   assert.doesNotMatch(text, /^续写：`\/codex resume 继续`$/m);
   assert.match(text, ZH_OPTIONAL_FLAGS_EXAMPLE_RE);
-  assert.match(text, /`\/codex doctor`/);
+  assert.match(text, /`\/doctor`/);
+  assert.match(text, /`\/help`/);
   assert.match(text, ZH_DEFAULT_CWD_TEXT_RE);
   assert.doesNotMatch(text, NO_ANGLE_PLACEHOLDER_RE);
 }
@@ -2079,7 +2085,7 @@ test("runtime/protocol/command_surface/help: /codex help falls back to the same 
 
   assert.equal(replies.length, 1);
   assertZhNativeShortHelp(replies[0]);
-  assert.doesNotMatch(replies[0], /已关闭|不再执行|兼容/);
+  assert.doesNotMatch(replies[0], /已关闭|不再执行/);
   assert.ok(replyEvents[0].card);
   assert.equal(replyEvents[0].text, undefined);
 });
@@ -2697,6 +2703,61 @@ test("runtime/protocol/native_entry/resume: explicit resume uses native command 
   assert.equal(queued[0].inputRawContent, "{\"image_key\":\"img_v3_resume\"}");
 });
 
+test("runtime/protocol/short_command/resume: top-level /resume aliases explicit codex resume", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-short-resume-"));
+  const { bridge } = await createBridgeHarness(tempRoot);
+  const task = createTaskRecord({
+    taskId: "task-short-resume",
+    locale: "zh-CN",
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-old",
+    cwd: tempRoot,
+    mode: "resume",
+    sessionId: "session-existing",
+    status: "awaiting_input",
+    currentRunId: null,
+    lastRunId: "run-old",
+    prompt: "旧任务",
+    createdAt: "2026-03-24T08:00:00.000Z",
+    updatedAt: "2026-03-24T08:00:00.000Z",
+  });
+  const profile = {
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    defaultCwd: tempRoot,
+    activeTaskId: task.taskId,
+    lastTaskId: task.taskId,
+    updatedAt: "2026-03-24T08:00:00.000Z",
+  };
+  const queued = [];
+  bridge.queueOrStartTask = async (params) => {
+    queued.push(params);
+  };
+  await bridge.saveTask(task);
+  await bridge.saveProfile(profile);
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-short-resume",
+    text: "/resume --model gpt-5.3-codex --reasoning medium continue README.md",
+  });
+
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].mode, "resume");
+  assert.equal(queued[0].cwd, tempRoot);
+  assert.equal(queued[0].prompt, "continue README.md");
+  assert.deepEqual(queued[0].executionOptions, {
+    model: "gpt-5.3-codex",
+    reasoningEffort: "medium",
+  });
+});
+
 test("runtime/protocol/native_entry/new: explicit native new preserves inbound media metadata", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-native-new-media-"));
   const worktree = path.join(tempRoot, "worktree");
@@ -2726,6 +2787,77 @@ test("runtime/protocol/native_entry/new: explicit native new preserves inbound m
   assert.equal(queued[0].inputRawContent, "{\"image_key\":\"img_v3_new\"}");
 });
 
+test("runtime/protocol/short_command/run: top-level /run aliases explicit codex new task", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-short-run-"));
+  const worktree = path.join(tempRoot, "worktree");
+  await fs.mkdir(worktree, { recursive: true });
+  const { bridge } = await createBridgeHarness(tempRoot);
+  const queued = [];
+  bridge.queueOrStartTask = async (params) => {
+    queued.push(params);
+  };
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-short-run",
+    text: `/run --cd ${worktree} --model gpt-5.2 --reasoning high 帮我看看本目录空间利用率`,
+  });
+
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].entrySurface, "explicit_codex_command");
+  assert.equal(queued[0].mode, "new");
+  assert.equal(queued[0].cwd, worktree);
+  assert.equal(queued[0].prompt, "帮我看看本目录空间利用率");
+  assert.deepEqual(queued[0].executionOptions, {
+    model: "gpt-5.2",
+    reasoningEffort: "high",
+  });
+});
+
+test("runtime/protocol/short_command/run: prompt-only /run starts a default-cwd task", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-short-run-prompt-"));
+  const { bridge } = await createBridgeHarness(tempRoot);
+  const queued = [];
+  bridge.queueOrStartTask = async (params) => {
+    queued.push(params);
+  };
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-short-run-prompt",
+    text: "/run doctor",
+  });
+
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].mode, "new");
+  assert.equal(queued[0].cwd, bridge.settings.defaultCwd);
+  assert.equal(queued[0].prompt, "doctor");
+});
+
+test("runtime/protocol/short_command/run: missing prompt returns native new usage", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-short-run-usage-"));
+  const { bridge, replies } = await createBridgeHarness(tempRoot);
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-short-run-usage",
+    text: "/run",
+  });
+
+  assert.equal(replies.length, 1);
+  assert.match(replies[0], /用法：`\/run --cd \. 帮我看看当前目录`/);
+  assert.doesNotMatch(replies[0], NO_ANGLE_PLACEHOLDER_RE);
+});
+
 test("runtime/protocol/native_entry/usage: explicit resume without a prompt returns native resume usage", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-native-resume-usage-"));
   const { bridge, replies } = await createBridgeHarness(tempRoot);
@@ -2740,8 +2872,8 @@ test("runtime/protocol/native_entry/usage: explicit resume without a prompt retu
   });
 
   assert.equal(replies.length, 1);
-  assert.match(replies[0], /用法：`\/codex resume/);
-  assert.match(replies[0], /`\/codex resume 继续`/);
+  assert.match(replies[0], /用法：`\/resume/);
+  assert.match(replies[0], /`\/resume 继续`/);
   assert.doesNotMatch(replies[0], NO_ANGLE_PLACEHOLDER_RE);
   assert.doesNotMatch(replies[0], /`\/codex continue .+`/);
 });
@@ -2761,7 +2893,7 @@ test("runtime/protocol/native_entry/usage: missing flag values fail closed with 
 
   assert.equal(replies.length, 1);
   assert.match(replies[0], /缺少 `--model` 的参数值/);
-  assert.match(replies[0], /用法：`\/codex --cd \. 帮我看看当前目录`/);
+  assert.match(replies[0], /用法：`\/run --cd \. 帮我看看当前目录`/);
   assert.doesNotMatch(replies[0], NO_ANGLE_PLACEHOLDER_RE);
   assert.equal(await bridge.loadProfile("user-1", null), null);
 });
@@ -3040,8 +3172,106 @@ test("runtime/protocol/legacy_top_level/new: top-level /new is claimed and close
   );
 
   assert.deepEqual(handled, { handled: true });
+  await new Promise((resolve) => setTimeout(resolve, 25));
   assert.equal(replies.length, 1);
   assertZhNativeShortHelp(replies[0]);
+});
+
+test("runtime/protocol/short_command/help: top-level /help returns bridge help", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-short-help-"));
+  const { bridge, replies } = await createBridgeHarness(tempRoot);
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-short-help",
+    text: "/help",
+  });
+
+  assert.equal(replies.length, 1);
+  assertZhNativeShortHelp(replies[0]);
+});
+
+test("runtime/protocol/short_command/doctor: top-level /doctor returns doctor status", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-short-doctor-"));
+  const { bridge, replies } = await createBridgeHarness(tempRoot);
+  bridge.detectRuntimeCompatibility = async () => ({
+    ok: true,
+    codexVersion: "codex-cli 0.120.0",
+    bwrapVersion: "0.11.0",
+  });
+  bridge.probeGatewayHealthForDoctor = async () => "正常";
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-short-doctor",
+    text: "/doctor",
+  });
+
+  assert.equal(replies.length, 1);
+  assert.match(replies[0], /运行时：正常/);
+  assert.match(replies[0], /Codex CLI：codex-cli/);
+  assert.match(replies[0], /Gateway：正常/);
+});
+
+test("runtime/protocol/short_command/claim: allowlisted short slash commands are claimed and routed", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-short-claim-"));
+  const { bridge } = await createBridgeHarness(tempRoot);
+  const routed = [];
+  bridge.routeInbound = async (request) => {
+    routed.push(request);
+  };
+
+  const handled = await bridge.handleInboundClaim(
+    {
+      channel: "feishu",
+      isGroup: false,
+      senderId: "user-1",
+      accountId: "default",
+      body: "/run --cd . 检查当前目录",
+    },
+    {
+      channelId: "feishu",
+      senderId: "user-1",
+      accountId: "default",
+      conversationId: "conv-1",
+      messageId: "msg-short-claim",
+    },
+  );
+
+  assert.deepEqual(handled, { handled: true });
+  assert.equal(routed.length, 1);
+  assert.equal(routed[0].text, "/run --cd . 检查当前目录");
+});
+
+test("runtime/protocol/short_command/boundary: unknown top-level slash commands still bypass bridge claim", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-short-boundary-"));
+  const { bridge, replies } = await createBridgeHarness(tempRoot);
+
+  const handled = await bridge.handleInboundClaim(
+    {
+      channel: "feishu",
+      isGroup: false,
+      senderId: "user-1",
+      accountId: "default",
+      body: "/foo should stay outside bridge",
+    },
+    {
+      channelId: "feishu",
+      senderId: "user-1",
+      accountId: "default",
+      conversationId: "conv-1",
+      messageId: "msg-short-boundary",
+    },
+  );
+
+  assert.equal(handled, undefined);
+  assert.equal(replies.length, 0);
 });
 
 test("runtime/protocol/inbound_media: ordinary text plus image stays codex-owned and carries attachment context without bridge chatter", async () => {

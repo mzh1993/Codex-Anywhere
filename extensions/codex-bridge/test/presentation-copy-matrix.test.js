@@ -68,12 +68,12 @@ test("presentation/copy/help_matrix: help and unknown command teach direct reply
     {
       locale: "zh-CN",
       primary: "继续当前工作：直接回复下一步给 Codex。",
-      fallback: "如需显式续写，再用 `/codex resume 继续`。",
+      fallback: "如需显式续写，推荐用 `/resume 继续`；兼容 `/codex resume 继续`。",
     },
     {
       locale: "en-US",
       primary: "To continue current work, reply directly with the next step for Codex.",
-      fallback: "If you need an explicit resume fallback: `/codex resume continue`",
+      fallback: "If you need an explicit resume fallback: `/resume continue`; compatible with `/codex resume continue`.",
     },
   ];
 
@@ -93,14 +93,14 @@ test("presentation/copy/active_task_matrix: awaiting-input guidance teaches dire
     {
       locale: "zh-CN",
       primary: "当前任务正在等待你的下一条输入，直接回复下一步给 Codex。",
-      fallback: "如需兜底，也可以使用 `/codex resume 继续`。",
-      forbidden: ["请先使用 `/codex resume 继续` 处理当前任务。"],
+      fallback: "如需兜底，也可以使用 `/resume 继续`。",
+      forbidden: ["请先使用 `/resume 继续` 处理当前任务。"],
     },
     {
       locale: "en-US",
       primary: "This task is waiting for your next message. Reply directly with the next step for Codex.",
-      fallback: "If needed, you can also use `/codex resume continue` as a fallback.",
-      forbidden: ["Use `/codex resume continue` to handle the current task first."],
+      fallback: "If needed, you can also use `/resume continue` as a fallback.",
+      forbidden: ["Use `/resume continue` to handle the current task first."],
     },
   ];
 
@@ -119,14 +119,14 @@ test("presentation/copy/interruption_matrix: interruption guidance keeps direct 
     {
       locale: "zh-CN",
       primary: "请直接回复下一步给 Codex",
-      fallback: "如需兜底，也可以使用 `/codex resume 继续`。",
-      forbidden: ["请使用 `/codex resume 继续`"],
+      fallback: "如需兜底，也可以使用 `/resume 继续`。",
+      forbidden: ["请使用 `/resume 继续`"],
     },
     {
       locale: "en-US",
       primary: "Reply directly with the next step for Codex.",
-      fallback: "If needed, you can also use `/codex resume continue`.",
-      forbidden: ["Use `/codex resume continue`"],
+      fallback: "If needed, you can also use `/resume continue`.",
+      forbidden: ["Use `/resume continue`"],
     },
   ];
 

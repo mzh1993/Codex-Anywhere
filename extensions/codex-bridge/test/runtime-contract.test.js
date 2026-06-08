@@ -169,12 +169,12 @@ test("runtime/contract/deployment: windows launcher respects the installer BaseP
   assert.match(installScript, /Write-GatewayLauncherCmd[\s\S]*-BasePortValue \$BasePort/);
 });
 
-test("runtime/contract/deployment: identify helper stays on the current /codex command surface and avoids app-specific fingerprints", () => {
+test("runtime/contract/deployment: identify helper stays on the current short command surface and avoids app-specific fingerprints", () => {
   const identifyScript = fs.readFileSync(path.join(repoRoot, "scripts", "send-feishu-identify.sh"), "utf8");
 
   assert.doesNotMatch(identifyScript, /\/acp doctor/);
   assert.doesNotMatch(identifyScript, /AppID 后四位/);
-  assert.match(identifyScript, /\/codex doctor/);
+  assert.match(identifyScript, /\/doctor/);
 });
 
 test("runtime/contract/review: experience regression runner includes the runtime-contract deployment suite", () => {
@@ -214,9 +214,9 @@ test("runtime/contract/docs: README and V1 docs present direct reply as the defa
   const contractMatrix = fs.readFileSync(path.join(repoRoot, "docs", "contract-matrix.md"), "utf8");
 
   assert.match(readme, /继续当前工作：直接回复下一步给 Codex/);
-  assert.match(readme, /如需显式续写，再用 `\/codex resume <prompt>`/);
+  assert.match(readme, /如需显式续写，推荐用 `\/resume <prompt>`/);
   assert.match(v1Doc, /普通文本仍是默认续写路径/);
-  assert.match(v1Doc, /如需显式续写.*`\/codex resume/);
+  assert.match(v1Doc, /如需显式续写.*`\/resume/);
   assert.match(v1Doc, /run 完成或失败后，task 默认回到 `awaiting_input`/);
   assert.match(contractMatrix, /CS-002/);
 });
@@ -255,7 +255,7 @@ test("runtime/contract/deployment: linux installer replay keeps the bootstrap ca
   assert.equal(health.serviceActive, "yes");
   assert.equal(health.gatewayListening, "yes");
   assert.equal(health.basePort, 19789);
-  assert.match(result.stdout, /next \(Feishu\): \/codex doctor/);
+  assert.match(result.stdout, /next \(Feishu\): \/doctor/);
 });
 
 test("runtime/contract/deployment: linux installer no-systemd replay records foreground hosting instead of ambiguous service state", (t) => {
