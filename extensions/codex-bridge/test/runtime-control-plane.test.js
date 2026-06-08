@@ -610,6 +610,57 @@ test("runtime/control-plane/approval: pure approval executes directly in bridge 
   assert.match(replies[0], /已重启|执行完成|完成/);
 });
 
+test("runtime/control-plane/approval: card-action approval replies use the original approval message instead of the card-action event id", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-control-plane-card-action-reply-"));
+  const { bridge, startedTasks, replyEvents } = await createBridgeHarness(tempRoot);
+  const task = buildAwaitingInputTask(tempRoot);
+  const action = buildBridgeAction(tempRoot);
+  const profile = {
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    defaultCwd: tempRoot,
+    activeTaskId: task.taskId,
+    lastTaskId: task.taskId,
+    activeBridgeActionId: action.actionId,
+    updatedAt: "2026-03-25T00:00:00.000Z",
+  };
+
+  bridge.executeBridgeAction = async () => ({
+    exitCode: 0,
+    summary: "已重启 openclaw-codex-feishu.service。",
+  });
+
+  await bridge.saveTask(task);
+  await bridge.saveProfile(profile);
+  await bridge.saveBridgeAction(action);
+  await bridge.writeApproval({
+    token: "TOKEN_ACTION",
+    kind: "bridge_action",
+    actionId: action.actionId,
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-action",
+    reasonCodes: ["service_control_requires_approval"],
+    createdAtMs: Date.now(),
+    expiresAtMs: Date.now() + 60_000,
+  });
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "card-action-c-bf7d2846d4fec6470180bd7ed425b74c85f54af9",
+    text: "同意",
+  });
+
+  assert.equal(startedTasks.length, 0);
+  assert.equal(replyEvents.length, 1);
+  assert.equal(replyEvents[0].messageId, "msg-action");
+});
+
 test("runtime/control-plane/approval: a tail that adds a bridge-owned action does not reuse the original task approval", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-control-plane-tail-owned-"));
   const { bridge, replies, startedTasks } = await createBridgeHarness(tempRoot);

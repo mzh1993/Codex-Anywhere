@@ -102,6 +102,12 @@ test("runtime/contract/schema: plugin schema accepts envAllowlist", () => {
       type: "string",
     },
   });
+  assert.deepEqual(pluginManifest.configSchema.properties.groupAllowlistConversationIds, {
+    type: "array",
+    items: {
+      type: "string",
+    },
+  });
   assert.deepEqual(pluginManifest.configSchema.properties.bridgeServiceUnitNames, {
     type: "array",
     items: {
@@ -111,6 +117,19 @@ test("runtime/contract/schema: plugin schema accepts envAllowlist", () => {
   assert.deepEqual(pluginManifest.configSchema.properties.runtimeMode, {
     type: "string",
     enum: ["secure_linux", "native_windows_fast"],
+  });
+  assert.deepEqual(pluginManifest.configSchema.properties.executionBackend, {
+    type: "string",
+    enum: ["cli", "ws"],
+  });
+  assert.deepEqual(pluginManifest.configSchema.properties.wsBackendUrl, {
+    type: "string",
+  });
+  assert.deepEqual(pluginManifest.configSchema.properties.wsBackendAuthTokenEnv, {
+    type: "string",
+  });
+  assert.deepEqual(pluginManifest.configSchema.properties.wsBackendAutoFallbackToCli, {
+    type: "boolean",
   });
 });
 
@@ -187,6 +206,19 @@ test("runtime/contract/docs: README documents the minimum execution infrastructu
   assert.match(readme, /codex-cli 0\.120\.0/);
   assert.match(readme, /\/usr\/bin\/bwrap/);
   assert.match(readme, /任务启动前直接拒绝/);
+});
+
+test("runtime/contract/docs: README and V1 docs present direct reply as the default continuation path", () => {
+  const readme = fs.readFileSync(path.join(repoRoot, "README.md"), "utf8");
+  const v1Doc = fs.readFileSync(path.join(repoRoot, "docs", "feishu-codex-bridge-v1.md"), "utf8");
+  const contractMatrix = fs.readFileSync(path.join(repoRoot, "docs", "contract-matrix.md"), "utf8");
+
+  assert.match(readme, /继续当前工作：直接回复下一步给 Codex/);
+  assert.match(readme, /如需显式续写，再用 `\/codex resume <prompt>`/);
+  assert.match(v1Doc, /普通文本仍是默认续写路径/);
+  assert.match(v1Doc, /如需显式续写.*`\/codex resume/);
+  assert.match(v1Doc, /run 完成或失败后，task 默认回到 `awaiting_input`/);
+  assert.match(contractMatrix, /CS-002/);
 });
 
 test("runtime/contract/docs: deployment docs and contract matrix describe hosting-aware linux install health", () => {

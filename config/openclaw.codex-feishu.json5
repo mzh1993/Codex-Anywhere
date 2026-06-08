@@ -64,6 +64,9 @@
       domain: "__FEISHU_DOMAIN__",
       connectionMode: "websocket",
       dmPolicy: "pairing",
+      // Group ingress is disabled by default. To enable group chat, switch to:
+      // - groupPolicy: "allowlist" (recommended) or "open"
+      // and configure Feishu channel-side allowlist as needed.
       groupPolicy: "disabled",
       requireMention: true,
       streaming: true,
@@ -110,6 +113,8 @@
           authJsonPath: "__AUTH_JSON_PATH__",
           configTomlPath: "__CONFIG_TOML_PATH__",
           envAllowlist: ["HOME", "PATH", "LANG", "LC_ALL", "TERM", "USER", "LOGNAME"],
+          // Plugin-side second gate: only these Feishu group conversationIds are claimable.
+          groupAllowlistConversationIds: [],
           statusThrottleMs: 15000,
           heartbeatMs: 30000,
           approvalTtlMs: 600000,

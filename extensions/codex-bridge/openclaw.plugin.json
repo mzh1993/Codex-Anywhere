@@ -1,14 +1,17 @@
 {
   "id": "codex-bridge",
   "name": "Codex Bridge",
-  "description": "Claims paired Feishu DMs and runs Codex as a remote task executor",
+  "description": "Claims paired Feishu DMs and allowlisted groups, then runs Codex as a remote task executor",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
     "properties": {
       "locale": {
         "type": "string",
-        "enum": ["zh-CN", "en-US"]
+        "enum": [
+          "zh-CN",
+          "en-US"
+        ]
       },
       "defaultCwd": {
         "type": "string"
@@ -26,6 +29,12 @@
         "type": "string"
       },
       "envAllowlist": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "groupAllowlistConversationIds": {
         "type": "array",
         "items": {
           "type": "string"
@@ -51,7 +60,26 @@
       },
       "runtimeMode": {
         "type": "string",
-        "enum": ["secure_linux", "native_windows_fast"]
+        "enum": [
+          "secure_linux",
+          "native_windows_fast"
+        ]
+      },
+      "executionBackend": {
+        "type": "string",
+        "enum": [
+          "cli",
+          "ws"
+        ]
+      },
+      "wsBackendUrl": {
+        "type": "string"
+      },
+      "wsBackendAuthTokenEnv": {
+        "type": "string"
+      },
+      "wsBackendAutoFallbackToCli": {
+        "type": "boolean"
       }
     }
   },
@@ -84,6 +112,10 @@
       "label": "Env Allowlist",
       "help": "Environment variables forwarded from the host into the isolated Codex process."
     },
+    "groupAllowlistConversationIds": {
+      "label": "Group Conversation Allowlist",
+      "help": "Allowlisted Feishu group conversation IDs that may be claimed by codex-bridge; all other groups stay denied."
+    },
     "statusThrottleMs": {
       "label": "Status Throttle",
       "help": "Minimum interval between progress pushes."
@@ -103,6 +135,22 @@
     "runtimeMode": {
       "label": "Runtime Mode",
       "help": "secure_linux keeps safety-first approval gates; native_windows_fast minimizes approval prompts and accepts lower host isolation."
+    },
+    "executionBackend": {
+      "label": "Execution Backend",
+      "help": "Execution backend selector; default stays cli. ws is experimental and should be enabled explicitly."
+    },
+    "wsBackendUrl": {
+      "label": "WS Backend URL",
+      "help": "Remote Codex app-server websocket endpoint used when executionBackend=ws."
+    },
+    "wsBackendAuthTokenEnv": {
+      "label": "WS Auth Token Env",
+      "help": "Environment variable name carrying the bearer token for ws backend auth."
+    },
+    "wsBackendAutoFallbackToCli": {
+      "label": "WS Auto Fallback",
+      "help": "When ws backend fails to start, fallback to cli backend automatically."
     }
   }
 }

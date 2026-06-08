@@ -57,10 +57,35 @@ export function buildBridgeTaskPrompt({ task, settings = {} }) {
   } else {
     policyLines.push("Do not modify ~/.codex, ~/.openclaw, systemd units, shell startup files, or global package environments.");
   }
+  policyLines.push(...buildInboundAttachmentSection(task));
+  policyLines.push(...buildInboundAttachmentFailureSection(task));
   policyLines.push("");
   policyLines.push("User task:");
   policyLines.push(task.prompt);
   return policyLines.join("\n");
+}
+
+function buildInboundAttachmentSection(task) {
+  if (!Array.isArray(task.inputAttachments) || task.inputAttachments.length === 0) return [];
+  const lines = ["", "Inbound attachments:"];
+  for (const attachment of task.inputAttachments) {
+    lines.push(`- kind: ${attachment.kind ?? "file"}`);
+    lines.push(`  name: ${attachment.name ?? ""}`);
+    lines.push(`  path: ${attachment.localPath ?? ""}`);
+    if (attachment.contentType) {
+      lines.push(`  content_type: ${attachment.contentType}`);
+    }
+  }
+  return lines;
+}
+
+function buildInboundAttachmentFailureSection(task) {
+  if (!Array.isArray(task.inputAttachmentFailures) || task.inputAttachmentFailures.length === 0) return [];
+  const lines = ["", "Inbound attachment issues:"];
+  for (const failure of task.inputAttachmentFailures.slice(0, 3)) {
+    lines.push(`- ${failure.kind ?? "file"}: ${failure.code ?? "unknown"}`);
+  }
+  return lines;
 }
 
 function buildSharedArgs(task, settings, outputPath) {

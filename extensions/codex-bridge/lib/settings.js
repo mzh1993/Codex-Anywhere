@@ -9,6 +9,9 @@ const DEFAULT_CODEX_HOME_DIRNAME = "codex-home";
 const DEFAULT_LOCALE = "en-US";
 const DEFAULT_BRIDGE_SERVICE_UNIT_NAMES = ["openclaw-codex-feishu.service"];
 const DEFAULT_RUNTIME_MODE = "secure_linux";
+const DEFAULT_EXECUTION_BACKEND = "cli";
+const DEFAULT_WS_BACKEND_URL = "ws://127.0.0.1:18766";
+const DEFAULT_WS_BACKEND_AUTO_FALLBACK_TO_CLI = true;
 
 export const DEFAULT_ENV_ALLOWLIST = ["HOME", "PATH", "LANG", "LC_ALL", "TERM", "USER", "LOGNAME"];
 
@@ -37,12 +40,18 @@ export function resolveSettings(api) {
     authJsonPath,
     configTomlPath,
     envAllowlist: resolveEnvAllowlist(pluginConfig.envAllowlist),
+    groupAllowlistConversationIds: resolveStringList(pluginConfig.groupAllowlistConversationIds, []),
+    executionBackend: normalizeExecutionBackend(pluginConfig.executionBackend),
+    wsBackendUrl: normalizeText(pluginConfig.wsBackendUrl) || DEFAULT_WS_BACKEND_URL,
+    wsBackendAuthTokenEnv: normalizeText(pluginConfig.wsBackendAuthTokenEnv),
+    wsBackendAutoFallbackToCli: normalizeBoolean(pluginConfig.wsBackendAutoFallbackToCli, DEFAULT_WS_BACKEND_AUTO_FALLBACK_TO_CLI),
     stateRoot,
     profilesRoot: path.join(stateRoot, "profiles"),
     tasksRoot: path.join(stateRoot, "tasks"),
     bridgeActionsRoot: path.join(stateRoot, "bridge-actions"),
     approvalsRoot: path.join(stateRoot, "approvals"),
     runsRoot: path.join(stateRoot, "runs"),
+    inboundMediaRoot: path.join(stateRoot, "inbound-media"),
     statusThrottleMs: normalizeInteger(pluginConfig.statusThrottleMs) || DEFAULT_STATUS_THROTTLE_MS,
     heartbeatMs: normalizeInteger(pluginConfig.heartbeatMs) || DEFAULT_HEARTBEAT_MS,
     approvalTtlMs: normalizeInteger(pluginConfig.approvalTtlMs) || DEFAULT_APPROVAL_TTL_MS,
@@ -107,4 +116,20 @@ function normalizeRuntimeMode(value) {
   if (!normalized) return DEFAULT_RUNTIME_MODE;
   if (normalized === "native_windows_fast") return "native_windows_fast";
   return "secure_linux";
+}
+
+function normalizeExecutionBackend(value) {
+  const normalized = normalizeText(typeof value === "string" ? value : "").toLowerCase();
+  if (normalized === "ws") return "ws";
+  return DEFAULT_EXECUTION_BACKEND;
+}
+
+function normalizeBoolean(value, fallback) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "1", "yes", "on"].includes(normalized)) return true;
+    if (["false", "0", "no", "off"].includes(normalized)) return false;
+  }
+  return fallback;
 }

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildCodexArgs, buildCodexEnv } from "../lib/codex-exec.js";
+import { buildBridgeTaskPrompt, buildCodexArgs, buildCodexEnv } from "../lib/codex-exec.js";
 
 test("runtime/env/allowlist: buildCodexEnv only forwards allowlisted variables", () => {
   const env = buildCodexEnv({
@@ -165,4 +165,50 @@ test("runtime/exec/reply_plane: prompt requires a delivery manifest without targ
     prompt.includes("Do not declare supporting artifacts just because they were created during the task."),
     true,
   );
+});
+
+test("runtime/exec/inbound_media: prompt includes ordinary user text plus attachment context", () => {
+  const prompt = buildBridgeTaskPrompt({
+    task: {
+      cwd: "/repo",
+      mode: "new",
+      locale: "zh-CN",
+      prompt: "帮我看这张图里有什么",
+      inputAttachments: [
+        {
+          kind: "image",
+          name: "photo.png",
+          localPath: "/state/codex-bridge/inbound-media/run-1/photo.png",
+          contentType: "image/png",
+        },
+      ],
+    },
+    settings: {},
+  });
+
+  assert.match(prompt, /User task:/);
+  assert.match(prompt, /帮我看这张图里有什么/);
+  assert.match(prompt, /Inbound attachments:/);
+  assert.match(prompt, /photo\.png/);
+  assert.match(prompt, /image\/png/);
+});
+
+test("runtime/exec/inbound_media: prompt keeps attachment failure hints concise", () => {
+  const prompt = buildBridgeTaskPrompt({
+    task: {
+      cwd: "/repo",
+      mode: "new",
+      locale: "zh-CN",
+      prompt: "继续分析",
+      inputAttachmentFailures: [
+        { kind: "image", code: "download_failed" },
+        { kind: "audio", code: "download_failed" },
+      ],
+    },
+    settings: {},
+  });
+
+  assert.match(prompt, /Inbound attachment issues:/);
+  assert.match(prompt, /image: download_failed/);
+  assert.match(prompt, /audio: download_failed/);
 });

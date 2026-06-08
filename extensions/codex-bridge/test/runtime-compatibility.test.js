@@ -305,9 +305,13 @@ test("runtime/compat/probe: runtime compatibility detection fails when both code
   assert.match(sandboxProbeFailure.message, /^codex sandbox linux probe failed: /);
   assert.match(sandboxProbeFailure.message, /codex sandbox linux probe failed: bwrap: Unknown option --argv0/);
   assert.doesNotMatch(sandboxProbeFailure.message, /[\r\n]/);
-  const sandboxCall = calls.find((call) => call.command === "codex" && call.args?.[0] === "sandbox");
-  assert.ok(sandboxCall);
-  assert.deepEqual(sandboxCall.args, ["sandbox", "linux", "--", "/bin/true"]);
+  assert.deepEqual(
+    calls.filter((call) => call.command === "codex" && call.args?.[0] === "sandbox").map((call) => call.args),
+    [
+      ["sandbox", "--", "/bin/true"],
+      ["sandbox", "linux", "--", "/bin/true"],
+    ],
+  );
 });
 
 test("runtime/test_harness: active task cleanup clears timers created by startTask", async () => {
@@ -2673,6 +2677,10 @@ test("runtime/protocol/native_entry/resume: explicit resume uses native command 
     conversationId: "conv-1",
     messageId: "msg-native-resume",
     text: "/codex resume --model gpt-5.3-codex --reasoning medium continue README.md",
+    messageType: "image",
+    rawContent: "{\"image_key\":\"img_v3_resume\"}",
+    media: [{ kind: "image", imageKey: "img_v3_resume", name: "resume.png" }],
+    inputAttachments: [{ kind: "image", imageKey: "img_v3_resume", name: "resume.png" }],
   });
 
   assert.equal(queued.length, 1);
@@ -2684,6 +2692,38 @@ test("runtime/protocol/native_entry/resume: explicit resume uses native command 
     model: "gpt-5.3-codex",
     reasoningEffort: "medium",
   });
+  assert.equal(queued[0].inputAttachments?.[0]?.imageKey, "img_v3_resume");
+  assert.equal(queued[0].inputMessageType, "image");
+  assert.equal(queued[0].inputRawContent, "{\"image_key\":\"img_v3_resume\"}");
+});
+
+test("runtime/protocol/native_entry/new: explicit native new preserves inbound media metadata", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-native-new-media-"));
+  const worktree = path.join(tempRoot, "worktree");
+  await fs.mkdir(worktree, { recursive: true });
+  const { bridge } = await createBridgeHarness(tempRoot);
+  const queued = [];
+  bridge.queueOrStartTask = async (params) => {
+    queued.push(params);
+  };
+
+  await bridge.routeInbound({
+    senderId: "user-1",
+    senderName: "tester",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-native-new-media",
+    text: `/codex --cd ${worktree} 看这张图`,
+    messageType: "image",
+    rawContent: "{\"image_key\":\"img_v3_new\"}",
+    media: [{ kind: "image", imageKey: "img_v3_new", name: "new.png" }],
+    inputAttachments: [{ kind: "image", imageKey: "img_v3_new", name: "new.png" }],
+  });
+
+  assert.equal(queued.length, 1);
+  assert.equal(queued[0].inputAttachments?.[0]?.imageKey, "img_v3_new");
+  assert.equal(queued[0].inputMessageType, "image");
+  assert.equal(queued[0].inputRawContent, "{\"image_key\":\"img_v3_new\"}");
 });
 
 test("runtime/protocol/native_entry/usage: explicit resume without a prompt returns native resume usage", async () => {
@@ -3044,6 +3084,225 @@ test("runtime/protocol/inbound_media: ordinary text plus image stays codex-owned
   assert.equal(started[0].prompt, "看看这张图");
   assert.equal(started[0].inputAttachments?.[0]?.kind, "image");
   assert.equal(replies.length, 0);
+});
+
+test("runtime/protocol/inbound_media: claim patch preserves raw media metadata from feishu ctx", async () => {
+  const { bridge } = await createTestBridge();
+  let capturedRequest = null;
+  bridge.routeInbound = async (request) => {
+    capturedRequest = request;
+  };
+
+  await bridge.handleInboundClaim(
+    {
+      channel: "feishu",
+      accountId: "default",
+      conversationId: "oc_dm_1",
+      senderId: "ou_user_1",
+      messageId: "om_media_2",
+      isGroup: false,
+      bodyForAgent: "识别一下",
+      messageType: "image",
+      rawContent: "{\"image_key\":\"img_v3_test\"}",
+      media: [{ kind: "image", imageKey: "img_v3_test", name: "shot.png" }],
+    },
+    {
+      channelId: "feishu",
+      accountId: "default",
+      conversationId: "oc_dm_1",
+      senderId: "ou_user_1",
+      messageId: "om_media_2",
+    },
+  );
+
+  assert.equal(capturedRequest.messageType, "image");
+  assert.equal(capturedRequest.rawContent, "{\"image_key\":\"img_v3_test\"}");
+  assert.equal(capturedRequest.media?.[0]?.imageKey, "img_v3_test");
+});
+
+test("runtime/protocol/inbound_media: media-only inbound claim stays codex-owned instead of being dropped as empty text", async () => {
+  const { bridge, replies } = await createTestBridge();
+  let capturedRequest = null;
+  bridge.routeInbound = async (request) => {
+    capturedRequest = request;
+  };
+
+  const handled = await bridge.handleInboundClaim(
+    {
+      channel: "feishu",
+      accountId: "default",
+      conversationId: "oc_dm_1",
+      senderId: "ou_user_1",
+      messageId: "om_media_only_1",
+      isGroup: false,
+      bodyForAgent: "",
+      messageType: "image",
+      rawContent: "{\"image_key\":\"img_v3_only\"}",
+      media: [{ kind: "image", imageKey: "img_v3_only", name: "only.png" }],
+    },
+    {
+      channelId: "feishu",
+      accountId: "default",
+      conversationId: "oc_dm_1",
+      senderId: "ou_user_1",
+      messageId: "om_media_only_1",
+    },
+  );
+
+  assert.deepEqual(handled, { handled: true });
+  assert.equal(capturedRequest?.text, "<media:image>");
+  assert.equal(capturedRequest?.messageType, "image");
+  assert.equal(capturedRequest?.media?.[0]?.imageKey, "img_v3_only");
+  assert.equal(replies.length, 0);
+});
+
+test("runtime/protocol/inbound_media: denied continuation updates task-level inbound metadata to the current request", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-inbound-denied-run-"));
+  const worktree = path.join(tempRoot, "worktree");
+  await fs.mkdir(worktree, { recursive: true });
+  const { bridge } = await createBridgeHarness(tempRoot);
+  const task = createTaskRecord({
+    taskId: "task-denied-existing",
+    locale: "zh-CN",
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    messageId: "msg-old",
+    cwd: worktree,
+    mode: "resume",
+    sessionId: "session-existing",
+    status: "awaiting_input",
+    currentRunId: null,
+    lastRunId: "run-old",
+    prompt: "旧任务",
+    inputAttachments: [{ kind: "image", imageKey: "img_v3_old", name: "old.png" }],
+    inputMessageType: "image",
+    inputRawContent: "{\"image_key\":\"img_v3_old\"}",
+    createdAt: "2026-03-24T08:00:00.000Z",
+    updatedAt: "2026-03-24T08:00:00.000Z",
+  });
+  const profile = {
+    senderId: "user-1",
+    accountId: "default",
+    conversationId: "conv-1",
+    defaultCwd: worktree,
+    activeTaskId: task.taskId,
+    lastTaskId: task.taskId,
+    updatedAt: "2026-03-24T08:00:00.000Z",
+  };
+  await bridge.saveTask(task);
+  await bridge.saveProfile(profile);
+
+  await bridge.persistDeniedRun(
+    {
+      profile,
+      existingTask: task,
+      accountId: "default",
+      conversationId: "conv-1",
+      messageId: "msg-denied-current",
+      cwd: worktree,
+      mode: "resume",
+      prompt: "继续，但被拒绝",
+      inputAttachments: [{ kind: "image", imageKey: "img_v3_current", name: "current.png" }],
+      inputMessageType: "image",
+      inputRawContent: "{\"image_key\":\"img_v3_current\"}",
+    },
+    {
+      cwd: worktree,
+      decision: {
+        kind: "denied",
+        reasonCodes: ["protected_root_requires_approval"],
+      },
+    },
+  );
+
+  const persistedTask = await bridge.readTask(task.taskId);
+  assert.equal(persistedTask.inputAttachments?.[0]?.imageKey, "img_v3_current");
+  assert.equal(persistedTask.inputMessageType, "image");
+  assert.equal(persistedTask.inputRawContent, "{\"image_key\":\"img_v3_current\"}");
+});
+
+test("runtime/protocol/inbound_media: feishu image attachments route through message resource download semantics", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-inbound-download-image-"));
+  const { bridge } = await createBridgeHarness(tempRoot);
+  const downloads = [];
+  bridge.downloadMessageResourceFeishu = async (params) => {
+    downloads.push(params);
+    return {
+      buffer: Buffer.from("img"),
+      fileName: "image.png",
+      contentType: "image/png",
+    };
+  };
+
+  const result = await bridge.downloadFeishuInboundMedia(
+    { kind: "image", imageKey: "img_v3_test", name: "image.png" },
+    { messageId: "om_media_download_1" },
+  );
+
+  assert.equal(downloads.length, 1);
+  assert.equal(downloads[0].messageId, "om_media_download_1");
+  assert.equal(downloads[0].fileKey, "img_v3_test");
+  assert.equal(downloads[0].type, "image");
+  assert.equal(result.fileName, "image.png");
+  assert.equal(result.contentType, "image/png");
+});
+
+test("runtime/protocol/inbound_media: download failure does not block plain-text continuation on the same task lane", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-inbound-download-failure-"));
+  const worktree = path.join(tempRoot, "worktree");
+  await fs.mkdir(worktree, { recursive: true });
+  const { bridge, replies } = await createBridgeHarness(tempRoot, {
+    pluginConfig: {
+      codexBin: "/bin/true",
+      heartbeatMs: 60_000,
+    },
+  });
+  const { __activeTasks } = await import("../index.js");
+
+  bridge.ensureExecutionRuntimeReady = async () => ({ ok: true });
+  bridge.finishTask = async () => {};
+  bridge.downloadMessageResourceFeishu = async () => {
+    throw new Error("403");
+  };
+
+  try {
+    await cleanupActiveTaskRuntimes(__activeTasks);
+
+    await bridge.startTask({
+      profile: {
+        senderId: "user-1",
+        accountId: "default",
+        conversationId: "conv-1",
+        defaultCwd: worktree,
+        updatedAt: "2026-05-14T00:00:00.000Z",
+      },
+      accountId: "default",
+      conversationId: "conv-1",
+      messageId: "msg-media-failure",
+      mode: "new",
+      prompt: "继续分析这张图",
+      cwd: worktree,
+      senderName: "tester",
+      policyDecision: "allowed",
+      reasonCodes: [],
+      riskLevel: "normal",
+      inputAttachments: [{ kind: "image", imageKey: "img_v3_fail", name: "failed.png" }],
+      inputMessageType: "image",
+      inputRawContent: "{\"image_key\":\"img_v3_fail\"}",
+    });
+
+    const runtime = __activeTasks.get("user-1");
+    const persistedTask = runtime ? await bridge.readTask(runtime.task.taskId) : null;
+
+    assert.ok(runtime);
+    assert.equal(persistedTask?.inputAttachments?.length ?? 0, 0);
+    assert.equal(persistedTask?.inputAttachmentFailures?.[0]?.code, "download_failed");
+    assert.equal(replies.length, 1);
+    assert.match(replies[0], /任务已启动|run started|started/i);
+  } finally {
+    await cleanupActiveTaskRuntimes(__activeTasks);
+  }
 });
 
 test("runtime/protocol/group_claim: non-allowlisted group is declined", async () => {

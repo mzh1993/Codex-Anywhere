@@ -15,12 +15,15 @@ import {
   sendMessageFeishu,
   updateCardFeishu,
 } from "../../.runtime/openclaw-2026.3.22/node_modules/openclaw/dist/extensions/feishu/index.js";
+import { b as downloadMessageResourceFeishu } from "../../.runtime/openclaw-2026.3.22/node_modules/openclaw/dist/send-DkC3ov72.js";
 import { buildBridgeActionExecution } from "./lib/bridge-action-exec.js";
 import { buildCodexArgs, buildCodexEnv } from "./lib/codex-exec.js";
+import { attachExecutionBackendHandlers, resolveExecutionBackend, startExecutionBackendRun } from "./lib/execution-backend.js";
 import {
   createBridgeActionPersistence,
   createBridgeActionRecord,
 } from "./lib/bridge-action-store.js";
+import { resolveInboundMedia } from "./lib/inbound-media.js";
 import {
   finishBridgeActionDenied,
   finishBridgeActionFromExecution,
@@ -81,6 +84,34 @@ const cleanedAtomicTempDirs = new Set();
 
 function normalizeAccessMode(value) {
   return value === "full_access" ? "full_access" : "normal";
+}
+
+function normalizeInboundClaimText({ text, media, messageType }) {
+  const normalizedText = normalizeText(text);
+  if (normalizedText) return normalizedText;
+  const normalizedMedia = Array.isArray(media) ? media.filter(Boolean) : [];
+  if (normalizedMedia.length === 0) return "";
+  const placeholders = normalizedMedia.map((attachment) => inferInboundMediaPlaceholder(attachment?.kind));
+  if (placeholders.length > 0) return placeholders.join(" ");
+  return inferInboundMediaPlaceholder(messageType);
+}
+
+function inferInboundMediaPlaceholder(kind) {
+  switch (normalizeText(kind).toLowerCase()) {
+    case "image":
+      return "<media:image>";
+    case "audio":
+      return "<media:audio>";
+    case "video":
+      return "<media:video>";
+    case "sticker":
+      return "<media:sticker>";
+    case "file":
+    case "document":
+      return "<media:document>";
+    default:
+      return "<media:attachment>";
+  }
 }
 
 function hasExplicitSafeSandboxOverride(executionOptions) {
@@ -230,26 +261,39 @@ export class CodexBridge {
     const senderId = event.senderId ?? ctx.senderId;
     const messageId = ctx.messageId ?? event.messageId ?? "";
     const accountId = ctx.accountId ?? event.accountId ?? DEFAULT_ACCOUNT_ID;
-    const text = normalizeText(event.bodyForAgent ?? event.body ?? event.content);
+    const messageType = normalizeText(event.messageType ?? "");
+    const rawContent = typeof event.rawContent === "string" ? event.rawContent : "";
+    const media = Array.isArray(event.media) ? event.media : [];
+    const text = normalizeInboundClaimText({
+      text: event.bodyForAgent ?? event.body ?? event.content,
+      media,
+      messageType,
+    });
 
     this.api.logger.info?.(`codex-bridge inbound_claim: channel=${channel ?? "<missing>"} account=${accountId} conversation=${conversationId ?? "<missing>"} sender=${senderId ?? "<missing>"} isGroup=${String(Boolean(event.isGroup))} text=${JSON.stringify(truncate(text || "", 120))}`);
 
-    if (channel !== FEISHU_CHANNEL || event.isGroup) {
-      this.api.logger.info?.("codex-bridge inbound_claim: decline (non-feishu or group)");
+    if (channel !== FEISHU_CHANNEL) {
+      this.api.logger.info?.("codex-bridge inbound_claim: decline (non-feishu)");
       return;
     }
     if (!conversationId || !senderId) {
       this.api.logger.warn?.(`codex-bridge inbound_claim: decline (missing routing fields conversation=${conversationId ?? "<missing>"} sender=${senderId ?? "<missing>"})`);
       return;
     }
+    if (event.isGroup && !this.settings.groupAllowlistConversationIds.includes(conversationId)) {
+      this.api.logger.info?.(`codex-bridge inbound_claim: decline (group not allowlisted conversation=${conversationId})`);
+      return;
+    }
     if (!text) {
       this.api.logger.info?.("codex-bridge inbound_claim: empty text => handled");
       return { handled: true };
     }
-    const paired = await this.isSenderPaired(accountId, senderId);
-    if (!paired) {
-      this.api.logger.info?.(`codex-bridge inbound_claim: decline (sender not paired sender=${senderId} account=${accountId})`);
-      return;
+    if (!event.isGroup) {
+      const paired = await this.isSenderPaired(accountId, senderId);
+      if (!paired) {
+        this.api.logger.info?.(`codex-bridge inbound_claim: decline (sender not paired sender=${senderId} account=${accountId})`);
+        return;
+      }
     }
 
     const legacyTopLevelCommand = getClosedLegacyTopLevelCommand(text);
@@ -281,6 +325,10 @@ export class CodexBridge {
       senderId,
       senderName: event.senderName ?? "",
       text,
+      messageType,
+      rawContent,
+      media,
+      inputAttachments: media,
     }).catch(async (error) => {
       this.api.logger.error(`codex-bridge route failed: ${toErrorText(error)}`);
       await this.safeReply({
@@ -365,9 +413,9 @@ export class CodexBridge {
         });
         return;
       }
-      await this.queueOrExecuteBridgeAction({
-        ...ownedBridgeAction,
-        profile,
+        await this.queueOrExecuteBridgeAction({
+          ...ownedBridgeAction,
+          profile,
         accountId: request.accountId,
         conversationId: request.conversationId,
         messageId: request.messageId,
@@ -400,6 +448,9 @@ export class CodexBridge {
           cwd: activeTask.cwd,
           senderName: request.senderName,
           existingTask: activeTask,
+          inputAttachments: request.inputAttachments ?? request.media ?? [],
+          inputMessageType: request.messageType ?? "text",
+          inputRawContent: request.rawContent ?? "",
         });
         return;
       }
@@ -427,6 +478,9 @@ export class CodexBridge {
       prompt: request.text,
       cwd: profile.defaultCwd || this.settings.defaultCwd,
       senderName: request.senderName,
+      inputAttachments: request.inputAttachments ?? request.media ?? [],
+      inputMessageType: request.messageType ?? "text",
+      inputRawContent: request.rawContent ?? "",
     });
   }
 
@@ -508,6 +562,9 @@ export class CodexBridge {
         senderName: request.senderName,
         existingTask: activeTask,
         executionOptions: invocation.executionOptions,
+        inputAttachments: request.inputAttachments ?? request.media ?? [],
+        inputMessageType: request.messageType ?? "text",
+        inputRawContent: request.rawContent ?? "",
       });
       return;
     }
@@ -533,7 +590,6 @@ export class CodexBridge {
           taskId: activeTask.taskId,
           status: activeTask.status,
           code: "active_task_exists",
-          ...(activeTask?.status === "awaiting_input" ? { suggestedCommand: "/codex resume <prompt>" } : {}),
         }),
       });
       return;
@@ -550,6 +606,9 @@ export class CodexBridge {
       cwd: invocation.cwd ?? (profile.defaultCwd || this.settings.defaultCwd),
       senderName: request.senderName,
       executionOptions: invocation.executionOptions,
+      inputAttachments: request.inputAttachments ?? request.media ?? [],
+      inputMessageType: request.messageType ?? "text",
+      inputRawContent: request.rawContent ?? "",
     });
   }
 
@@ -677,11 +736,12 @@ export class CodexBridge {
 
   async approvePendingBridgeActionRequest(profile, request, token) {
     const approval = await this.readApproval(token);
+    const replyMessageId = resolveReplyMessageId(request.messageId, approval?.messageId);
     if (!approval || approval.kind !== "bridge_action") {
       await this.safeReply({
         accountId: request.accountId,
         conversationId: request.conversationId,
-        messageId: request.messageId,
+        messageId: replyMessageId,
         text: this.text.approvalTokenNotFound(token),
       });
       return;
@@ -690,7 +750,7 @@ export class CodexBridge {
       await this.safeReply({
         accountId: request.accountId,
         conversationId: request.conversationId,
-        messageId: request.messageId,
+        messageId: replyMessageId,
         text: this.text.approvalTokenDifferentDm,
       });
       return;
@@ -710,7 +770,7 @@ export class CodexBridge {
       await this.safeReply({
         accountId: request.accountId,
         conversationId: request.conversationId,
-        messageId: request.messageId,
+        messageId: replyMessageId,
         text: this.text.approvalTokenExpired(token),
       });
       return;
@@ -721,7 +781,7 @@ export class CodexBridge {
       await this.safeReply({
         accountId: request.accountId,
         conversationId: request.conversationId,
-        messageId: request.messageId,
+        messageId: replyMessageId,
         text: this.text.approvalTokenNotFound(token),
       });
       return;
@@ -740,7 +800,10 @@ export class CodexBridge {
     });
     await this.saveBridgeAction(nextAction);
     activeBridgeActions.set(profile.senderId, { actionId: nextAction.actionId });
-    await this.executeAndFinishBridgeAction(nextAction, profile, request);
+    await this.executeAndFinishBridgeAction(nextAction, profile, {
+      ...request,
+      messageId: replyMessageId,
+    });
   }
 
   async handleBridgeActionApprovalReply(profile, request, action) {
@@ -869,11 +932,12 @@ export class CodexBridge {
     const promptOverride = options.promptOverride ?? null;
     const promptTail = options.promptTail ?? null;
     const approval = await this.readApproval(token);
+    const replyMessageId = resolveReplyMessageId(request.messageId, approval?.messageId);
     if (!approval) {
       await this.safeReply({
         accountId: request.accountId,
         conversationId: request.conversationId,
-        messageId: request.messageId,
+        messageId: replyMessageId,
         text: this.text.approvalTokenNotFound(token),
       });
       return;
@@ -883,7 +947,7 @@ export class CodexBridge {
       await this.safeReply({
         accountId: request.accountId,
         conversationId: request.conversationId,
-        messageId: request.messageId,
+        messageId: replyMessageId,
         text: this.text.approvalTokenDifferentDm,
       });
       return;
@@ -903,7 +967,7 @@ export class CodexBridge {
       await this.safeReply({
         accountId: request.accountId,
         conversationId: request.conversationId,
-        messageId: request.messageId,
+        messageId: replyMessageId,
         text: this.text.approvalTokenExpired(token),
       });
       return;
@@ -912,7 +976,7 @@ export class CodexBridge {
       await this.safeReply({
         accountId: request.accountId,
         conversationId: request.conversationId,
-        messageId: request.messageId,
+        messageId: replyMessageId,
         text: this.text.approvalTokenConsumed(token),
       });
       return;
@@ -929,7 +993,7 @@ export class CodexBridge {
       await this.safeReply({
         accountId: request.accountId,
         conversationId: request.conversationId,
-        messageId: request.messageId,
+        messageId: replyMessageId,
         text: promptCheck.replyText,
       });
       return;
@@ -940,7 +1004,7 @@ export class CodexBridge {
       await this.safeReply({
         accountId: request.accountId,
         conversationId: request.conversationId,
-        messageId: request.messageId,
+        messageId: replyMessageId,
         text: this.text.executionRuntimeUnavailable(runtimeCheck.message),
       });
       return;
@@ -1261,6 +1325,9 @@ export class CodexBridge {
         currentRunId: runId,
         lastRunId: runId,
         executionOptions: params.executionOptions ?? null,
+        inputAttachments: params.inputAttachments ?? [],
+        inputMessageType: params.inputMessageType ?? "text",
+        inputRawContent: params.inputRawContent ?? "",
       });
       const run = createRunRecord({
         runId,
@@ -1280,6 +1347,9 @@ export class CodexBridge {
         prompt: params.prompt,
         policyDecision: decision.kind,
         reasonCodes,
+        inputAttachments: params.inputAttachments ?? [],
+        inputMessageType: params.inputMessageType ?? "text",
+        inputRawContent: params.inputRawContent ?? "",
         createdAt: task.createdAt,
         startedAt: task.startedAt,
         updatedAt: task.updatedAt,
@@ -1365,6 +1435,9 @@ export class CodexBridge {
       executionOptions: params.executionOptions ?? params.existingTask.executionOptions ?? null,
       policyDecision: decision.kind,
       reasonCodes: decision.reasonCodes ?? [],
+      inputAttachments: params.inputAttachments ?? [],
+      inputMessageType: params.inputMessageType ?? "text",
+      inputRawContent: params.inputRawContent ?? "",
       timestamp,
     });
     params.profile.activeTaskId = taskId;
@@ -1395,6 +1468,9 @@ export class CodexBridge {
       prompt: params.prompt,
       policyDecision: decision.kind,
       reasonCodes: decision.reasonCodes ?? [],
+      inputAttachments: params.inputAttachments ?? [],
+      inputMessageType: params.inputMessageType ?? "text",
+      inputRawContent: params.inputRawContent ?? "",
       createdAt: timestamp,
       startedAt: timestamp,
       updatedAt: timestamp,
@@ -1421,6 +1497,9 @@ export class CodexBridge {
       prompt: params.prompt,
       policyDecision: decision.kind,
       reasonCodes: decision.reasonCodes ?? [],
+      inputAttachments: params.inputAttachments ?? params.existingTask.inputAttachments ?? [],
+      inputMessageType: params.inputMessageType ?? params.existingTask.inputMessageType ?? "text",
+      inputRawContent: params.inputRawContent ?? params.existingTask.inputRawContent ?? "",
       riskLevel: "normal",
       updatedAt: timestamp,
       finishedAt: null,
@@ -1455,6 +1534,9 @@ export class CodexBridge {
       prompt: params.prompt,
       policyDecision: decision.kind,
       reasonCodes: decision.reasonCodes ?? [],
+      inputAttachments: params.inputAttachments ?? params.existingTask.inputAttachments ?? [],
+      inputMessageType: params.inputMessageType ?? params.existingTask.inputMessageType ?? "text",
+      inputRawContent: params.inputRawContent ?? params.existingTask.inputRawContent ?? "",
       updatedAt: timestamp,
       finishedAt: null,
       error: null,
@@ -1476,6 +1558,9 @@ export class CodexBridge {
       prompt: params.prompt,
       policyDecision: decision.kind,
       reasonCodes: decision.reasonCodes ?? [],
+      inputAttachments: params.inputAttachments ?? [],
+      inputMessageType: params.inputMessageType ?? "text",
+      inputRawContent: params.inputRawContent ?? "",
       createdAt: timestamp,
       startedAt: timestamp,
       updatedAt: timestamp,
@@ -1572,6 +1657,16 @@ export class CodexBridge {
     const stdoutLogPath = path.join(runDir, "stdout.jsonl");
     const stderrLogPath = path.join(runDir, "stderr.log");
     const beforeSessions = await this.snapshotSessionFiles();
+    const inboundMedia = await resolveInboundMedia({
+      inboundMediaRoot: this.settings.inboundMediaRoot,
+      runId,
+      messageId: params.messageId,
+      attachments: params.inputAttachments ?? [],
+      downloader: (attachment, context) => this.downloadFeishuInboundMedia(attachment, {
+        ...context,
+        accountId: params.accountId,
+      }),
+    });
 
     const task = createTaskRecord({
       ...params.existingTask,
@@ -1592,6 +1687,10 @@ export class CodexBridge {
       approvalToken: params.approvalToken ?? null,
       policyDecision: params.policyDecision ?? params.existingTask?.policyDecision ?? POLICY_DECISIONS.ALLOWED,
       reasonCodes: params.reasonCodes ?? params.existingTask?.reasonCodes ?? [],
+      inputAttachments: inboundMedia.attachments,
+      inputAttachmentFailures: inboundMedia.failures,
+      inputMessageType: params.inputMessageType ?? params.existingTask?.inputMessageType ?? "text",
+      inputRawContent: params.inputRawContent ?? params.existingTask?.inputRawContent ?? "",
       prompt: params.prompt,
       createdAt: params.existingTask?.createdAt ?? timestamp,
       startedAt: timestamp,
@@ -1628,6 +1727,10 @@ export class CodexBridge {
       prompt: params.prompt,
       policyDecision: task.policyDecision,
       reasonCodes: task.reasonCodes,
+      inputAttachments: task.inputAttachments,
+      inputAttachmentFailures: task.inputAttachmentFailures,
+      inputMessageType: task.inputMessageType,
+      inputRawContent: task.inputRawContent,
       createdAt: timestamp,
       startedAt: timestamp,
       updatedAt: timestamp,
@@ -1671,21 +1774,54 @@ export class CodexBridge {
       inheritedEnv: process.env,
       envAllowlist: this.settings.envAllowlist,
     });
+    const executionBackend = resolveExecutionBackend(this.settings);
+    let activeExecutionBackend = executionBackend;
     let child;
+    let startError = null;
     try {
-      child = spawn(this.settings.codexBin, args, {
+      child = startExecutionBackendRun({
+        backend: activeExecutionBackend,
+        codexBin: this.settings.codexBin,
+        args,
         cwd,
         env,
-        stdio: ["ignore", "pipe", "pipe"],
+        wsBackendUrl: this.settings.wsBackendUrl,
+        wsBackendAuthTokenEnv: this.settings.wsBackendAuthTokenEnv,
       });
     } catch (error) {
+      startError = error;
+      const canFallbackToCli = activeExecutionBackend === "ws" && this.settings.wsBackendAutoFallbackToCli;
+      if (canFallbackToCli) {
+        try {
+          activeExecutionBackend = "cli";
+          child = startExecutionBackendRun({
+            backend: activeExecutionBackend,
+            codexBin: this.settings.codexBin,
+            args,
+            cwd,
+            env,
+          });
+          this.api.logger.warn?.("codex-bridge execution backend fallback: ws -> cli; reason=" + toErrorText(error));
+          startError = null;
+        } catch (fallbackError) {
+          startError = new Error(
+            "ws backend start failed: " +
+              toErrorText(error) +
+              "; cli fallback failed: " +
+              toErrorText(fallbackError),
+          );
+        }
+      }
+    }
+
+    if (!child) {
       const persisted = applyRunResultToPersistence({
         task,
         run,
         result: {
           exitCode: null,
           signal: null,
-          error: toErrorText(error),
+          error: toErrorText(startError),
         },
         summary: null,
         changedFiles: [],
@@ -1732,29 +1868,29 @@ export class CodexBridge {
       text: this.text.taskStarted(task),
     });
 
-    if (child.stdout) {
-      child.stdout.on("data", (chunk) => {
+    attachExecutionBackendHandlers({
+      backend: activeExecutionBackend,
+      child,
+      onStdout: (chunk) => {
         void this.handleStdout(task.senderId, chunk);
-      });
-    }
-    if (child.stderr) {
-      child.stderr.on("data", (chunk) => {
+      },
+      onStderr: (chunk) => {
         void this.handleStderr(task.senderId, chunk);
-      });
-    }
-    child.on("error", (error) => {
-      void this.finishTask(task.senderId, {
-        exitCode: null,
-        signal: null,
-        error: toErrorText(error),
-      });
-    });
-    child.on("close", (code, signal) => {
-      void this.finishTask(task.senderId, {
-        exitCode: typeof code === "number" ? code : null,
-        signal: signal ?? null,
-        error: null,
-      });
+      },
+      onError: (error) => {
+        void this.finishTask(task.senderId, {
+          exitCode: null,
+          signal: null,
+          error: toErrorText(error),
+        });
+      },
+      onClose: (code, signal) => {
+        void this.finishTask(task.senderId, {
+          exitCode: typeof code === "number" ? code : null,
+          signal: signal ?? null,
+          error: null,
+        });
+      },
     });
 
     const runtime = activeTasks.get(task.senderId);
@@ -2145,6 +2281,7 @@ export class CodexBridge {
     const gateway = typeof gatewayProbe === "string" ? gatewayProbe : gatewayProbe?.label ?? doctorGatewayErrorLabel(this.settings.locale);
     const gatewayOk = typeof gatewayProbe === "string" ? gatewayProbe === doctorGatewayOkLabel(this.settings.locale) : Boolean(gatewayProbe?.ok);
     const feishu = await this.probeFeishuRuntimeForDoctor();
+    const executionBackendProbe = await this.probeExecutionBackendForDoctor();
     const nextStep = resolveDoctorNextStep(this.settings.locale, {
       activeTaskStatus: activeTask?.status ?? null,
       runtimeOk: runtime.ok,
@@ -2158,6 +2295,8 @@ export class CodexBridge {
       runtime: runtime.label,
       codexVersion: runtime.codexVersion,
       bwrapVersion: runtime.bwrapVersion,
+      executionBackend: executionBackendProbe.backend,
+      wsBackend: executionBackendProbe.ws,
       feishu: feishu.label,
       gateway,
       runtimeMessage: runtime.message,
@@ -2184,6 +2323,87 @@ export class CodexBridge {
         message: toErrorText(error),
       };
     }
+  }
+
+  async probeExecutionBackendForDoctor() {
+    const backend = resolveExecutionBackend(this.settings);
+    const backendLabel =
+      backend === "ws" ? doctorExecutionBackendWsLabel(this.settings.locale) : doctorExecutionBackendCliLabel(this.settings.locale);
+
+    if (backend !== "ws") {
+      return {
+        backend: backendLabel,
+        ws: doctorWsBackendDisabledLabel(this.settings.locale),
+      };
+    }
+
+    const wsUrl = normalizeText(this.settings.wsBackendUrl);
+    if (!wsUrl) {
+      return {
+        backend: backendLabel,
+        ws: doctorWsBackendInvalidLabel(this.settings.locale),
+      };
+    }
+
+    let parsed;
+    try {
+      parsed = new URL(wsUrl);
+    } catch {
+      return {
+        backend: backendLabel,
+        ws: doctorWsBackendInvalidLabel(this.settings.locale),
+      };
+    }
+
+    if (parsed.protocol !== "ws:" && parsed.protocol !== "wss:") {
+      return {
+        backend: backendLabel,
+        ws: doctorWsBackendInvalidLabel(this.settings.locale),
+      };
+    }
+
+    const host = normalizeText(parsed.hostname).toLowerCase();
+    if (host !== "127.0.0.1" && host !== "localhost") {
+      return {
+        backend: backendLabel,
+        ws: doctorWsBackendSkippedLabel(this.settings.locale),
+      };
+    }
+
+    const fallbackPort = parsed.protocol === "wss:" ? 443 : 80;
+    const portValue = Number.parseInt(parsed.port || String(fallbackPort), 10);
+    if (!Number.isFinite(portValue) || portValue <= 0) {
+      return {
+        backend: backendLabel,
+        ws: doctorWsBackendInvalidLabel(this.settings.locale),
+      };
+    }
+
+    const ok = await probeTcpLoopbackPort(portValue);
+    return {
+      backend: backendLabel,
+      ws: ok ? doctorWsBackendReadyLabel(this.settings.locale) : doctorWsBackendUnreachableLabel(this.settings.locale),
+    };
+  }
+
+  async downloadFeishuInboundMedia(attachment, context = {}) {
+    const fileKey = normalizeText(attachment?.fileKey ?? attachment?.imageKey);
+    const kind = normalizeText(attachment?.kind).toLowerCase();
+    const messageId = normalizeText(context?.messageId);
+    if (!fileKey || !messageId) {
+      throw new Error("unsupported_attachment");
+    }
+
+    const type = kind === "image" ? "image" : "file";
+    const cfg = this.api.runtime.config.loadConfig?.() ?? this.api.config ?? {};
+    const downloader = this.downloadMessageResourceFeishu ?? downloadMessageResourceFeishu;
+    return await downloader({
+      cfg,
+      messageId,
+      fileKey,
+      type,
+      accountId: normalizeText(context?.accountId) || DEFAULT_ACCOUNT_ID,
+    });
   }
 
   async probeGatewayHealthForDoctor(profileFallback = null) {
@@ -3194,6 +3414,14 @@ function requestMessageTarget(params) {
   };
 }
 
+function resolveReplyMessageId(requestMessageId, fallbackMessageId) {
+  const requestId = normalizeText(requestMessageId);
+  if (/^card-action-c-/i.test(requestId)) {
+    return normalizeText(fallbackMessageId) || requestId;
+  }
+  return requestId || normalizeText(fallbackMessageId);
+}
+
 function toPersistedDeliverable(deliverable) {
   return {
     kind: normalizeText(deliverable?.kind).toLowerCase(),
@@ -3484,6 +3712,34 @@ function doctorFeishuReadyLabel(locale) {
 
 function doctorFeishuMissingLabel(locale) {
   return locale === "zh-CN" ? "未就绪" : "missing";
+}
+
+function doctorExecutionBackendCliLabel(locale) {
+  return locale === "zh-CN" ? "cli" : "cli";
+}
+
+function doctorExecutionBackendWsLabel(locale) {
+  return locale === "zh-CN" ? "ws" : "ws";
+}
+
+function doctorWsBackendDisabledLabel(locale) {
+  return locale === "zh-CN" ? "未启用" : "disabled";
+}
+
+function doctorWsBackendReadyLabel(locale) {
+  return locale === "zh-CN" ? "已连通" : "reachable";
+}
+
+function doctorWsBackendUnreachableLabel(locale) {
+  return locale === "zh-CN" ? "不可达" : "unreachable";
+}
+
+function doctorWsBackendInvalidLabel(locale) {
+  return locale === "zh-CN" ? "配置无效" : "invalid_config";
+}
+
+function doctorWsBackendSkippedLabel(locale) {
+  return locale === "zh-CN" ? "未探测（非本地回环）" : "not_probed_non_loopback";
 }
 
 function doctorUnknownValue(locale) {

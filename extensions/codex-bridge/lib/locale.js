@@ -346,13 +346,15 @@ export function getLocaleText(locale) {
       ].join("\n"),
       help: (_cwd) => getNativeHelpLines(normalized).join("\n"),
       unknownCommand: (_command, _cwd) => getNativeHelpLines(normalized).join("\n"),
-      doctorSummary: ({ codex, bridge, runtime, codexVersion, bwrapVersion, feishu, gateway, runtimeMessage, nextStep }) => [
+      doctorSummary: ({ codex, bridge, runtime, codexVersion, bwrapVersion, feishu, gateway, executionBackend, wsBackend, runtimeMessage, nextStep }) => [
         "健康摘要",
         `Codex：${codex}`,
         `Bridge：${bridge}`,
         `运行时：${runtime}`,
         `Codex CLI：${codexVersion}`,
         `bwrap：${bwrapVersion}`,
+        `执行后端：${executionBackend}`,
+        `WS 后端：${wsBackend}`,
         `Feishu 凭据：${feishu}`,
         `Gateway：${gateway}`,
         ...(runtimeMessage ? [`原因：${runtimeMessage}`] : []),
@@ -533,13 +535,15 @@ export function getLocaleText(locale) {
     ].join("\n"),
     help: (_cwd) => getNativeHelpLines(normalized).join("\n"),
     unknownCommand: (_command, _cwd) => getNativeHelpLines(normalized).join("\n"),
-    doctorSummary: ({ codex, bridge, runtime, codexVersion, bwrapVersion, feishu, gateway, runtimeMessage, nextStep }) => [
+    doctorSummary: ({ codex, bridge, runtime, codexVersion, bwrapVersion, feishu, gateway, executionBackend, wsBackend, runtimeMessage, nextStep }) => [
       "Health Summary",
       `Codex: ${codex}`,
       `Bridge: ${bridge}`,
       `Runtime: ${runtime}`,
       `Codex CLI: ${codexVersion}`,
       `bwrap: ${bwrapVersion}`,
+      `Execution backend: ${executionBackend}`,
+      `WS backend: ${wsBackend}`,
       `Feishu credentials: ${feishu}`,
       `Gateway: ${gateway}`,
       ...(runtimeMessage ? [`Reason: ${runtimeMessage}`] : []),

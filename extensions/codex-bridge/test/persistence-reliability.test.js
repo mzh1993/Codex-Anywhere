@@ -174,7 +174,7 @@ test("runtime/persistence/recovery: runtime persistence failure becomes recovera
   assert.deepEqual(killSignals, ["SIGTERM", "SIGKILL"]);
   assert.equal(replies.length, 1);
   assert.match(replies[0], /上一轮执行已中断/);
-  assert.match(replies[0], /请直接说明要继续做什么/);
+  assert.match(replies[0], /请直接回复下一步给 Codex/);
 
   const persistedTask = await bridge.readTask(taskId);
   const persistedRun = await bridge.readRun(runId);
@@ -638,7 +638,7 @@ test("runtime/persistence/heartbeat: unchanged long-running status still refresh
     lastStatusHint: "run.interrupted",
     lastHeartbeatAtMs: now - 2 * 60 * 1000,
     lastHeartbeatBucket: "t3m-10m",
-    lastHeartbeatVisibleHint: "上一轮执行中断，请直接说明要继续做什么",
+    lastHeartbeatVisibleHint: "上一轮执行中断，请直接回复下一步给 Codex",
   });
   const run = createRunRecord({
     runId,
@@ -715,7 +715,7 @@ test("runtime/persistence/progress: repeated same visible hint is deduped and do
   await bridge.maybeSendStatusHint(task, "run.interrupted");
 
   assert.equal(replies.length, 1);
-  assert.equal(task.lastStatusSentHint, "上一轮执行中断，请直接说明要继续做什么");
+  assert.equal(task.lastStatusSentHint, "上一轮执行中断，请直接回复下一步给 Codex");
 });
 
 test("runtime/persistence/heartbeat: running text stays compact and heartbeat hint is truncated for stable card length", async () => {
