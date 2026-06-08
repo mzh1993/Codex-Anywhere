@@ -87,14 +87,14 @@ test("runtime/policy/reply_plane: normalizes html deliverables to file delivery"
 
 test("runtime/policy/reply_plane: accepts file as a path alias for local deliverables", () => {
   const parsed = parseDeliveryManifest(`Delivery Manifest
-```json
+\`\`\`json
 {
   "summary": "回传单一音频。",
   "deliverables": [
     { "type": "audio", "file": "services/voxcpm2/outputs/final.mp3" }
   ]
 }
-```
+\`\`\`
 `);
 
   assert.equal(parsed.errorCode, null);
