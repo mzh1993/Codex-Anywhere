@@ -83,6 +83,7 @@ const versions = Array.isArray(versionsPayload.data?.items) ? versionsPayload.da
 const onlineVersionId = app.online_version_id;
 const published = versions.find((item) => item.version_id === onlineVersionId) ?? versions[0] ?? null;
 const events = Array.isArray(published?.events) ? published.events : [];
+const subscribedCallbacks = Array.isArray(app.callback_info?.subscribed_callbacks) ? app.callback_info.subscribed_callbacks : [];
 const visibility = published?.remark?.visibility ?? null;
 const creatorId = app.creator_id ?? "";
 const openIds = Array.isArray(visibility?.visible_list?.open_ids) ? visibility.visible_list.open_ids : [];
@@ -106,18 +107,22 @@ const onlyOwnerVisible =
   invisibleOpenIds.length === 0;
 
 const hasAnyEvent = (aliases) => aliases.some((alias) => events.includes(alias));
+const hasAnyCallback = (aliases) => aliases.some((alias) => subscribedCallbacks.includes(alias));
 const hasMessageReceive = hasAnyEvent([
   "im.message.receive_v1",
   "Receive message",
   "接收消息"
 ]);
-const hasCardAction = hasAnyEvent([
+const cardActionAliases = [
   "card.action.trigger",
   "Card action trigger",
   "消息卡片回传",
   "卡片行为触发",
   "卡片回传"
-]);
+];
+const hasCardActionInEvents = hasAnyEvent(cardActionAliases);
+const hasCardActionInCallbacks = hasAnyCallback(cardActionAliases);
+const hasCardAction = hasCardActionInEvents || hasCardActionInCallbacks;
 
 let failed = false;
 
@@ -125,6 +130,8 @@ console.log(`[feishu-app-audit] app=${app.app_name || "unknown"} (${app.app_id |
 console.log(`[feishu-app-audit] callback_type=${app.callback_info?.callback_type || "unknown"} online_version_id=${onlineVersionId || "none"}`);
 console.log(`[feishu-app-audit] published_version=${published?.version || "none"} publish_time=${formatTime(published?.publish_time)}`);
 console.log(`[feishu-app-audit] published_events=${events.length ? events.join(", ") : "(empty)"}`);
+console.log(`[feishu-app-audit] subscribed_callbacks=${subscribedCallbacks.length ? subscribedCallbacks.join(", ") : "(empty)"}`);
+console.log(`[feishu-app-audit] card_action_source=events:${hasCardActionInEvents ? "yes" : "no"}, callbacks:${hasCardActionInCallbacks ? "yes" : "no"}`);
 console.log(
   `[feishu-app-audit] visibility=open_ids:${openIds.length} department_ids:${departmentIds.length} group_ids:${groupIds.length}`
 );
