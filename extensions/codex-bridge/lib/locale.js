@@ -78,19 +78,24 @@ export function localizeStatusHint(locale, hint) {
   if (!normalized) return "";
   const key = normalized.toLowerCase();
   const language = normalizeLocale(locale);
+  const isProvider429 = /(?:^|[^0-9])429(?:[^0-9]|$)/i.test(normalized) && /too many requests/i.test(normalized);
+  if (isProvider429) {
+    if (language === "zh-CN") return "上游模型限流（429 Too Many Requests）。请稍后重试，或降低并发后再试。";
+    return "Upstream model is rate-limited (429 Too Many Requests). Retry later or reduce concurrency.";
+  }
   if (language === "zh-CN") {
     const mapped = {
       "thread.started": "任务线程已启动",
       "turn.started": "开始执行",
       "turn.completed": "执行完成",
-      "run.interrupted": "上一轮执行中断，请直接说明要继续做什么",
-      "run.interrupted.bridge_self_restart": "桥接服务自重启打断了本轮执行；现在已恢复，请直接说明下一步",
+      "run.interrupted": "上一轮执行中断，请直接回复下一步给 Codex",
+      "run.interrupted.bridge_self_restart": "桥接服务自重启打断了本轮执行；现在已恢复，请直接回复下一步给 Codex",
     };
     return mapped[key] ?? normalized;
   }
   const mapped = {
-    "run.interrupted": "Previous run was interrupted. Say what to continue with.",
-    "run.interrupted.bridge_self_restart": "The bridge restarted itself and interrupted this run. It is back now; say the next step directly.",
+    "run.interrupted": "Previous run was interrupted. Reply directly with the next step for Codex.",
+    "run.interrupted.bridge_self_restart": "The bridge restarted itself and interrupted this run. It is back now; reply directly with the next step for Codex.",
   };
   return mapped[key] ?? normalized;
 }
@@ -145,6 +150,13 @@ function truncateFinishCardSummary(text) {
   return `${normalized.slice(0, FINISH_CARD_SUMMARY_MAX_CHARS - 1)}…`;
 }
 
+function getFinishCardFailureHint(locale, { runStatus, summary, error, lastStatusHint }) {
+  if (runStatus !== "failed") return "";
+  if (summary) return "";
+  if (normalizeText(error)) return "";
+  return getUserVisibleStatusHint(locale, lastStatusHint);
+}
+
 function getDefaultResumeCommand(locale) {
   return normalizeLocale(locale) === "zh-CN" ? "/codex resume 继续" : "/codex resume continue";
 }
@@ -175,9 +187,10 @@ function getNativeHelpLines(locale) {
   if (normalizeLocale(locale) === "zh-CN") {
     return [
       "默认直接发送自然语言给 Codex。",
+      "继续当前工作：直接回复下一步给 Codex。",
+      "如需显式续写，再用 `/codex resume 继续`。",
       "新任务：`/codex --cd . 帮我看看当前目录`",
       "完全访问：`/codex --cd . --sandbox danger-full-access 帮我看看当前目录`",
-      "续写：`/codex resume 继续`",
       getNativeOptionalFlagsExample(locale),
       "健康检查：`/codex doctor`",
       getDefaultCwdHint(locale),
@@ -185,9 +198,10 @@ function getNativeHelpLines(locale) {
   }
   return [
     "For normal work, just send a plain message to Codex.",
+    "To continue current work, reply directly with the next step for Codex.",
+    "If you need an explicit resume fallback: `/codex resume continue`",
     "New task: `/codex --cd . summarize the current directory`",
     "Full access: `/codex --cd . --sandbox danger-full-access summarize the current directory`",
-    "Resume: `/codex resume continue`",
     getNativeOptionalFlagsExample(locale),
     "Health check: `/codex doctor`",
     getDefaultCwdHint(locale),
@@ -212,7 +226,7 @@ function getActiveTaskActionLine(locale, details) {
       return "当前任务正在等待审批，请先处理当前审批。";
     }
     if (status === "awaiting_input") {
-      return "当前任务正在等待你的下一条输入，你可以直接回复。";
+      return "当前任务正在等待你的下一条输入，直接回复下一步给 Codex。";
     }
     if (command === defaultResumeCommand) {
       return `你也可以使用 \`${command}\` 显式续写。`;
@@ -226,7 +240,7 @@ function getActiveTaskActionLine(locale, details) {
     return "This task is waiting for approval. Handle that approval first.";
   }
   if (status === "awaiting_input") {
-    return "This task is waiting for your next message. You can reply directly.";
+    return "This task is waiting for your next message. Reply directly with the next step for Codex.";
   }
   if (command === defaultResumeCommand) {
     return `You can also use \`${command}\` for an explicit resume.`;
@@ -407,6 +421,12 @@ export function getLocaleText(locale) {
         lines.push(`工作目录：\`${task.cwd}\``);
         if (task.sessionId) lines.push(`会话 ID：${task.sessionId}`);
         const summary = truncateFinishCardSummary(task.summary);
+        const failureHint = getFinishCardFailureHint(normalized, {
+          runStatus,
+          summary,
+          error: task.error,
+          lastStatusHint: task.lastStatusHint,
+        });
         if (summary) {
           lines.push("");
           lines.push(summary);
@@ -423,6 +443,10 @@ export function getLocaleText(locale) {
         if (!task.summary && task.error) {
           lines.push("");
           lines.push(`错误：${task.error}`);
+        }
+        if (failureHint) {
+          lines.push("");
+          lines.push(`最近状态：${failureHint}`);
         }
         return lines.join("\n");
       },
@@ -584,6 +608,12 @@ export function getLocaleText(locale) {
       lines.push(`cwd: \`${task.cwd}\``);
       if (task.sessionId) lines.push(`session_id: ${task.sessionId}`);
       const summary = truncateFinishCardSummary(task.summary);
+      const failureHint = getFinishCardFailureHint(normalized, {
+        runStatus,
+        summary,
+        error: task.error,
+        lastStatusHint: task.lastStatusHint,
+      });
       if (summary) {
         lines.push("");
         lines.push(summary);
@@ -600,6 +630,10 @@ export function getLocaleText(locale) {
       if (!task.summary && task.error) {
         lines.push("");
         lines.push(`Error: ${task.error}`);
+      }
+      if (failureHint) {
+        lines.push("");
+        lines.push(`Last status: ${failureHint}`);
       }
       return lines.join("\n");
     },

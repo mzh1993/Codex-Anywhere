@@ -245,6 +245,63 @@ test("presentation/finish: finish card keeps summary and limits next steps under
   assert.doesNotMatch(rendered, /再看说明|最后补验证/);
 });
 
+test("presentation/finish: failed run falls back to lastStatusHint when summary and error are empty", () => {
+  const zh = getLocaleText("zh-CN");
+  const en = getLocaleText("en-US");
+
+  const zhRendered = zh.taskFinished({
+    taskId: "task-429-zh",
+    status: "awaiting_input",
+    cwd: "/workspace",
+    runStatus: "failed",
+    sessionId: null,
+    summary: null,
+    changedFiles: [],
+    nextSteps: [],
+    deliveryFailureHint: null,
+    error: null,
+    lastStatusHint: "exceeded retry limit, last status: 429 Too Many Requests",
+    exitCode: 1,
+    signal: null,
+  });
+  assert.match(zhRendered, /最近状态：.*429 Too Many Requests/);
+
+  const enRendered = en.taskFinished({
+    taskId: "task-429-en",
+    status: "awaiting_input",
+    cwd: "/workspace",
+    runStatus: "failed",
+    sessionId: null,
+    summary: null,
+    changedFiles: [],
+    nextSteps: [],
+    deliveryFailureHint: null,
+    error: null,
+    lastStatusHint: "exceeded retry limit, last status: 429 Too Many Requests",
+    exitCode: 1,
+    signal: null,
+  });
+  assert.match(enRendered, /Last status: .*429 Too Many Requests/);
+
+  const withError = en.taskFinished({
+    taskId: "task-429-en-error",
+    status: "awaiting_input",
+    cwd: "/workspace",
+    runStatus: "failed",
+    sessionId: null,
+    summary: null,
+    changedFiles: [],
+    nextSteps: [],
+    deliveryFailureHint: null,
+    error: "provider failed",
+    lastStatusHint: "exceeded retry limit, last status: 429 Too Many Requests",
+    exitCode: 1,
+    signal: null,
+  });
+  assert.match(withError, /Error: provider failed/);
+  assert.doesNotMatch(withError, /Last status:/);
+});
+
 test("protocol/status/continue: canContinueTask returns false for every terminal status", () => {
   for (const status of TERMINAL_TASK_STATUSES) {
     assert.equal(canContinueTask(status), false);
@@ -262,12 +319,20 @@ test("protocol/locale/recovery: interruption hint is localized for recovery guid
   const zh = getLocaleText("zh-CN");
   const en = getLocaleText("en-US");
 
-  assert.match(getUserVisibleStatusHint("zh-CN", "run.interrupted"), /直接说明要继续做什么/);
-  assert.match(getUserVisibleStatusHint("en-US", "run.interrupted"), /Say what to continue with/i);
+  assert.match(getUserVisibleStatusHint("zh-CN", "run.interrupted"), /直接回复下一步给 Codex/);
+  assert.match(getUserVisibleStatusHint("en-US", "run.interrupted"), /Reply directly with the next step for Codex/i);
   assert.match(getUserVisibleStatusHint("zh-CN", "run.interrupted.bridge_self_restart"), /桥接服务.*重启|重启.*桥接服务/);
   assert.match(getUserVisibleStatusHint("en-US", "run.interrupted.bridge_self_restart"), /bridge.*restart|restart.*bridge/i);
   assert.equal(getUserVisibleStatusHint("zh-CN", "item.completed"), "");
   assert.equal(getUserVisibleStatusHint("en-US", "turn.started"), "");
   assert.match(zh.taskProgress("task_123", "run.interrupted"), /上一轮执行中断/);
   assert.match(en.taskProgress("task_123", "run.interrupted"), /Previous run was interrupted/i);
+});
+
+test("protocol/locale/failure_hint: provider 429 hint is localized with retry guidance", () => {
+  const raw429 = "exceeded retry limit, last status: 429 Too Many Requests";
+  assert.match(getUserVisibleStatusHint("zh-CN", raw429), /限流|429 Too Many Requests/);
+  assert.match(getUserVisibleStatusHint("zh-CN", raw429), /稍后重试|降低并发/);
+  assert.match(getUserVisibleStatusHint("en-US", raw429), /rate-limited|429 Too Many Requests/i);
+  assert.match(getUserVisibleStatusHint("en-US", raw429), /Retry later|reduce concurrency/i);
 });

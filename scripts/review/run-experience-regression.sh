@@ -47,20 +47,23 @@ run_suite_with_timeout() {
 }
 
 echo "[experience-regression] range: ${RANGE}"
-echo "[experience-regression] step 1/5: contract-matrix guard"
+echo "[experience-regression] step 1/6: contract-matrix guard"
 scripts/review/check-contract-matrix.sh "${RANGE}"
 
-echo "[experience-regression] step 2/5: runtime compatibility suite"
+echo "[experience-regression] step 2/6: runtime compatibility suite"
 run_suite_with_timeout "runtime-compatibility" node --test extensions/codex-bridge/test/runtime-compatibility.test.js
 
-echo "[experience-regression] step 3/5: persistence reliability suite"
+echo "[experience-regression] step 3/6: presentation copy matrix suite"
+run_suite_with_timeout "presentation-copy-matrix" node --test extensions/codex-bridge/test/presentation-copy-matrix.test.js
+
+echo "[experience-regression] step 4/6: persistence reliability suite"
 run_suite_with_timeout "persistence-reliability" node --test extensions/codex-bridge/test/persistence-reliability.test.js
 
-echo "[experience-regression] step 4/5: runtime contract suite"
+echo "[experience-regression] step 5/6: runtime contract suite"
 run_suite_with_timeout "runtime-contract" node --test extensions/codex-bridge/test/runtime-contract.test.js
 
 if [[ "${RUN_FULL}" == "1" ]]; then
-  echo "[experience-regression] step 5/5: full bridge suite (timeout=${FULL_TIMEOUT_SECONDS}s)"
+  echo "[experience-regression] step 6/6: full bridge suite (timeout=${FULL_TIMEOUT_SECONDS}s)"
   LOG_PATH="$(mktemp -t codex-feishu-full-regression.XXXXXX.log)"
   set +e
   timeout "${FULL_TIMEOUT_SECONDS}" node --test extensions/codex-bridge/test/*.test.js >"${LOG_PATH}" 2>&1
