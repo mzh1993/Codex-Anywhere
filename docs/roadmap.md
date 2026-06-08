@@ -113,3 +113,4 @@
 - 暂不把 `doctor` 自动自愈作为主线。
 - 暂不为新渠道和体验花样提前改动核心语义。
 - 暂不把 `codex exec` prompt 迁移到 stdin：需要改动 `buildCodexArgs` 合约与 `spawn` 的 stdio，可能影响错误处理与复现实验路径，先保留 argv 方案。
+- 暂不执行 “去 OpenClaw + 私聊默认直接接管 + DM 长期 lane/thread + 移除用户可见 `/codex resume`” 这一整套新产品重定义。该方向已记录在 [docs/superpowers/specs/2026-05-11-dm-native-lane-rearchitecture-deferred-design.md](/media/mzh/2TB1/codex_feishu/docs/superpowers/specs/2026-05-11-dm-native-lane-rearchitecture-deferred-design.md)，当前明确处于挂起状态，待 transport host、连续性模型与版本再验证条件成熟后再重启评估。
