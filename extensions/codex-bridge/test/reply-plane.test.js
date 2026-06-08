@@ -85,6 +85,28 @@ test("runtime/policy/reply_plane: normalizes html deliverables to file delivery"
   assert.equal(result.accepted[0].path, "directory-governance.html");
 });
 
+test("runtime/policy/reply_plane: accepts file as a path alias for local deliverables", () => {
+  const parsed = parseDeliveryManifest(`Delivery Manifest
+```json
+{
+  "summary": "回传单一音频。",
+  "deliverables": [
+    { "type": "audio", "file": "services/voxcpm2/outputs/final.mp3" }
+  ]
+}
+```
+`);
+
+  assert.equal(parsed.errorCode, null);
+  assert.deepEqual(parsed.manifest, {
+    summary: "回传单一音频。",
+    note: "",
+    deliverables: [
+      { kind: "audio", path: "services/voxcpm2/outputs/final.mp3", url: "", note: "" },
+    ],
+  });
+});
+
 test("runtime/policy/reply_plane: declared local deliverables fail closed on absolute paths, escapes, symlink escapes, missing files, and kind mismatch", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-reply-plane-"));
   const workspace = path.join(tempRoot, "workspace");

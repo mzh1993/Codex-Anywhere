@@ -46,7 +46,7 @@ export function buildBridgeTaskPrompt({ task, settings = {} }) {
     "When the user explicitly asks for one primary output, declare only that primary deliverable by default.",
     "Keep supporting notes or companion docs in `summary` unless the user explicitly asks for them to be returned too.",
     "Do not declare supporting artifacts just because they were created during the task.",
-    "For `file`, `image`, `audio`, and `video`, only declare paths relative to the working directory.",
+    "For `file`, `image`, `audio`, and `video`, each deliverable must use a `path` field (not `file`) with a path relative to the working directory.",
     "For generated HTML pages or web previews, declare the deliverable as `kind: \"file\"`, not `kind: \"html\"`.",
     "Do not declare absolute paths, `..` paths, temporary files, scratch outputs, or undeclared guesses.",
     "For `link`, use a `url` field.",

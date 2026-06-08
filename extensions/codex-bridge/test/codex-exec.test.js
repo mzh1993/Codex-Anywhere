@@ -143,6 +143,10 @@ test("runtime/exec/reply_plane: prompt requires a delivery manifest without targ
   assert.equal(prompt.includes("Do not include target addresses or delivery-routing fields."), true);
   assert.equal(
     prompt.includes("For `file`, `image`, `audio`, and `video`, only declare paths relative to the working directory."),
+    false,
+  );
+  assert.equal(
+    prompt.includes("each deliverable must use a `path` field (not `file`)"),
     true,
   );
   assert.equal(

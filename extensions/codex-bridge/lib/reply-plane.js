@@ -137,7 +137,7 @@ function normalizeDeliverable(entry) {
   }
   return {
     kind: normalizeDeliverableKind(entry.kind ?? entry.type),
-    path: normalizeText(entry.path),
+    path: normalizeText(entry.path ?? entry.file),
     url: normalizeText(entry.url),
     note: normalizeText(entry.note),
   };
