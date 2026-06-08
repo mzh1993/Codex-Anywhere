@@ -146,6 +146,10 @@ test("runtime/exec/reply_plane: prompt requires a delivery manifest without targ
     true,
   );
   assert.equal(
+    prompt.includes("For generated HTML pages or web previews, declare the deliverable as `kind: \"file\"`, not `kind: \"html\"`."),
+    true,
+  );
+  assert.equal(
     prompt.includes("When the user explicitly asks for one primary output, declare only that primary deliverable by default."),
     true,
   );

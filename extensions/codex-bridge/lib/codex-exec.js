@@ -47,6 +47,7 @@ export function buildBridgeTaskPrompt({ task, settings = {} }) {
     "Keep supporting notes or companion docs in `summary` unless the user explicitly asks for them to be returned too.",
     "Do not declare supporting artifacts just because they were created during the task.",
     "For `file`, `image`, `audio`, and `video`, only declare paths relative to the working directory.",
+    "For generated HTML pages or web previews, declare the deliverable as `kind: \"file\"`, not `kind: \"html\"`.",
     "Do not declare absolute paths, `..` paths, temporary files, scratch outputs, or undeclared guesses.",
     "For `link`, use a `url` field.",
     getResponseLanguageInstruction(task.locale ?? settings.locale),

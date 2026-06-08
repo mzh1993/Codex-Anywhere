@@ -136,11 +136,17 @@ function normalizeDeliverable(entry) {
     return { kind: "", path: "", url: "", note: "" };
   }
   return {
-    kind: normalizeText(entry.kind ?? entry.type).toLowerCase(),
+    kind: normalizeDeliverableKind(entry.kind ?? entry.type),
     path: normalizeText(entry.path),
     url: normalizeText(entry.url),
     note: normalizeText(entry.note),
   };
+}
+
+function normalizeDeliverableKind(value) {
+  const kind = normalizeText(value).toLowerCase();
+  if (kind === "html") return "file";
+  return kind;
 }
 
 function normalizeHeadingLine(line) {

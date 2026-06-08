@@ -66,6 +66,25 @@ test("runtime/policy/reply_plane: parses markdown-styled manifest headings and a
   });
 });
 
+test("runtime/policy/reply_plane: normalizes html deliverables to file delivery", async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-reply-plane-html-"));
+  const workspace = path.join(tempRoot, "workspace");
+  await fs.mkdir(workspace, { recursive: true });
+  await fs.writeFile(path.join(workspace, "directory-governance.html"), "<!doctype html>");
+
+  const result = await validateDeclaredDeliverables({
+    cwd: workspace,
+    deliverables: [
+      { kind: "html", path: "directory-governance.html", url: "", note: "" },
+    ],
+  });
+
+  assert.equal(result.failures.length, 0);
+  assert.equal(result.accepted.length, 1);
+  assert.equal(result.accepted[0].kind, "file");
+  assert.equal(result.accepted[0].path, "directory-governance.html");
+});
+
 test("runtime/policy/reply_plane: declared local deliverables fail closed on absolute paths, escapes, symlink escapes, missing files, and kind mismatch", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-bridge-reply-plane-"));
   const workspace = path.join(tempRoot, "workspace");
